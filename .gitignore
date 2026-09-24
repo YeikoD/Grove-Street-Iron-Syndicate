@@ -1,0 +1,36 @@
+# Ignorar todo por defecto en la raiz del juego
+*
+
+# Ignorar el gitignore viejo
+.gitignore.old
+
+# Ignorar archivos de configuracion
+!.gitignore
+
+# Incluir solo archivos de GSIS (proyecto principal)
+!cleo/
+!cleo/IronSyndicate/
+!cleo/IronSyndicate/**
+!cleo/gsis_*.js
+!cleo/*gsis_index.js
+
+# Incluir solo la carpeta del mod en modloader
+!modloader/
+!modloader/IronSyndicate/
+!modloader/IronSyndicate/**
+
+# Ignorar archivos generados dentro de IronSyndicate
+# Pero mantener las carpetas para estructura
+cleo/IronSyndicate/logs/*.log
+cleo/IronSyndicate/saves/*.json
+cleo/IronSyndicate/*.log
+cleo/IronSyndicate/*.json.bak
+
+# Ignorar saves del juego (no son GSIS)
+cleo/cleo_saves/
+
+# Ignorar otros archivos CLEO (no son GSIS)
+*.cs
+*.cm
+*.txt
+*.ini

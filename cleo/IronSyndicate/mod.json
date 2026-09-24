@@ -1,0 +1,7 @@
+{
+  "name": "IronSyndicate",
+  "version": "1.0.0",
+  "description": "Grove Street Iron Syndicate - Mod para GTA San Andreas",
+  "permissions": ["fs", "mem"],
+  "entries": ["../[fs][mem]gsis_index.js"]
+}
