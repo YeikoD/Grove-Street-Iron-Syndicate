@@ -15,7 +15,6 @@ import { addItem, getTotalWeight } from "../modules/gsis_Items.js";
 import { getItemName, getItemWeight } from "../data/gsis_item_data.js";
 import { MISC } from "../core/gsis_Config.js";
 import { t } from "../core/gsis_L10n.js";
-import { registerMenuVisibility } from "../core/gsis_UIManager.js";
 
 var _menuWidth = 560.0;
 var _btnHeight = 28.0;
@@ -240,9 +239,6 @@ export function renderDealerPickupMenu() {
     _clickedCollectQty = 0;
 
     ImGui.BeginFrame("GSIS_PICKUP");
-
-    // Registrar visibilidad en el UIManager
-    registerMenuVisibility("pickup", isPickupMenuVisible());
 
     if (!isPickupMenuVisible()) {
         ImGui.EndFrame();

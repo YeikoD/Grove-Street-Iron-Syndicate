@@ -3,7 +3,6 @@
 // ============================================================================
 // Coordina todos los menús desde un solo BeginFrame/EndFrame global.
 // Implementa sistema de pestañas para navegación fluida.
-// Registro centralizado de visibilidad de menús para control del cursor.
 // ============================================================================
 
 import { KEYS } from "./gsis_Config.js";
@@ -14,14 +13,6 @@ import { t } from "./gsis_L10n.js";
 var _uiState = {
     activeTab: "inventory",  // "inventory", "properties", "vehicles"
     menuVisible: false
-};
-
-// Registro de visibilidad de otros menús (para coordinación del cursor)
-var _otherMenusVisible = {
-    dealer: false,
-    pickup: false,
-    sell: false,
-    trunk: false
 };
 
 // Configuración de dimensiones
@@ -49,20 +40,9 @@ export function registerComponent(tabName, renderFunction) {
     }
 }
 
-// Registrar visibilidad de otros menús
-export function registerMenuVisibility(menuName, isVisible) {
-    if (_otherMenusVisible.hasOwnProperty(menuName)) {
-        _otherMenusVisible[menuName] = isVisible;
-    }
-}
-
-// Verificar si algún menú está visible
-export function isAnyMenuVisible() {
-    return _uiState.menuVisible ||
-           _otherMenusVisible.dealer ||
-           _otherMenusVisible.pickup ||
-           _otherMenusVisible.sell ||
-           _otherMenusVisible.trunk;
+// Verificar si el menú principal está visible
+export function isMenuVisible() {
+    return _uiState.menuVisible;
 }
 
 // Abrir menú principal
@@ -83,10 +63,6 @@ export function switchTab(tabName) {
 }
 
 // Obtener estado actual
-export function isMenuVisible() {
-    return _uiState.menuVisible;
-}
-
 export function getActiveTab() {
     return _uiState.activeTab;
 }

@@ -17,7 +17,6 @@ import { getItemName, getItemType } from "../data/gsis_item_data.js";
 import { getSellPrice } from "../data/gsis_weapon_data.js";
 import { t } from "../core/gsis_L10n.js";
 import { emit, query } from "../core/gsis_EventBus.js";
-import { registerMenuVisibility } from "../core/gsis_UIManager.js";
 
 function playNpcLine(key, params) {
     emit("characters:say", {
@@ -238,9 +237,6 @@ export function renderSellMenu() {
     _clickedOfferPrice = 0;
 
     ImGui.BeginFrame("GSIS_SELL");
-
-    // Registrar visibilidad en el UIManager
-    registerMenuVisibility("sell", isSellMenuVisible());
 
     if (!isSellMenuVisible()) {
         ImGui.EndFrame();

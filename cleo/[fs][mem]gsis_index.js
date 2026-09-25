@@ -6,7 +6,11 @@ import { initSaveManager, saveGame, getActiveSlot, _invalidateCache } from "./Ir
 import { TIMERS } from "./IronSyndicate/core/gsis_Config.js";
 import { initL10n, t } from "./IronSyndicate/core/gsis_L10n.js";
 import { initAll, updateAll, getModules } from "./IronSyndicate/core/gsis_ModuleRegistry.js";
-import { isAnyMenuVisible } from "./IronSyndicate/core/gsis_UIManager.js";
+import { isMenuVisible } from "./IronSyndicate/core/gsis_UIManager.js";
+import { isDealerMenuVisible } from "./IronSyndicate/modules/gsis_WeaponDealer.js";
+import { isPickupMenuVisible } from "./IronSyndicate/modules/gsis_DealerPickup.js";
+import { isSellMenuVisible } from "./IronSyndicate/modules/gsis_WeaponSeller.js";
+import { isTrunkMenuVisible } from "./IronSyndicate/modules/gsis_Trunk.js";
 
 // Efecto: cada módulo se auto-registra al importarse
 // Orden de imports = orden de update por frame
@@ -55,15 +59,14 @@ var _lastAreaId = -1;
 while (true) {
     wait(0);
     _invalidateCache();
+    updateAll(Date.now());
 
-    // Control centralizado del cursor antes de cualquier renderizado de menús
-    if (isAnyMenuVisible()) {
+    // Control centralizado del cursor basado en visibilidad real de cada menú
+    if (isMenuVisible() || isDealerMenuVisible() || isPickupMenuVisible() || isSellMenuVisible() || isTrunkMenuVisible()) {
         ImGui.SetCursorVisible(true);
     } else {
         ImGui.SetCursorVisible(false);
     }
-
-    updateAll(Date.now());
 
     // Auto-save al entrar a interior
     try {

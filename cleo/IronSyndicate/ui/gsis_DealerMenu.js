@@ -10,7 +10,6 @@
 import { register } from "../core/gsis_ModuleRegistry.js";
 import { t } from "../core/gsis_L10n.js";
 import { query } from "../core/gsis_EventBus.js";
-import { registerMenuVisibility } from "../core/gsis_UIManager.js";
 import {
     isDealerMenuVisible, closeDealerMenu,
     getCart, getCartTotal, addToCart, resetCart, checkout, getCJMoney,
@@ -171,9 +170,6 @@ function renderCartSummary() {
 
 export function renderDealerMenu() {
     ImGui.BeginFrame("GSIS_DEALER");
-
-    // Registrar visibilidad en el UIManager
-    registerMenuVisibility("dealer", isDealerMenuVisible());
 
     if (!isDealerMenuVisible()) {
         ImGui.EndFrame();

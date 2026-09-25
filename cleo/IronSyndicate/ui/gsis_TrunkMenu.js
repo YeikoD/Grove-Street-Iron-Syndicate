@@ -19,7 +19,6 @@ import { t } from "../core/gsis_L10n.js";
 import { getVehicleName } from "../data/gsis_vehicle_data.js";
 import { getItemName, getItemWeight, getItemType, getMagazineDisplayName } from "../data/gsis_item_data.js";
 import { getClipSizeByItemId } from "../data/gsis_weapon_data.js";
-import { registerMenuVisibility } from "../core/gsis_UIManager.js";
 
 var _menuWidth = 900.0;
 var _btnHeight = 28.0;
@@ -257,9 +256,6 @@ export function renderTrunkMenu() {
     _clickVehicleId = -1;
 
     ImGui.BeginFrame("GSIS_TRUNK");
-
-    // Registrar visibilidad en el UIManager
-    registerMenuVisibility("trunk", isTrunkMenuVisible());
 
     if (!isTrunkMenuVisible() || !isTrunkOpen() || getTrunkVehicleId() === -1) {
         ImGui.EndFrame();
