@@ -6,7 +6,7 @@ import { on } from "../core/gsis_EventBus.js";
 import { t } from "../core/gsis_L10n.js";
 import { getVehicleTrunkCapacity } from "../data/gsis_vehicle_data.js";
 import { ITEMS, getItemDef, getItemName, getItemWeight, getItemType } from "../data/gsis_item_data.js";
-import { getClipSizeByItemId } from "../data/gsis_weapon_data.js";
+import { getClipSizeByItemId, getWeaponByItemId } from "../data/gsis_weapon_data.js";
 
 // Catalogo re-exportado (compat con UI)
 export { ITEMS };
@@ -15,6 +15,16 @@ export { ITEMS };
 function isMagazine(id) {
     var def = ITEMS[id];
     return !!(def && def.type === "magazine");
+}
+
+// true si el item es instancia (no apila): cargador o arma con weaponId.
+// El arma instancia guarda su estado: { id, qty:1, hasMag, ammo }
+function isInstanced(id) {
+    if (isMagazine(id)) return true;
+    var def = ITEMS[id];
+    if (!def || def.type !== "weapon") return false;
+    var wd = getWeaponByItemId(id);
+    return !!(wd && wd.weaponId !== null && wd.weaponId !== undefined);
 }
 
 // Instancia de cargador: qty=1, ammo=capacidad, quality=1 (no stack)
@@ -28,8 +38,67 @@ function makeMagazineInstance(id, ammo, quality) {
     };
 }
 
+// Instancia de arma: qty=1, cargador montado por defecto (hasMag=true, ammo=cap)
+function makeWeaponInstance(id, hasMag, ammo) {
+    var cap = getClipSizeByItemId(id) || 0;
+    var mounted = (hasMag === undefined || hasMag === null) ? true : !!hasMag;
+    return {
+        id: id,
+        qty: 1,
+        hasMag: mounted,
+        ammo: (ammo === undefined || ammo === null) ? (mounted ? cap : 0) : ammo
+    };
+}
+
+// Instancia generica (cargador o arma) con opts { ammo, quality, hasMag }
+function makeInstance(id, opts) {
+    if (isMagazine(id)) {
+        return makeMagazineInstance(id, opts ? opts.ammo : undefined, opts ? opts.quality : undefined);
+    }
+    return makeWeaponInstance(id, opts ? opts.hasMag : undefined, opts ? opts.ammo : undefined);
+}
+
+// Saves viejos: { id, qty > 1 } de un item instanciado → una entrada por unidad
+// con estado por defecto (cargador montado lleno). Devuelve true si cambio algo.
+function _splitStacks(list) {
+    if (!list) return false;
+    var out = [];
+    var changed = false;
+    for (var i = 0; i < list.length; i++) {
+        var it = list[i];
+        var qty = it.qty || 1;
+        if (qty > 1 && isInstanced(it.id)) {
+            changed = true;
+            for (var q = 0; q < qty; q++) out.push(makeInstance(it.id, it));
+        } else {
+            out.push(it);
+        }
+    }
+    if (!changed) return false;
+    list.length = 0;
+    for (var j = 0; j < out.length; j++) list.push(out[j]);
+    return true;
+}
+
+// Normaliza items[] y todos los trunks al cargar partida
+function _normalizeInstances(data) {
+    if (!data) return false;
+    var changed = _splitStacks(data.items);
+    if (data.trunks) {
+        for (var key in data.trunks) {
+            if (Object.prototype.hasOwnProperty.call(data.trunks, key)) {
+                if (_splitStacks(data.trunks[key])) changed = true;
+            }
+        }
+    }
+    return changed;
+}
+
 export function initItemManager() {
-    registerModule("ItemManager", { items: [], trunks: {} });  // Registra modulo con datos default
+    // belt: cinturon de cargadores equipados (MISC.MAG_BELT_SLOTS casillas)
+    registerModule("ItemManager", { items: [], trunks: {}, belt: [] });
+    var data = getModuleData("ItemManager");
+    if (data && _normalizeInstances(data)) setModuleData("ItemManager", data);
     log("[Items] ItemManager inicializado");
 }
 
@@ -61,7 +130,8 @@ export function getItems() {
     return data.items || [];  // Retorna lista de items
 }
 
-// Peso total del inventario
+// Peso total del inventario (solo items[]: lo equipado sale de la lista,
+// tanto armas como cargadores del cinturon, y por tanto no pesa)
 export function getTotalWeight() {
     var items = getItems();  // Obtiene items del inventario
     var total = 0;
@@ -73,13 +143,14 @@ export function getTotalWeight() {
 }
 
 // Agregar item al inventario (verifica MISC.MAX_INVENTORY_WEIGHT)
-// opts solo para magazines: { ammo, quality } — default ammo=capacidad, quality=1
+// opts por instancia: { ammo, quality, hasMag } · opts.force = ignora peso
+// (adopcion de armas del ped: ya iban encima del jugador)
 export function addItem(id, qty, opts) {
     if (!ITEMS[id]) return false;  // Verifica que item exista en catalogo
     qty = qty || 1;  // Default cantidad 1
     var peso = ITEMS[id].weight * qty;  // Calcula peso total a agregar
     var currentWeight = getTotalWeight();  // Obtiene peso actual
-    if (currentWeight + peso > MISC.MAX_INVENTORY_WEIGHT) {  // Verifica capacidad
+    if ((!opts || !opts.force) && currentWeight + peso > MISC.MAX_INVENTORY_WEIGHT) {
         showTextBox(t("INV_FUL"));  // Muestra error inventario lleno
         return false;
     }
@@ -87,14 +158,10 @@ export function addItem(id, qty, opts) {
     if (!data) data = { items: [], trunks: {} };  // Crea estructura si no existe
     if (!data.items) data.items = [];  // Crea array items si no existe
 
-    // Cargadores: instancia por unidad (no se apilan; ammo/quality por mag)
-    if (isMagazine(id)) {
+    // Instancias (cargadores y armas): una entrada por unidad (sin stack)
+    if (isInstanced(id)) {
         for (var m = 0; m < qty; m++) {
-            data.items.push(makeMagazineInstance(
-                id,
-                opts ? opts.ammo : undefined,
-                opts ? opts.quality : undefined
-            ));
+            data.items.push(makeInstance(id, opts));
         }
         setModuleData("ItemManager", data);  // Guarda cambios
         return true;
@@ -119,8 +186,8 @@ export function removeItem(id, qty) {
     if (!data) data = { items: [] };  // Crea estructura si no existe
     if (!data.items) data.items = [];  // Crea array items si no existe
 
-    // Cargadores: quitar instancias sueltas
-    if (isMagazine(id)) {
+    // Instancias (cargadores/armas): quitar instancias sueltas
+    if (isInstanced(id)) {
         var removed = 0;
         for (var m = 0; m < data.items.length && removed < qty; ) {
             if (data.items[m].id === id) {
@@ -211,8 +278,8 @@ export function addToTrunk(vehicleId, id, qty) {
     if (!data.trunks[vehicleId]) data.trunks[vehicleId] = [];
     var trunkArr = data.trunks[vehicleId];
 
-    // Cargadores: mover instancias con su ammo/quality intactos
-    if (isMagazine(id)) {
+    // Instancias (cargadores/armas): mover instancias con su estado intacto
+    if (isInstanced(id)) {
         var moved = 0;
         for (var m = 0; m < data.items.length && moved < qty; ) {
             if (data.items[m].id === id) {
@@ -271,8 +338,8 @@ export function removeFromTrunk(vehicleId, id, qty) {
 
     var trunkArr = data.trunks[vehicleId] || [];
 
-    // Cargadores: mover instancias con su ammo/quality intactos
-    if (isMagazine(id)) {
+    // Instancias (cargadores/armas): mover instancias con su estado intacto
+    if (isInstanced(id)) {
         var moved = 0;
         for (var m = 0; m < trunkArr.length && moved < qty; ) {
             if (trunkArr[m].id === id) {
@@ -320,32 +387,91 @@ export function transferItem(vehicleId, id, qty, toTrunk) {
 }
 
 // ============================================================================
-// EVENTBUS - cargadores de la recarga (swap / descarga, desde Ballistic)
+// CINTURON - cargadores equipados (MISC.MAG_BELT_SLOTS casillas ficticias)
 // ============================================================================
 
-// query("items:swapMagazine", { magId, ammo, mounted }) — atomico:
-// sale del inventario el cargador de mas balas del arma (si sus balas > 0) y,
-// si "mounted" no es false, vuelve el que estaba montado con "ammo" balas
-// (0 si se vacio). "mounted: false" = arma sin cargador: solo entra uno.
-// Responde { ammo } = balas del cargador a montar, o null si no hay recambio
-// (en ese caso el inventario no cambia).
+// Normaliza data.belt a al menos MAG_BELT_SLOTS casillas (null = libre)
+function _ensureBelt(data) {
+    if (!data.belt || typeof data.belt.length !== "number") data.belt = [];
+    while (data.belt.length < MISC.MAG_BELT_SLOTS) data.belt.push(null);
+    return data.belt;
+}
+
+// getBelt — casillas del cinturon: [instanciaCargador | null, ...]
+export function getBelt() {
+    var data = getModuleData("ItemManager");
+    if (!data) return [];
+    return _ensureBelt(_ensureTrunks(data));
+}
+
+// equipMagToBelt — mueve 1 cargador del inventario a la primera casilla libre.
+// El cargador equipado deja de contar peso (sale de items[]).
+export function equipMagToBelt(id) {
+    if (!isMagazine(id)) return false;
+    var data = _ensureTrunks(getModuleData("ItemManager"));
+    var belt = _ensureBelt(data);
+    var free = -1;
+    for (var i = 0; i < belt.length; i++) {
+        if (!belt[i]) { free = i; break; }
+    }
+    if (free < 0) { showTextBox(t("BELTFUL")); return false; }
+    var best = -1;
+    for (var m = 0; m < data.items.length; m++) {
+        var it = data.items[m];
+        if (it.id !== id) continue;
+        if (best < 0 || (it.ammo || 0) > (data.items[best].ammo || 0)) best = m;
+    }
+    if (best < 0) return false; // sin cargador de ese tipo en el inventario
+    belt[free] = data.items[best];
+    data.items.splice(best, 1);
+    setModuleData("ItemManager", data);
+    return true;
+}
+
+// unequipBeltMag — devuelve la casilla al inventario (respeta el peso maximo)
+export function unequipBeltMag(index) {
+    var data = _ensureTrunks(getModuleData("ItemManager"));
+    var belt = _ensureBelt(data);
+    var mag = belt[index];
+    if (!mag) return false;
+    var def = ITEMS[mag.id];
+    if (def && getTotalWeight() + def.weight * (mag.qty || 1) > MISC.MAX_INVENTORY_WEIGHT) {
+        showTextBox(t("INV_FUL"));
+        return false;
+    }
+    belt[index] = null;
+    data.items.push(mag);
+    setModuleData("ItemManager", data);
+    return true;
+}
+
+// ============================================================================
+// EVENTBUS - equipo y cargadores (Ballistic: equipar, swap y descarga)
+// ============================================================================
+
+// query("items:swapMagazine", { magId, ammo, mounted }) — atomico, fuente =
+// CINTURON (solo cargadores equipados): sale de la casilla el cargador del
+// arma con mas balas (si sus balas > 0) y, si "mounted" no es false, la
+// casilla que acaba de vaciar se queda con el montado con "ammo" balas
+// (0 si se vacio). "mounted: false" = arma sin cargador: la casilla queda
+// libre (el cargador fresco se fue al arma). Inventario sin tocar.
+// Responde { ammo } = balas del cargador a montar, o null si no hay recambio.
 on("items:swapMagazine", function (e) {
     var magId = e.data.magId;
     if (!magId || !isMagazine(magId)) { e.respond(null); return; }
-    var data = getModuleData("ItemManager");
-    if (!data || !data.items) { e.respond(null); return; }
+    var data = _ensureTrunks(getModuleData("ItemManager"));
+    var belt = _ensureBelt(data);
     var best = -1;
-    for (var i = 0; i < data.items.length; i++) {
-        var it = data.items[i];
-        if (it.id !== magId || !it.ammo || it.ammo <= 0) continue;
-        if (best < 0 || it.ammo > data.items[best].ammo) best = i;
+    for (var i = 0; i < belt.length; i++) {
+        var it = belt[i];
+        if (!it || it.id !== magId || !it.ammo || it.ammo <= 0) continue;
+        if (best < 0 || it.ammo > belt[best].ammo) best = i;
     }
     if (best < 0) { e.respond(null); return; }
-    var freshAmmo = data.items[best].ammo;
-    data.items.splice(best, 1);  // cargador fresco: sale del inventario
-    if (e.data.mounted !== false) {
-        data.items.push(makeMagazineInstance(magId, e.data.ammo));  // usado: vuelve con sus balas
-    }
+    var freshAmmo = belt[best].ammo;
+    belt[best] = (e.data.mounted !== false)
+        ? makeMagazineInstance(magId, e.data.ammo)  // usado: ocupa la casilla
+        : null;                                     // descarga: casilla libre
     setModuleData("ItemManager", data);
     e.respond({ ammo: freshAmmo });
 });
@@ -359,6 +485,48 @@ on("items:extractMagazine", function (e) {
     var out = e.data.ammo || 0;
     if (!addItem(magId, 1, { ammo: out })) { e.respond(null); return; }
     e.respond({ ammo: out });
+});
+
+// query("items:takeWeapon", { id }) — saca 1 instancia de arma del inventario
+// y responde su estado { hasMag, ammo }, o null si no hay (equipar).
+on("items:takeWeapon", function (e) {
+    var data = getModuleData("ItemManager");
+    if (!data || !data.items) { e.respond(null); return; }
+    var id = e.data.id;
+    // Mejor instancia: la que lleva cargador montado y mas balas
+    var best = -1;
+    for (var i = 0; i < data.items.length; i++) {
+        var it = data.items[i];
+        if (it.id !== id) continue;
+        if (best < 0) { best = i; continue; }
+        var cur = data.items[best];
+        var curMag = cur.hasMag !== false, itMag = it.hasMag !== false;
+        if (itMag !== curMag) { if (itMag) best = i; continue; }
+        if ((it.ammo || 0) > (cur.ammo || 0)) best = i;
+    }
+    if (best < 0) { e.respond(null); return; }
+    var taken = data.items[best];
+    var capT = getClipSizeByItemId(taken.id) || 0;
+    var hasMagT = taken.hasMag !== false;
+    var ammoT = (taken.ammo === undefined || taken.ammo === null)
+        ? (hasMagT ? capT : 0)
+        : taken.ammo;
+    if ((taken.qty || 1) > 1) taken.qty -= 1; // por si queda un stack heredado
+    else data.items.splice(best, 1);
+    setModuleData("ItemManager", data);
+    e.respond({ hasMag: hasMagT, ammo: ammoT });
+});
+
+// query("items:storeWeapon", { id, hasMag, ammo, force }) — guarda 1 instancia
+// de arma con su estado (desequipar / adopcion del ped). "force" ignora el
+// peso (adopcion). Responde { ok } o null si no cabe (INV_FUL).
+on("items:storeWeapon", function (e) {
+    var ok = addItem(e.data.id, 1, {
+        hasMag: e.data.hasMag,
+        ammo: e.data.ammo,
+        force: e.data.force === true
+    });
+    e.respond(ok ? { ok: true } : null);
 });
 
 // Re-export helpers de catalogo

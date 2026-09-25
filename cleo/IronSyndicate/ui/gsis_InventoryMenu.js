@@ -9,11 +9,34 @@ import { registerComponent } from "./gsis_UIManager.js";
 import { register } from "../core/gsis_ModuleRegistry.js";
 import { COLORS, SIZES, textColored, uiButton, uiTabButton, uiSelectableRow, uiStatRow } from "./gsis_UIStyle.js";
 import { getWeaponByItemId } from "../data/gsis_weapon_data.js";
-import { getItems, getTotalWeight, ITEMS, getMagazineDisplayName, getClipSizeByItemId } from "../modules/gsis_Items.js";
+import {
+    getItems, getTotalWeight, ITEMS, getMagazineDisplayName, getClipSizeByItemId,
+    getBelt, equipMagToBelt, unequipBeltMag
+} from "../modules/gsis_Items.js";
+import { getEquipped, equipWeapon, unequipWeapon } from "../modules/gsis_Ballistic.js";
 import { getDirtyMoney } from "../core/gsis_SaveManager.js";
 
 var _selectedCategory = "all";
 var _selectedUid = null;
+
+// Altura que ocupa la franja de equipo (armas + cinturon) dentro del tab
+var _LOADOUT_H = 58.0;
+var _LIST_H = SIZES.listH - 45.0 - _LOADOUT_H;
+
+// true si el item se puede equipar (arma con weaponId o cargador)
+function canEquip(item) {
+    if (!item) return false;
+    if (item.type === "magazine") return true;
+    if (item.type !== "weapon") return false;
+    var wd = getWeaponByItemId(item.raw.id);
+    return !!(wd && wd.weaponId !== null && wd.weaponId !== undefined && wd.slot);
+}
+
+// Etiqueta corta para los chips de la franja de equipo (caben en una fila)
+function shortLabel(text, max) {
+    if (!text) return "";
+    return text.length > max ? text.slice(0, max - 1) + "…" : text;
+}
 
 function filterItems() {
     var rawItems = getItems();
@@ -30,7 +53,15 @@ function filterItems() {
         var info = "-";
         if (def.type === "weapon") {
             var wd = getWeaponByItemId(it.id);
-            info = wd ? "Daño: " + wd.damage : "Arma";
+            if (wd && wd.weaponId !== null && wd.weaponId !== undefined) {
+                var capW = wd.clipSize || 0;
+                // sin "ammo" guardado (save viejo) = cargador lleno por defecto
+                var balW = (it.ammo === undefined || it.ammo === null) ? capW : (it.ammo || 0);
+                info = "Daño: " + wd.damage + " | " +
+                    (it.hasMag === false ? "sin cargador" : (balW + "/" + capW + " bal"));
+            } else {
+                info = wd ? "Daño: " + wd.damage : "Arma";
+            }
         } else if (def.type === "magazine") {
             var cap = getClipSizeByItemId(it.id);
             var ammo = (it.ammo === undefined || it.ammo === null) ? (cap || 0) : it.ammo;
@@ -73,8 +104,51 @@ function renderCategoryFilters() {
     ImGui.Spacing();
 }
 
+// ============================================================================
+// EQUIPO - armas en slot + cinturon de cargadores (clic = desequipar)
+// ============================================================================
+
+function renderLoadout() {
+    var equipped = getEquipped();
+    var belt = getBelt();
+
+    textColored("EQUIPO:", COLORS.textGold);
+    ImGui.SameLine();
+    var anyWeapon = false;
+    for (var slot in equipped) {
+        if (!Object.prototype.hasOwnProperty.call(equipped, slot)) continue;
+        var entry = equipped[slot];
+        var def = ITEMS[entry.id] || { name: entry.id };
+        var label = shortLabel(def.name, 16) + (entry.hasMag !== false ? "" : " (vacio)") + "  X##eqp_" + slot;
+        if (uiButton(label, 0.0, SIZES.btnSm, COLORS.danger)) {
+            unequipWeapon(Number(slot));
+        }
+        ImGui.SameLine();
+        anyWeapon = true;
+    }
+    if (!anyWeapon) {
+        ImGui.TextDisabled("(ninguna)");
+    }
+
+    ImGui.Spacing();
+
+    textColored("CINTURON:", COLORS.textGold);
+    ImGui.SameLine();
+    for (var i = 0; i < belt.length; i++) {
+        var mag = belt[i];
+        var magLabel = mag
+            ? shortLabel(getMagazineDisplayName(mag), 22) + " (" + (mag.ammo || 0) + ")"
+            : "(vacio)";
+        magLabel += "##belt_" + i;
+        if (uiButton(magLabel, 0.0, SIZES.btnSm, mag ? COLORS.accent : COLORS.btn)) {
+            if (mag) unequipBeltMag(i);
+        }
+        if (i < belt.length - 1) ImGui.SameLine();
+    }
+}
+
 function renderItemList(items) {
-    ImGui.BeginChild("inv_item_list", SIZES.leftColW, SIZES.listH - 45.0, true);
+    ImGui.BeginChild("inv_item_list", SIZES.leftColW, _LIST_H, true);
 
     ImGui.Columns(3);
     textColored("NOMBRE", COLORS.textGold);
@@ -111,7 +185,7 @@ function renderItemList(items) {
 }
 
 function renderItemDetails(selectedItem) {
-    ImGui.BeginChild("inv_item_details", SIZES.rightColW, SIZES.listH - 45.0, true);
+    ImGui.BeginChild("inv_item_details", SIZES.rightColW, _LIST_H, true);
 
     if (!selectedItem) {
         ImGui.Spacing();
@@ -135,8 +209,16 @@ function renderItemDetails(selectedItem) {
     ImGui.Separator();
     ImGui.Spacing();
 
-    // Botones de acción envueltos en 1 sola línea cada uno
-    if (uiButton("USAR / EQUIPAR##act_use", SIZES.rightColW - 20.0, SIZES.btnLg, COLORS.accent)) {
+    // Accion principal: equipar (arma → slot de GTA, cargador → cinturon)
+    if (canEquip(selectedItem)) {
+        if (uiButton("EQUIPAR##act_use", SIZES.rightColW - 20.0, SIZES.btnLg, COLORS.accent)) {
+            if (selectedItem.type === "magazine") {
+                equipMagToBelt(selectedItem.raw.id);
+            } else {
+                equipWeapon(selectedItem.raw.id);
+            }
+        }
+    } else if (uiButton("USAR##act_use", SIZES.rightColW - 20.0, SIZES.btnLg, COLORS.accent)) {
         log("[InventoryMenu] Acción Usar: " + selectedItem.name);
     }
 
@@ -160,6 +242,7 @@ function renderInventoryComponent() {
     ImGui.Spacing();
 
     renderCategoryFilters();
+    renderLoadout();
 
     var items = filterItems();
     if (items.length > 0 && !_selectedUid) {

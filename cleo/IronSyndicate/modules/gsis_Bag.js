@@ -1,7 +1,7 @@
 // ============================================================================
 // GSIS Bag - Bolso visual (render object en CJ)
 // ============================================================================
-// Se activa solo con >=1 arma larga en inventario (isLong en weapon_data)
+// Se activa solo con >=1 arma larga en inventario o equipada (isLong en weapon_data)
 // Geometria calibrada en core/gsis_Config.js → BAG (NO cambiar sin probar)
 // Depende de: SaveManager, Config, ModuleRegistry, data/weapon_data
 // ============================================================================
@@ -24,6 +24,19 @@ export function initBag() {
 function _getInventoryItems() {
     var data = getModuleData("ItemManager");
     return (data && data.items) ? data.items : [];
+}
+
+// Armas largas propias: en el inventario + las equipadas en slot de GTA
+// (lo equipado sale de items[], pero el bolso sigue correspondiendo)
+function _getOwnedItems() {
+    var items = _getInventoryItems().slice();
+    var b = getModuleData("Ballistic");
+    var eq = (b && b.equipped) ? b.equipped : {};
+    for (var slot in eq) {
+        if (!Object.prototype.hasOwnProperty.call(eq, slot)) continue;
+        if (eq[slot] && eq[slot].id) items.push({ id: eq[slot].id, qty: 1 });
+    }
+    return items;
 }
 
 // Aparecer bolso
@@ -62,11 +75,11 @@ export function isBagVisible() {
     return _bagRenderObject !== null;
 }
 
-// Toggle tecla P + auto on/off por arma larga en inventario
+// Toggle tecla P + auto on/off por arma larga en inventario o equipada
 function updateBag(now) {
     updateBagLoading();
 
-    var hasLong = hasLongWeapon(_getInventoryItems());
+    var hasLong = hasLongWeapon(_getOwnedItems());
 
     // Auto-ocultar si se perdio la ultima arma larga
     if (!hasLong && _bagRenderObject) {

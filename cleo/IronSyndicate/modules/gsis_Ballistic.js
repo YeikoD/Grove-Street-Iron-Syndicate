@@ -1,11 +1,25 @@
 // ============================================================================
-// GSIS Ballistic - Recarga por cargador (arma equipada <-> inventario)
+// GSIS Ballistic - Equipo (armas en slot) + recarga por cinturon de cargadores
 // ============================================================================
+// EQUIPO — para que un arma este en un slot de GTA tiene que estar equipada
+// desde el inventario (InventoryMenu → equipWeapon). Registro persistido:
+// GameState.Ballistic.equipped[slot] = { id, hasMag }.
+//   - equipWeapon(itemId): items:takeWeapon (sale del inventario) →
+//     GIVE_WEAPON_TO_CHAR con el estado de la instancia (hasMag/ammo) + clip en
+//     memoria. Si el slot ya tiene otra arma → se desequipa sola (auto-swap).
+//   - unequipWeapon(slot): REMOVE_WEAPON_FROM_CHAR con la municion viva del
+//     ped → items:storeWeapon (vuelve al inventario con su estado).
+//   - _reconcileLoadout() cada frame: arma de catalogo en el ped SIN registro
+//     (mision, cheat, save viejo) → se adopta al inventario; entrada sin arma
+//     en el ped → se limpia; coincidencia → municion normalizada (nunca mas de
+//     un cargador). Solo corre con control de jugador (las armas de cutscene
+//     se adoptan al terminar). Melee/granadas/camara: fuera del catalogo.
 // R (KEYS.RELOAD) → tryReload():
 //   1. arma equipada → su cargador (getMagIdByWeaponId); melee/granadas salen
-//   2. query("items:swapMagazine", { magId, ammo, mounted }): sale del inventario
-//      el cargador con mas balas y vuelve el montado con sus balas restantes
-//      (0 si se vacio); con "mounted: false" no devuelve nada (arma descargada)
+//   2. query("items:swapMagazine", { magId, ammo, mounted }): sale del
+//      CINTURON (MISC.MAG_BELT_SLOTS casillas, solo cargadores equipados) el
+//      de mas balas y la casilla queda con el montado (0 si se vacio); con
+//      "mounted: false" la casilla queda libre (arma descargada)
 //   3. sin recambio → query("items:extractMagazine"): el cargador montado pasa
 //      al inventario, el arma queda sin cargador (0/0, MAG_OUT) y corre la
 //      misma anim de recarga. Si el arma ya esta sin cargador o no cabe en el
@@ -15,22 +29,21 @@
 //      deadline + TIMERS.RELOAD_GRACE, lo forzamos (clip = min(cap, total),
 //      state = READY) — si no, CWeapon::Fire devuelve false y el arma queda
 //      muda (estado RELOADING eterno por empujon del deadline en Update).
-// ¿Hay cargador montado? GameState.Ballistic.hasMag[slot] (persistido); las
-// balas del montado siguen viajando en el save del juego.
 // Invariante: m_TotalAmmo (nativo) = balas del cargador montado, asi que el
-// cargador montado NO esta en el inventario y su estado viaja en el save del
-// juego (no hay modulo propio que persistir).
-// Arma nueva (POI, cheat, mision…) → _trackMountedMags() le monta un cargador
-// lleno (calidad 1) al aparecer en un slot, y si trae mas balas que la
-// capacidad se normaliza. El primer frame solo hace baseline: al cargar
-// partida no se rellena nada.
+// cargador montado NO esta en el inventario ni en el cinturon; su estado viaja
+// en el save del juego mientras el arma esta equipada. hasMag del registro
+// distingue "cargador vacio montado" (0 balas) de "sin cargador".
+// Peso: lo equipado (arma en slot o cargador en cinturon) sale de items[] y
+// por tanto no pesa.
 // Test: al cambiar de slot → showTextBox (sin rellenar munición).
 // Init: syncClipSizes() → CWeaponInfo.m_nAmmoClip = WEAPON_DATA.clipSize.
 // Nativos CLEO+: GET_CURRENT_CHAR_WEAPONINFO (0E83), GET_WEAPONINFO (0E84),
 // GET_WEAPONINFO_SLOT (0E8A), GET_WEAPONINFO_TOTAL_CLIP (0E88),
 // GET_CURRENT_CHAR_WEAPON (0470), GET_AMMO_IN_CHAR_WEAPON (041A),
 // SET_CHAR_AMMO (017B), GET_PED_POINTER (0A96), IS_CHAR_DEAD (0118),
-// IS_PLAYER_CONTROL_ON (09E7), GET_WEAPONINFO_FLAGS (0E86).
+// IS_PLAYER_CONTROL_ON (09E7), GET_WEAPONINFO_FLAGS (0E86),
+// GIVE_WEAPON_TO_CHAR (01B2), REMOVE_WEAPON_FROM_CHAR (0555),
+// HAS_CHAR_GOT_WEAPON (0491), SET_CURRENT_CHAR_WEAPON (01B9).
 // Memory.WriteU16 → CWeaponInfo+0x20 (m_nAmmoClip).
 // ============================================================================
 
@@ -56,9 +69,6 @@ var _STATE_RELOADING = 2;
 var _STATE_OUT_OF_AMMO = 3; // Fire() tambien la bloquea (mod de arma a cero)
 var _NO_ANIM = [37, 38]; // en catalogo pero sin anim de recarga (lanzallamas, minigun)
 var _lastSlot = null;
-var _known = []; // type por slot visto en el escaneo anterior
-var _capacities = []; // capacidad (clipSize) del arma en cada slot
-var _primed = false; // false = primer escaneo (baseline, sin montar)
 var _reloadPending = null; // { ped, weapon, deadline, cap } recarga nossa en curso
 
 // ============================================================================
@@ -94,19 +104,159 @@ function setMagazine(w, ammo) {
     } catch (e) { /* native fallido: el engine rellena desde el total */ }
 }
 
-// hasMagazine — ¿hay cargador montado en ese slot? Persistido en GameState
-// (una descarga debe seguir viendose tras guardar/cargar).
-function hasMagazine(slot) {
+// ============================================================================
+// EQUIPO - registro de armas en slot (persistido en GameState)
+// ============================================================================
+
+// getEquipped — { [slotGta]: { id, hasMag } } de las armas en el ped
+export function getEquipped() {
     var data = getModuleData("Ballistic");
-    return !data || !data.hasMag || data.hasMag[slot] !== false;
+    return (data && data.equipped) ? data.equipped : {};
 }
 
-// setHasMagazine — marca el slot al montar (swap o arma nueva) o al descargar
-function setHasMagazine(slot, mounted) {
+// Direccion de trabajo del modulo (copia de lectura de SaveManager)
+function _ballisticData() {
     var data = getModuleData("Ballistic");
-    if (!data || !data.hasMag) data = { hasMag: {} };
-    data.hasMag[slot] = mounted;
+    if (!data) data = {};
+    if (!data.equipped) data.equipped = {};
+    return data;
+}
+
+// Ficha del catalogo por itemId (null si no es arma equipable)
+function _weaponDefByItemId(itemId) {
+    if (!itemId) return null;
+    var wd = WEAPON_DATA.find(function (w) { return w.itemId === itemId; });
+    if (!wd || wd.weaponId === null || wd.weaponId === undefined || !wd.slot) return null;
+    return wd;
+}
+
+// itemId de catalogo para un weaponId (22 → "9mm"); null si no esta en catalogo
+function _itemIdByWeaponId(weaponType) {
+    var wd = WEAPON_DATA.find(function (w) { return w.weaponId === weaponType; });
+    return wd ? wd.itemId : null;
+}
+
+// Char del jugador o null
+function _playerChar() {
+    try {
+        return new Player(0).getChar();
+    } catch (e) {
+        return null;
+    }
+}
+
+// Dirección de CWeapon de un weaponId en el ped (0 si no esta montado)
+function _weaponAddrByType(ped, weaponType) {
+    for (var i = 1; i < _SLOT_COUNT; i++) {
+        var addr = ped + _WEAPONS_OFF + i * _WEAPON_SIZE;
+        if (Memory.ReadI32(addr, false) === weaponType) return addr;
+    }
+    return 0;
+}
+
+// _giveWeapon — arma al ped con su cargador: GIVE_WEAPON_TO_CHAR + total vía
+// SET_CHAR_AMMO + clip/state en memoria (listo para disparar sin recargar).
+function _giveWeapon(c, weaponId, ammo, hasMag) {
+    var total = hasMag ? Math.max(0, ammo | 0) : 0;
+    try {
+        native("GIVE_WEAPON_TO_CHAR", c, weaponId, total);
+        if (!native("HAS_CHAR_GOT_WEAPON", c, weaponId)) {
+            // fallback: give con munición y dejar el total en 0
+            native("GIVE_WEAPON_TO_CHAR", c, weaponId, _capacityByType(weaponId) || 1);
+            if (!native("HAS_CHAR_GOT_WEAPON", c, weaponId)) {
+                native("REMOVE_WEAPON_FROM_CHAR", c, weaponId); // no dejar nada a medias
+                return false;
+            }
+        }
+        native("SET_CHAR_AMMO", c, weaponId, total);
+    } catch (e) {
+        return false;
+    }
+    try {
+        var ped = native("GET_PED_POINTER", c);
+        var addr = ped ? _weaponAddrByType(ped, weaponId) : 0;
+        if (addr) {
+            var cap = _capacityByType(weaponId) || 0;
+            Memory.WriteI32(addr + _W_CLIP, Math.min(cap, total), false);
+            Memory.WriteI32(addr + _W_AMMO, total, false);
+            Memory.WriteI32(addr + _W_STATE, 0, false); // WEAPONSTATE_READY
+            Memory.WriteI32(addr + _W_TIME, 0, false);
+        }
+    } catch (e) { /* sin memoria: el engine rellena desde el total */ }
+    return true;
+}
+
+// equipWeapon — arma del inventario → su slot de GTA. Si el slot ya tiene
+// otra arma (otra instancia), esta se desequipa antes (auto-swap).
+// Devuelve true si se equipo. Llamado desde InventoryMenu.
+export function equipWeapon(itemId) {
+    var wd = _weaponDefByItemId(itemId);
+    if (!wd) return false; // body_armor, material, arma fuera de catalogo
+    var c = _playerChar();
+    if (!c) return false;
+    var data = _ballisticData();
+    var slot = wd.slot;
+    // Si el slot ya tiene una arma (otra u otra instancia) → se desequipa
+    // antes; si no hay espacio en el inventario, no se equipa la nueva
+    if (data.equipped[slot] && !unequipWeapon(slot)) return false;
+    var taken = query("items:takeWeapon", { id: itemId });
+    if (!taken) return false; // esa arma no esta en el inventario
+    var cap = getClipSizeByItemId(itemId) || 0;
+    var ammo = Math.min(taken.ammo || 0, cap);
+    if (!_giveWeapon(c, wd.weaponId, ammo, taken.hasMag !== false)) {
+        // native fallido: la instancia vuelve al inventario (no se pierde)
+        query("items:storeWeapon", {
+            id: itemId, hasMag: taken.hasMag, ammo: taken.ammo, force: true
+        });
+        return false;
+    }
+    data.equipped[slot] = { id: itemId, hasMag: taken.hasMag !== false };
     setModuleData("Ballistic", data);
+    try {
+        native("SET_CURRENT_CHAR_WEAPON", c, wd.weaponId);
+    } catch (e) { /* sin native: el jugador cambia a mano */ }
+    showTextBox(t("EQP_OK"));
+    return true;
+}
+
+// unequipWeapon — arma del slot → inventario, con el cargador que lleve puesto
+// y sus balas (leidas del ped). Si no cabe en el inventario (INV_FUL) sigue
+// equipada. Devuelve true si salio.
+export function unequipWeapon(slot) {
+    var data = _ballisticData();
+    var entry = data.equipped[slot];
+    if (!entry) return false;
+    var wd = _weaponDefByItemId(entry.id);
+    var c = _playerChar();
+    if (!wd || !c) return false;
+    var hasMag = entry.hasMag !== false;
+    var ammo = 0;
+    try {
+        ammo = native("GET_AMMO_IN_CHAR_WEAPON", c, wd.weaponId) || 0;
+    } catch (e) { /* sin native: se guarda sin balas */ }
+    var cap = getClipSizeByItemId(entry.id) || 0;
+    if (ammo > cap) ammo = cap;
+    try {
+        native("REMOVE_WEAPON_FROM_CHAR", c, wd.weaponId);
+    } catch (e) { /* sin native: se verificara abajo */ }
+    // Solo se guarda el item si el arma salio del ped (si no, habria copias)
+    var stillThere = false;
+    try {
+        var ped = native("GET_PED_POINTER", c);
+        var addr = ped ? _weaponAddrByType(ped, wd.weaponId) : 0;
+        if (addr && Memory.ReadI32(addr, false) === wd.weaponId) stillThere = true;
+        if (native("HAS_CHAR_GOT_WEAPON", c, wd.weaponId)) stillThere = true;
+    } catch (e) { /* sin verificacion: confiamos en el native */ }
+    if (stillThere) return false;
+    if (!query("items:storeWeapon", { id: entry.id, hasMag: hasMag, ammo: ammo })) {
+        // sin espacio en el inventario: la arma sigue siendo tuya → se recupera
+        _giveWeapon(c, wd.weaponId, ammo, hasMag);
+        return false;
+    }
+    delete data.equipped[slot];
+    setModuleData("Ballistic", data);
+    showTextBox(t("EQP_OUT"));
+    return true;
 }
 
 // Dirección entera de CWeaponInfo* (handle WeaponInfo → number)
@@ -154,7 +304,7 @@ function syncClipSizes() {
 }
 
 // ============================================================================
-// CARGADOR MONTADO - arma nueva → cargador lleno (calidad 1)
+// RECONCILIACION - el ped solo puede llevar armas del registro
 // ============================================================================
 
 // Capacidad del cargador de un weaponId (0 si esa arma no tiene cargador)
@@ -165,8 +315,7 @@ function _capacityByType(weaponType) {
     return capacity > 0 ? capacity : 0;
 }
 
-// Monta el cargador en el slot: m_nAmmoInClip y m_nAmmoTotal = capacidad.
-// No toca el inventario: el arma viene con su cargador puesto.
+// Monta un cargador completo en la direccion de memoria del arma.
 function _mountMagazine(weaponAddr, capacity) {
     try {
         Memory.WriteI32(weaponAddr + _W_CLIP, capacity, false);
@@ -174,37 +323,87 @@ function _mountMagazine(weaponAddr, capacity) {
     } catch (e) { /* sin memoria: queda la munición que tenga el arma */ }
 }
 
-// Escanea los 13 slots de arma de CJ cada frame:
-//  - arma nueva en un slot → cargador lleno montado (= clipSize del catalogo)
-//  - munición por encima de la capacidad → se normaliza (nunca mas de un cargador)
-// El primer escaneo es baseline: al cargar partida no se rellena nada.
-function _trackMountedMags() {
+// _reconcileLoadout — arma equipada <-> inventario, cada frame (solo con
+// control de jugador, asi las armas de cutscene/mision se adoptan al terminar):
+//  - arma de catalogo en el ped SIN registro (mision, cheat, save viejo) → se
+//    adopta: pasa al inventario como instancia con su estado (hasMag/ammo)
+//  - registro cuyo arma ya no esta en el ped → se limpia la entrada
+//  - coincidencia → munición normalizada: jamás mas de un cargador montado y,
+//    si el registro dice "sin cargador", el arma queda en 0/0
+// Fuera de catalogo (melee, granadas, camara, paracaidas) → no se toca.
+function _reconcileLoadout() {
+    var c = _playerChar();
+    if (!c) return;
+    try {
+        if (native("IS_CHAR_DEAD", c)) return;
+        if (!native("IS_PLAYER_CONTROL_ON", new Player(0))) return;
+    } catch (e) { /* sin native: seguimos con el resto */ }
     var ped;
     try {
-        ped = native("GET_PED_POINTER", new Player(0).getChar());
+        ped = native("GET_PED_POINTER", c);
     } catch (e) {
         return;
     }
     if (!ped) return;
+    var data = _ballisticData();
+    var changed = false;
     for (var i = 1; i < _SLOT_COUNT; i++) {
         var addr = ped + _WEAPONS_OFF + i * _WEAPON_SIZE;
         var type = Memory.ReadI32(addr, false);
-        var total = Memory.ReadI32(addr + _W_AMMO, false);
-        if (_known[i] !== type) {
-            _known[i] = type;
-            _capacities[i] = _capacityByType(type);
-            // arma recien obtenida → cargador lleno (state ya viene en READY)
-            if (_primed && _capacities[i]) {
-                _mountMagazine(addr, _capacities[i]);
-                setHasMagazine(i, true);
+        var entry = data.equipped[i];
+        if (!type) {
+            // slot vacio: el arma se fue (wasted, mision, script)
+            if (entry) { delete data.equipped[i]; changed = true; }
+            continue;
+        }
+        // ¿El arma del ped es la registrada? (mismo weaponId)
+        var wd = entry ? _weaponDefByItemId(entry.id) : null;
+        var registered = !!(wd && wd.weaponId === type);
+        if (!registered) {
+            // Fuera de catalogo (melee/granadas): no es nuestra, pero si había
+            // una registrada en este slot, acaba de perderse
+            var presentId = _itemIdByWeaponId(type);
+            if (!presentId) {
+                if (entry) { delete data.equipped[i]; changed = true; }
                 continue;
             }
+            // arma no registrada (mision, cheat, save viejo) → adoptarla al
+            // inventario con su estado. Orden: quitarla del ped, verificar que
+            // salio y solo entonces guardar el item (asi no puede haber copias)
+            var total = Memory.ReadI32(addr + _W_AMMO, false);
+            var cap = _capacityByType(type) || 0;
+            var hasMag = total > 0;
+            if (cap && total > cap) total = cap;
+            try {
+                native("REMOVE_WEAPON_FROM_CHAR", c, type);
+            } catch (e) { continue; }
+            // Verificar por memoria y por native que salio antes de guardar:
+            // si sigue ahi no se guarda nada (evita duplicados)
+            var stillThere = Memory.ReadI32(addr, false) === type;
+            try {
+                if (native("HAS_CHAR_GOT_WEAPON", c, type)) stillThere = true;
+            } catch (e) { /* sin native: vale la lectura de memoria */ }
+            if (stillThere) continue;
+            if (!query("items:storeWeapon", {
+                id: presentId, hasMag: hasMag, ammo: total, force: true
+            })) {
+                _giveWeapon(c, type, total, hasMag); // sin sitio: vuelve al ped
+                continue;
+            }
+            if (entry) delete data.equipped[i];
+            changed = true;
+            continue;
         }
-        if (_capacities[i] && total > _capacities[i]) {
-            _mountMagazine(addr, _capacities[i]); // balas de mas → un cargador
+        // Registrada y coincidente → normalizar la munición del cargador
+        var capR = _capacityByType(type) || 0;
+        var totalR = Memory.ReadI32(addr + _W_AMMO, false);
+        if (entry.hasMag === false) {
+            if (totalR !== 0) _unloadWeapon(addr); // sin cargador: 0/0
+        } else if (capR && totalR > capR) {
+            _mountMagazine(addr, capR); // balas de mas → un cargador
         }
     }
-    _primed = true;
+    if (changed) setModuleData("Ballistic", data);
 }
 
 // ============================================================================
@@ -296,7 +495,15 @@ function _unloadWeapon(weaponAddr) {
     } catch (e) { /* sin memoria: el cargador ya esta en el inventario */ }
 }
 
-// tryReload — R: swap de cargador o descarga, ambos con la anim nativa.
+// Marca si el arma equipada de ese slot lleva cargador montado
+function _setHasMag(slot, mounted) {
+    var data = _ballisticData();
+    if (!data.equipped[slot]) return;
+    data.equipped[slot].hasMag = !!mounted;
+    setModuleData("Ballistic", data);
+}
+
+// tryReload — R: swap desde el cinturon o descarga, con la anim nativa.
 // Ver gsis_INVENTORY.md.
 function tryReload(w) {
     if (!w) return;
@@ -305,7 +512,9 @@ function tryReload(w) {
     if (!w.clip || w.clip < 1) return; // sin capacidad = no hay cargador valido
     var targets = _reloadTargets(w);
     if (!targets) return;
-    var hasMag = hasMagazine(w.slot);
+    var entry = getEquipped()[w.slot];
+    if (!entry) return; // sin registrar: no es tuya (el reconcile la adopta)
+    var hasMag = entry.hasMag !== false;
     // El cargador montado sale con min(balas, capacidad): no puede haber mas
     // balas fuera de catalogo que capacidad
     var resp = query("items:swapMagazine", {
@@ -315,23 +524,23 @@ function tryReload(w) {
     });
     if (resp) {
         setMagazine(w, Math.min(resp.ammo, w.clip));
-        setHasMagazine(w.slot, true);
+        _setHasMag(w.slot, true);
         _startReloadAnim(targets, w, Math.min(resp.ammo, w.clip));
         return;
     }
-    // Sin recambio → descarga: el cargador montado pasa al inventario y el
-    // arma se queda sin balas; la misma anim de recarga remata la escena
+    // Sin recambio en el cinturon → descarga: el cargador montado pasa al
+    // inventario y el arma se queda sin balas; la misma anim remata la escena
     if (hasMag && (w.ammo || 0) > 0) {
         var out = Math.min(w.ammo, w.clip);
         if (query("items:extractMagazine", { magId: magId, ammo: out })) {
             _unloadWeapon(targets.weapon);
-            setHasMagazine(w.slot, false);
+            _setHasMag(w.slot, false);
             _startReloadAnim(targets, w, 0);
             showTextBox(t("MAG_OUT"));
         } // si no cabe: INV_FUL lo muestra Items y el arma no cambia
         return;
     }
-    showTextBox(t("NO_MAG")); // arma ya sin cargador y sin recambio
+    showTextBox(t("NO_MAG")); // sin cargador montado y sin recambio equipado
 }
 
 // ============================================================================
@@ -342,16 +551,19 @@ register({
     name: "Ballistic",
     init: function () {
         _lastSlot = null;
-        _known = [];
-        _capacities = [];
-        _primed = false; // primer escaneo = baseline (sin montar)
         _reloadPending = null; // sin recarga pendiente al cargar partida
-        registerModule("Ballistic", { hasMag: {} }); // slots con cargador montado
+        registerModule("Ballistic", { equipped: {} }); // armas en slot
+        // Migracion de saves viejos: hasMag[slot] → equipped[slot].hasMag
+        var data = getModuleData("Ballistic");
+        if (data && data.hasMag) {
+            delete data.hasMag;
+            setModuleData("Ballistic", data);
+        }
         // Capacidades: clip de juego = clipSize del catalogo (igual que mag_*)
         syncClipSizes();
     },
     update: function (now) {
-        _trackMountedMags();
+        _reconcileLoadout();
         _watchdogReload();
         var cur = _readSlotAndType();
         if (Pad.IsKeyJustPressed(KEYS.RELOAD)) tryReload(cur);

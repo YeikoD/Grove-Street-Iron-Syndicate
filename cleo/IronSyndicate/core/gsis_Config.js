@@ -43,6 +43,7 @@ export var TIMERS = {
 // Coords de dealer/seller/retiro NO aqui → data/gsis_spot_data.js (N esferas)
 export var MISC = {
     MAX_INVENTORY_WEIGHT: 12,     // Peso maximo inventario (kg)
+    MAG_BELT_SLOTS: 3,            // Slots ficticios de cinturon (cargadores equipados)
     TOTAL_SAVE_SLOTS: 3,          // Slots de guardado
     DEBUG_ENABLED: true,          // Logs de debug
     PICKUP_X: 2528.0168,          // Posicion pickup de registro (vehiculos)
