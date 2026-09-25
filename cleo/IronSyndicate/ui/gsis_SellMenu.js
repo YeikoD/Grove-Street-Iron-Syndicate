@@ -91,6 +91,11 @@ function renderWeaponList(list) {
     }
 
     ImGui.Columns(4);
+    ImGui.SetColumnWidth(0, 180.0);
+    ImGui.SetColumnWidth(1, 100.0);
+    ImGui.SetColumnWidth(2, 290.0);
+    ImGui.SetColumnWidth(3, 140.0);
+
     textColored("ARMA", COLORS.textGold);
     ImGui.NextColumn();
     textColored("VALOR BASE", COLORS.textGold);

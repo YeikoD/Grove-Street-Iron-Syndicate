@@ -60,14 +60,14 @@ function doTransfer(vehicleId, toTrunk, id, qty) {
                     free: trunkFree.toFixed(1),
                     need: w.toFixed(1)
                 }));
-            } catch(e){}
+            } catch (e) { }
             return false;
         }
         if (!addToTrunk(vehicleId, id, qty)) {
-            try { showTextBox(t("TRK_NOG")); } catch(e){}
+            try { showTextBox(t("TRK_NOG")); } catch (e) { }
             return false;
         }
-        try { showTextBox(t("TRK_PUT", { qty: qty, name: name })); } catch(e){}
+        try { showTextBox(t("TRK_PUT", { qty: qty, name: name })); } catch (e) { }
         _qty["i_" + id] = 1;
         return true;
     }
@@ -79,14 +79,14 @@ function doTransfer(vehicleId, toTrunk, id, qty) {
                 free: invFree.toFixed(1),
                 need: w.toFixed(1)
             }));
-        } catch(e){}
+        } catch (e) { }
         return false;
     }
     if (!removeFromTrunk(vehicleId, id, qty)) {
-        try { showTextBox(t("TRK_NON")); } catch(e){}
+        try { showTextBox(t("TRK_NON")); } catch (e) { }
         return false;
     }
-    try { showTextBox(t("TRK_TAK", { qty: qty, name: name })); } catch(e){}
+    try { showTextBox(t("TRK_TAK", { qty: qty, name: name })); } catch (e) { }
     _qty["t_" + id] = 1;
     return true;
 }
@@ -99,6 +99,22 @@ function renderSide(listId, title, items, vehicleId, toTrunk, height) {
     var side = toTrunk ? "i" : "t";
     var shown = 0;
 
+    ImGui.Columns(4);
+    ImGui.SetColumnWidth(0, 240.0);
+    ImGui.SetColumnWidth(1, 110.0);
+    ImGui.SetColumnWidth(2, 130.0);
+    ImGui.SetColumnWidth(3, 170.0);
+
+    textColored("OBJETO", COLORS.textGold);
+    ImGui.NextColumn();
+    textColored("PESO", COLORS.textGold);
+    ImGui.NextColumn();
+    textColored("CANTIDAD", COLORS.textGold);
+    ImGui.NextColumn();
+    textColored("ACCIÓN", COLORS.textGold);
+    ImGui.NextColumn();
+    ImGui.Separator();
+
     for (var c = 0; c < CATEGORIES.length; c++) {
         var cat = CATEGORIES[c];
         var catItems = [];
@@ -109,18 +125,6 @@ function renderSide(listId, title, items, vehicleId, toTrunk, height) {
         }
         if (catItems.length === 0) continue;
         shown += catItems.length;
-
-        ImGui.Columns(4);
-
-        textColored("OBJETO", COLORS.textGold);
-        ImGui.NextColumn();
-        textColored("PESO", COLORS.textGold);
-        ImGui.NextColumn();
-        textColored("CANTIDAD", COLORS.textGold);
-        ImGui.NextColumn();
-        textColored("ACCIÓN", COLORS.textGold);
-        ImGui.NextColumn();
-        ImGui.Separator();
 
         for (var j = 0; j < catItems.length; j++) {
             var item = catItems[j];
@@ -153,7 +157,7 @@ function renderSide(listId, title, items, vehicleId, toTrunk, height) {
             ImGui.NextColumn();
 
             var btnText = toTrunk ? "GUARDAR EN BAÚL" : "SACAR A INVENTARIO";
-            if (uiButton(btnText + "##" + key, 150.0, SIZES.btnSm, COLORS.accent)) {
+            if (uiButton(btnText + "##" + key, 0.0, SIZES.btnSm, COLORS.accent)) {
                 _clickToTrunk = toTrunk;
                 _clickId = item.id;
                 _clickQty = getTrunkRowQty(key, maxQty);
@@ -161,8 +165,6 @@ function renderSide(listId, title, items, vehicleId, toTrunk, height) {
             }
             ImGui.NextColumn();
         }
-        ImGui.Columns(1);
-        ImGui.Spacing();
     }
 
     ImGui.Columns(1);
@@ -225,9 +227,9 @@ function renderTrunkWindow() {
     ImGui.Separator();
     ImGui.Spacing();
 
-    renderSide("tk_inv", "INVENTARIO CJ (GUARDAR EN BAÚL)", invItems, vehicleId, true, 185.0);
+    renderSide("tk_inv", "INVENTARIO CJ (GUARDAR EN BAÚL)", invItems, vehicleId, true, 205.0);
     ImGui.Spacing();
-    renderSide("tk_baul", "CONTENIDO DEL BAÚL (SACAR A INVENTARIO)", trunkItems, vehicleId, false, 185.0);
+    renderSide("tk_baul", "CONTENIDO DEL BAÚL (SACAR A INVENTARIO)", trunkItems, vehicleId, false, 205.0);
 
     ImGui.End();
     popMenuStyle();

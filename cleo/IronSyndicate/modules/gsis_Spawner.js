@@ -318,7 +318,6 @@ function _beginSpawn(id, model, x, y, z, angle, health, color1, color2, locked, 
     _spawnData = { id: id, model: model, x: x, y: y, z: z, angle: angle, health: health, color1: color1, color2: color2, locked: locked, engineOn: engineOn, trunkOpen: trunkOpen };
     native("REQUEST_MODEL", model);
     _spawning = true;
-    showTextBox(t("VHC_LD", { model: model }));
 }
 
 function _getGroundZ(x, y) {

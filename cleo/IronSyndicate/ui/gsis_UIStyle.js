@@ -36,20 +36,20 @@ export var COLORS = {
 };
 
 export var SIZES = {
-    mainW: 780.0,      // Ancho amplio para vista principal
-    mainH: 520.0,      // Alto cómodo
+    mainW: 780.0,      // Ancho amplio estandarizado estilo KCD
+    mainH: 520.0,      // Alto estandarizado
     tabH: 28.0,
     listH: 390.0,
-    leftColW: 340.0,   // Columna izquierda amplio
-    rightColW: 240.0,  // Columna derecha amplio
+    leftColW: 470.0,   // Lista principal Master (470px)
+    rightColW: 260.0,  // Inspector de detalle y acciones Detail (260px)
     btnSm: 24.0,
     btnMd: 28.0,
     btnLg: 32.0,
-    // Anchos de ventanas secundarias (680.0 para que quepa todo el contenido de 4 columnas sin cortes)
-    pickupW: 680.0,
-    dealerW: 680.0,
-    trunkW: 680.0,
-    sellW: 680.0,
+    // Anchos de ventanas secundarias estandarizados a 780.0 para Master-Detail perfecto
+    pickupW: 780.0,
+    dealerW: 780.0,
+    trunkW: 780.0,
+    sellW: 780.0,
     // Anchos de botones de fila y acción
     stepW: 18.0,
     actionW: 110.0,

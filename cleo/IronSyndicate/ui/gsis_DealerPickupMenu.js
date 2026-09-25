@@ -1,5 +1,5 @@
 // ============================================================================
-// GSIS DealerPickupMenu - Menu de retiro de pedidos del dealer (Diseño Full-Width)
+// GSIS DealerPickupMenu - Menu de retiro de pedidos (Estilo KCD Master-Detail)
 // ============================================================================
 
 import { register } from "../core/gsis_ModuleRegistry.js";
@@ -7,7 +7,7 @@ import { registerWindow } from "./gsis_UIManager.js";
 import {
     SIZES, COND, COLORS,
     pushMenuStyle, popMenuStyle,
-    uiButton, uiStatRow, uiSectionHeader, textColored
+    uiButton, uiSelectableRow, uiStatRow, uiSectionHeader, textColored
 } from "./gsis_UIStyle.js";
 import {
     isPickupMenuVisible, closePickupMenu,
@@ -18,7 +18,8 @@ import { getItemName, getItemWeight } from "../data/gsis_item_data.js";
 import { MISC } from "../core/gsis_Config.js";
 import { t } from "../core/gsis_L10n.js";
 
-var _qty = {};
+var _selectedItemId = null;
+var _qty = 1;
 var _clickedCollectId = null;
 var _clickedCollectQty = 0;
 var _clickedAll = false;
@@ -43,13 +44,6 @@ function orderQty(order, itemId) {
     return 0;
 }
 
-function getPickupRowQty(itemId, maxQty) {
-    if (!_qty[itemId]) _qty[itemId] = 1;
-    if (_qty[itemId] > maxQty) _qty[itemId] = maxQty;
-    if (_qty[itemId] < 1) _qty[itemId] = 1;
-    return _qty[itemId];
-}
-
 function collectItem(itemId, qty) {
     var order = getOrder();
     if (!order) return false;
@@ -57,7 +51,7 @@ function collectItem(itemId, qty) {
 
     var maxInOrder = orderQty(order, itemId);
     if (maxInOrder <= 0 || qty > maxInOrder) {
-        try { showTextBox(t("PKC_IVL")); } catch(e){}
+        try { showTextBox(t("PKC_IVL")); } catch (e) { }
         return false;
     }
 
@@ -69,18 +63,18 @@ function collectItem(itemId, qty) {
                 free: free.toFixed(1),
                 need: w.toFixed(1)
             }));
-        } catch(e){}
+        } catch (e) { }
         return false;
     }
 
     if (!addItem(itemId, qty)) {
-        try { showTextBox(t("PKC_ERR", { name: getItemName(itemId) })); } catch(e){}
+        try { showTextBox(t("PKC_ERR", { name: getItemName(itemId) })); } catch (e) { }
         return false;
     }
 
     removeFromOrder(itemId, qty);
-    _qty[itemId] = 1;
-    try { showTextBox(t("PKC_TAK", { qty: qty, name: getItemName(itemId) })); } catch(e){}
+    _qty = 1;
+    try { showTextBox(t("PKC_TAK", { qty: qty, name: getItemName(itemId) })); } catch (e) { }
     return true;
 }
 
@@ -96,7 +90,7 @@ function collectAll() {
                 free: free.toFixed(1),
                 order: orderWeight.toFixed(1)
             }));
-        } catch(e){}
+        } catch (e) { }
         return false;
     }
 
@@ -112,58 +106,103 @@ function collectAll() {
         }
     }
 
-    _qty = {};
-    try { showTextBox(t("PKC_ALL")); } catch(e){}
+    try { showTextBox(t("PKC_ALL")); } catch (e) { }
     return true;
 }
 
-function renderOrderList(order) {
-    ImGui.BeginChild("pk_list", 0, -80.0, true);
+function renderMasterList(order) {
+    ImGui.BeginChild("pickup_master", SIZES.leftColW, 425.0, true);
 
-    uiSectionHeader("OBJETOS DISPONIBLES EN EL PEDIDO");
+    uiSectionHeader("OBJETOS EN EL PEDIDO");
 
-    ImGui.Columns(4);
+    ImGui.Columns(3);
+    ImGui.SetColumnWidth(0, 240.0);
+    ImGui.SetColumnWidth(1, 100.0);
+    ImGui.SetColumnWidth(2, 100.0);
+
     textColored("PRODUCTO", COLORS.textGold);
     ImGui.NextColumn();
-    textColored("PESO UNITARIO", COLORS.textGold);
+    textColored("CANTIDAD DISP.", COLORS.textGold);
     ImGui.NextColumn();
-    textColored("CANTIDAD", COLORS.textGold);
-    ImGui.NextColumn();
-    textColored("ACCIÓN", COLORS.textGold);
+    textColored("PESO TOTAL", COLORS.textGold);
     ImGui.NextColumn();
     ImGui.Separator();
 
     for (var i = 0; i < order.items.length; i++) {
         var it = order.items[i];
-        var maxQty = it.qty;
-        var unitW = getItemWeight(it.id);
+        var isSelected = _selectedItemId === it.id;
+        var totalW = (getItemWeight(it.id) * it.qty).toFixed(1);
 
-        ImGui.Text(getItemName(it.id));
-        ImGui.NextColumn();
-
-        ImGui.Text(unitW.toFixed(1) + " kg");
-        ImGui.NextColumn();
-
-        var q = getPickupRowQty(it.id, maxQty);
-        if (ImGui.Button("<##pk_" + it.id, 20, SIZES.btnSm)) {
-            if (q > 1) _qty[it.id] = q - 1;
+        if (uiSelectableRow(getItemName(it.id) + "##sel_" + it.id, isSelected, 24.0)) {
+            _selectedItemId = it.id;
+            _qty = 1;
         }
-        ImGui.SameLine();
-        ImGui.Text("" + q + " / " + maxQty);
-        ImGui.SameLine();
-        if (ImGui.Button(">##pk_" + it.id, 20, SIZES.btnSm)) {
-            if (q < maxQty) _qty[it.id] = q + 1;
-        }
-        ImGui.NextColumn();
 
-        if (uiButton("RETIRAR OBJETO##pk_" + it.id, 130.0, SIZES.btnSm, COLORS.accent)) {
-            _clickedCollectId = it.id;
-            _clickedCollectQty = getPickupRowQty(it.id, maxQty);
-        }
+        ImGui.NextColumn();
+        ImGui.Text("x" + it.qty);
+        ImGui.NextColumn();
+        ImGui.Text(totalW + " kg");
         ImGui.NextColumn();
     }
 
     ImGui.Columns(1);
+    ImGui.EndChild();
+}
+
+function renderInspector(order, selectedItem) {
+    ImGui.BeginChild("pickup_inspector", SIZES.rightColW, 425.0, true);
+
+    uiSectionHeader("INSPECTOR DE RETIRO");
+
+    if (!selectedItem) {
+        ImGui.Spacing();
+        ImGui.TextDisabled("Selecciona un objeto del pedido.");
+    } else {
+        var maxQty = selectedItem.qty;
+        var unitW = getItemWeight(selectedItem.id);
+
+        textColored(getItemName(selectedItem.id), COLORS.textGold);
+        ImGui.Spacing();
+        ImGui.Separator();
+        ImGui.Spacing();
+
+        uiStatRow("Peso Unitario: ", unitW.toFixed(1) + " kg", COLORS.text);
+        uiStatRow("Cantidad Disp.: ", "x" + maxQty, COLORS.textGold);
+
+        ImGui.Spacing();
+        textColored("CANTIDAD A RETIRAR:", COLORS.textMuted);
+        if (ImGui.Button("<##dec_pk_qty", 24, SIZES.btnSm)) {
+            if (_qty > 1) _qty--;
+        }
+        ImGui.SameLine();
+        ImGui.Text("  " + _qty + "  ");
+        ImGui.SameLine();
+        if (ImGui.Button(">##inc_pk_qty", 24, SIZES.btnSm)) {
+            if (_qty < maxQty) _qty++;
+        }
+
+        ImGui.Spacing();
+        if (uiButton("RETIRAR OBJETO##pk", 0.0, SIZES.btnLg, COLORS.accent)) {
+            _clickedCollectId = selectedItem.id;
+            _clickedCollectQty = _qty;
+        }
+    }
+
+    ImGui.Spacing();
+    ImGui.Separator();
+    ImGui.Spacing();
+
+    var orderWeight = calcOrderWeight(order);
+    var free = freeWeight();
+
+    uiStatRow("Peso Pedido: ", orderWeight.toFixed(1) + " kg", COLORS.textGold);
+    uiStatRow("Espacio Libre: ", free.toFixed(1) + " kg", free >= orderWeight ? COLORS.textGreen : COLORS.textDanger);
+
+    ImGui.Spacing();
+    if (uiButton("RECOGER TODO EL PEDIDO##all", 0.0, SIZES.btnLg, COLORS.accent)) {
+        _clickedAll = true;
+    }
+
     ImGui.EndChild();
 }
 
@@ -174,9 +213,21 @@ function renderPickupWindow() {
     _frameOpen = true;
 
     var order = getOrder();
-    if (!order) {
+    if (!order || order.items.length === 0) {
         closePickupMenu();
         return;
+    }
+
+    if (!_selectedItemId || !orderQty(order, _selectedItemId)) {
+        _selectedItemId = order.items[0].id;
+    }
+
+    var selectedItem = null;
+    for (var i = 0; i < order.items.length; i++) {
+        if (order.items[i].id === _selectedItemId) {
+            selectedItem = order.items[i];
+            break;
+        }
     }
 
     pushMenuStyle();
@@ -187,27 +238,18 @@ function renderPickupWindow() {
 
     var invW = getTotalWeight();
     var orderW = calcOrderWeight(order);
-    var freeW = freeWeight();
 
     uiStatRow("INVENTARIO CJ: ", invW.toFixed(1) + "/" + MISC.MAX_INVENTORY_WEIGHT + "kg", COLORS.textGreen);
-    ImGui.SameLine(280.0);
-    uiStatRow("PESO PEDIDO: ", orderW.toFixed(1) + "kg", COLORS.textGold);
-    ImGui.SameLine(480.0);
-    uiStatRow("ESPACIO LIBRE: ", freeW.toFixed(1) + "kg", freeW >= orderW ? COLORS.textGreen : COLORS.textDanger);
+    ImGui.SameLine(400.0);
+    uiStatRow("PEDIDO COMPLETO: ", orderW.toFixed(1) + "kg", COLORS.textGold);
 
     ImGui.Spacing();
     ImGui.Separator();
     ImGui.Spacing();
 
-    renderOrderList(order);
-
-    ImGui.Spacing();
-    ImGui.Separator();
-    ImGui.Spacing();
-
-    if (uiButton("RECOGER TODO EL PEDIDO##all", 280.0, SIZES.btnLg, COLORS.accent)) {
-        _clickedAll = true;
-    }
+    renderMasterList(order);
+    ImGui.SameLine();
+    renderInspector(order, selectedItem);
 
     ImGui.End();
     popMenuStyle();
@@ -228,7 +270,7 @@ function afterPickupFrame() {
 }
 
 export function initDealerPickupMenu() {
-    log("[GSIS] DealerPickupMenu inicializado - tecla F cerca de la esfera de retiro");
+    log("[GSIS] DealerPickupMenu inicializado con patrón Master-Detail KCD");
     registerWindow({
         id: "GSIS_PICKUP",
         visible: function () { return isPickupMenuVisible(); },
