@@ -172,9 +172,12 @@ export function renderDealerMenu() {
     ImGui.BeginFrame("GSIS_DEALER");
 
     if (!isDealerMenuVisible()) {
+        ImGui.SetCursorVisible(false);
         ImGui.EndFrame();
         return;
     }
+
+    ImGui.SetCursorVisible(true);
 
     pushDealerStyle();
     ImGui.SetNextWindowSize(_menuWidth, _menuHeight, 2);

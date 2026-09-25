@@ -239,9 +239,12 @@ export function renderSellMenu() {
     ImGui.BeginFrame("GSIS_SELL");
 
     if (!isSellMenuVisible()) {
+        ImGui.SetCursorVisible(false);
         ImGui.EndFrame();
         return;
     }
+
+    ImGui.SetCursorVisible(true);
 
     var list = getSellableWeapons();
     var state = getSellState();

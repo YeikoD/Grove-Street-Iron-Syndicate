@@ -258,12 +258,15 @@ export function renderTrunkMenu() {
     ImGui.BeginFrame("GSIS_TRUNK");
 
     if (!isTrunkMenuVisible() || !isTrunkOpen() || getTrunkVehicleId() === -1) {
+        ImGui.SetCursorVisible(false);
         ImGui.EndFrame();
         if (!isTrunkMenuVisible()) return;
         resetQty();
         closeTrunkMenu();
         return;
     }
+
+    ImGui.SetCursorVisible(true);
 
     var vehicleId = getTrunkVehicleId();
     var vehicleData = getModuleData("VehicleModule");
@@ -276,6 +279,7 @@ export function renderTrunkMenu() {
         }
     }
     if (!vehicle) {
+        ImGui.SetCursorVisible(false);
         ImGui.EndFrame();
         resetQty();
         closeTrunkMenu();

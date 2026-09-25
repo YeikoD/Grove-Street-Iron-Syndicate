@@ -241,13 +241,17 @@ export function renderDealerPickupMenu() {
     ImGui.BeginFrame("GSIS_PICKUP");
 
     if (!isPickupMenuVisible()) {
+        ImGui.SetCursorVisible(false);
         ImGui.EndFrame();
         return;
     }
 
+    ImGui.SetCursorVisible(true);
+
     var order = getOrder();
     if (!order) {
         closePickupMenu();
+        ImGui.SetCursorVisible(false);
         ImGui.EndFrame();
         return;
     }

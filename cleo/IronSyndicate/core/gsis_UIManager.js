@@ -179,9 +179,12 @@ export function renderUIManager() {
         ImGui.BeginFrame("GSIS_UI");
 
         if (!_uiState.menuVisible) {
+            ImGui.SetCursorVisible(false);
             ImGui.EndFrame();
             return;
         }
+
+        ImGui.SetCursorVisible(true);
 
         pushGlobalStyle();
         ImGui.SetNextWindowSize(_config.menuWidth, _config.menuHeight, 2);
