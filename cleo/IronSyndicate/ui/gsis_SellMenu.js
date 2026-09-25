@@ -5,9 +5,16 @@
 // NPC (personaje activo de la esfera) evalua techo/presupuesto;
 // UI orquesta removeItem + addScore.
 // Feedback via characters:say con characterId activo (seller_local/Juan/…).
+// Ventana registrada en UIManager (acciones en after(), post-EndFrame).
 // ============================================================================
 
 import { register } from "../core/gsis_ModuleRegistry.js";
+import { registerWindow } from "./gsis_UIManager.js";
+import {
+    SIZES, COND, COLORS,
+    pushMenuStyle, popMenuStyle,
+    pushBtn, popBtn
+} from "./gsis_UIStyle.js";
 import {
     isSellMenuVisible, closeSellMenu,
     getSellState, offerWeapon, getActiveCharacterId
@@ -35,11 +42,6 @@ function sellMenuTitle() {
     return t("SEL_TTL");
 }
 
-var _menuWidth = 620.0;
-var _btnHeight = 26.0;
-var _stepW = 30.0;
-var _offerW = 80.0;
-var _footerBtnH = 32.0;
 var _qty = {};        // { itemId: qty }
 var _offer = {};      // { itemId: precio unitario }
 var _showBudget = false;
@@ -48,6 +50,8 @@ var _showBudget = false;
 var _clickedOfferId = null;
 var _clickedOfferQty = 0;
 var _clickedOfferPrice = 0;
+var _closeRequested = false;
+var _frameOpen = true;
 
 function sellListHeight(itemCount) {
     var h = 16 + itemCount * 36;
@@ -58,52 +62,6 @@ function sellListHeight(itemCount) {
 
 function calcSellMenuHeight(itemCount) {
     return Math.max(320, 30 + 96 + sellListHeight(itemCount) + 70);
-}
-
-export function initSellMenu() {
-    log("[GSIS] SellMenu inicializado - tecla F cerca del punto de venta");
-}
-
-function pushSellStyle() {
-    ImGui.PushStyleColor(2, 15, 15, 20, 230);
-    ImGui.PushStyleColor(3, 12, 12, 16, 200);
-    ImGui.PushStyleColor(10, 20, 20, 28, 255);
-    ImGui.PushStyleColor(11, 25, 25, 35, 255);
-    ImGui.PushStyleColor(21, 30, 55, 80, 255);
-    ImGui.PushStyleColor(22, 40, 75, 110, 255);
-    ImGui.PushStyleColor(23, 20, 45, 65, 255);
-    ImGui.PushStyleColor(0, 200, 200, 200, 255);
-    ImGui.PushStyleColor(1, 100, 100, 110, 255);
-    ImGui.PushStyleColor(27, 50, 60, 75, 255);
-    ImGui.PushStyleColor(33, 25, 40, 60, 255);
-    ImGui.PushStyleColor(34, 40, 65, 95, 255);
-    ImGui.PushStyleVar(12, 6);
-    ImGui.PushStyleVar(3, 4);
-}
-
-function popSellStyle() {
-    ImGui.PopStyleVar(2);
-    ImGui.PopStyleColor(12);
-}
-
-function pushOfferStyle() {
-    ImGui.PushStyleColor(21, 35, 70, 35, 255);
-    ImGui.PushStyleColor(22, 50, 95, 50, 255);
-    ImGui.PushStyleColor(23, 28, 55, 28, 255);
-}
-
-function popOfferStyle() {
-    ImGui.PopStyleColor(3);
-}
-
-function pushSellCloseStyle() {
-    ImGui.PushStyleColor(21, 60, 25, 25, 255);
-    ImGui.PushStyleColor(22, 85, 30, 30, 255);
-    ImGui.PushStyleColor(23, 45, 18, 18, 255);
-}
-
-function popSellCloseStyle() {
-    ImGui.PopStyleColor(3);
 }
 
 function getSellRowQty(itemId, maxQty) {
@@ -149,49 +107,44 @@ function renderWeaponList(list) {
         var it = list[i];
         var maxQty = it.qty;
 
-        // col0: nombre + stock
         ImGui.Text(getItemName(it.id) + " x" + maxQty);
         ImGui.NextColumn();
 
-        // col1: valor de mercado
         ImGui.TextDisabled("$" + it.sellPrice);
         ImGui.NextColumn();
 
-        // col2: selector qty
         var q = getSellRowQty(it.id, maxQty);
-        if (ImGui.Button("<##sq_" + it.id, _stepW, _btnHeight)) {
+        if (ImGui.Button("<##sq_" + it.id, SIZES.stepW, SIZES.btnSm)) {
             if (q > 1) _qty[it.id] = q - 1;
         }
         ImGui.SameLine();
         ImGui.Text("" + q);
         ImGui.SameLine();
-        if (ImGui.Button(">##sq_" + it.id, _stepW, _btnHeight)) {
+        if (ImGui.Button(">##sq_" + it.id, SIZES.stepW, SIZES.btnSm)) {
             if (q < maxQty) _qty[it.id] = q + 1;
         }
         ImGui.NextColumn();
 
-        // col3: precio oferta (steps -10/+10)
         var off = getRowOffer(it.id, it.sellPrice);
-        if (ImGui.Button("<##so_" + it.id, _stepW, _btnHeight)) {
+        if (ImGui.Button("<##so_" + it.id, SIZES.stepW, SIZES.btnSm)) {
             if (off > 10) _offer[it.id] = off - 10;
             else _offer[it.id] = 1;
         }
         ImGui.SameLine();
         ImGui.Text("$" + off);
         ImGui.SameLine();
-        if (ImGui.Button(">##so_" + it.id, _stepW, _btnHeight)) {
+        if (ImGui.Button(">##so_" + it.id, SIZES.stepW, SIZES.btnSm)) {
             _offer[it.id] = off + 10;
         }
         ImGui.NextColumn();
 
-        // col4: ofrecer
-        pushOfferStyle();
-        if (ImGui.Button(t("BTN_OFF") + "##sl_" + it.id, _offerW, _btnHeight)) {
+        pushBtn(COLORS.accent);
+        if (ImGui.Button(t("BTN_OFF") + "##sl_" + it.id, SIZES.actionW, SIZES.btnSm)) {
             _clickedOfferId = it.id;
             _clickedOfferQty = getSellRowQty(it.id, maxQty);
             _clickedOfferPrice = getRowOffer(it.id, it.sellPrice);
         }
-        popOfferStyle();
+        popBtn();
         ImGui.NextColumn();
 
         if (i < list.length - 1) {
@@ -216,9 +169,7 @@ function doOffer(itemId, qty, unitPrice) {
 
     if (!result.ok) return false;
 
-    // Quitar items + pagar (solo si el NPC acepto)
     if (!removeItem(itemId, qty)) {
-        // fallo inesperado: no hay items — no hay nada que pagar
         playNpcLine("SEL_ERR");
         return false;
     }
@@ -231,30 +182,21 @@ function doOffer(itemId, qty, unitPrice) {
     return true;
 }
 
-export function renderSellMenu() {
+function renderSellWindow() {
     _clickedOfferId = null;
     _clickedOfferQty = 0;
     _clickedOfferPrice = 0;
-
-    ImGui.BeginFrame("GSIS_SELL");
-
-    if (!isSellMenuVisible()) {
-        ImGui.SetCursorVisible(false);
-        ImGui.EndFrame();
-        return;
-    }
-
-    ImGui.SetCursorVisible(true);
+    _closeRequested = false;
+    _frameOpen = true;
 
     var list = getSellableWeapons();
     var state = getSellState();
 
-    pushSellStyle();
-    ImGui.SetNextWindowSize(_menuWidth, calcSellMenuHeight(list.length), 1);
-    ImGui.SetNextWindowPos(60.0, 80.0, 2);
+    pushMenuStyle();
+    ImGui.SetNextWindowSize(SIZES.sellW, calcSellMenuHeight(list.length), COND.Always);
+    ImGui.SetNextWindowPos(60.0, 80.0, COND.Once);
     var open = ImGui.Begin(sellMenuTitle(), true, false, true, false, false);
 
-    // Header: dinero + intereses (+ budget tras 1ª oferta)
     try {
         ImGui.Text(t("MONEY", { n: new Player(0).storeScore() }));
     } catch (e) {
@@ -280,25 +222,36 @@ export function renderSellMenu() {
     ImGui.Separator();
     ImGui.Spacing();
 
-    pushSellCloseStyle();
-    var clickedClose = ImGui.Button(t("BTN_CLS"), _menuWidth - 20, _footerBtnH);
-    popSellCloseStyle();
+    pushBtn(COLORS.danger);
+    _closeRequested = ImGui.Button(t("BTN_CLS"), SIZES.sellW - 20, SIZES.btnLg);
+    popBtn();
 
     ImGui.End();
-    popSellStyle();
-    ImGui.EndFrame();
+    popMenuStyle();
 
-    // Acciones post-frame
+    _frameOpen = open;
+}
+
+function afterSellFrame() {
     if (_clickedOfferId) {
         doOffer(_clickedOfferId, _clickedOfferQty, _clickedOfferPrice);
     }
-    if (clickedClose || !open) {
+    if (_closeRequested || !_frameOpen) {
         closeSellMenu();
     }
 }
 
+export function initSellMenu() {
+    log("[GSIS] SellMenu inicializado - tecla F cerca del punto de venta");
+    registerWindow({
+        id: "GSIS_SELL",
+        visible: function () { return isSellMenuVisible(); },
+        render: renderSellWindow,
+        after: afterSellFrame
+    });
+}
+
 register({
     name: "SellMenu",
-    init: initSellMenu,
-    update: renderSellMenu
+    init: initSellMenu
 });

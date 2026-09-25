@@ -77,12 +77,12 @@ export function getItemType(id) {
     return def ? def.type : "material";  // Retorna tipo del item o default
 }
 
-// Nombre visible de una instancia de cargador: "Cargador 9mm - Calidad 1"
+// Nombre visible de una instancia de cargador: "Cargador 9mm - Cal: 1"
 // item: { id, quality? } o id suelto (quality default 1)
 export function getMagazineDisplayName(item) {
     var id = typeof item === "string" ? item : item.id;
     var def = ITEMS[id];
     if (!def) return id;
     var q = (typeof item === "object" && item.quality) ? item.quality : 1;
-    return def.name + " - Calidad " + q;
+    return def.name + " - Cal: " + q;
 }

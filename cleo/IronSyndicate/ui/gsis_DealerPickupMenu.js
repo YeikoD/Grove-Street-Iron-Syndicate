@@ -4,9 +4,16 @@
 // Retiro item a item (qty del jugador) o RECOGER TODO.
 // Seguridad: pre-check peso (MISC.MAX_INVENTORY_WEIGHT) antes de addItem; solo quita del pedido
 // despues de addItem exitoso (sin items gratis ni pedido huerfano).
+// Ventana registrada en UIManager (acciones en after(), post-EndFrame).
 // ============================================================================
 
 import { register } from "../core/gsis_ModuleRegistry.js";
+import { registerWindow } from "./gsis_UIManager.js";
+import {
+    SIZES, COND, COLORS,
+    pushMenuStyle, popMenuStyle,
+    pushBtn, popBtn
+} from "./gsis_UIStyle.js";
 import {
     isPickupMenuVisible, closePickupMenu,
     getOrder, removeFromOrder
@@ -16,12 +23,14 @@ import { getItemName, getItemWeight } from "../data/gsis_item_data.js";
 import { MISC } from "../core/gsis_Config.js";
 import { t } from "../core/gsis_L10n.js";
 
-var _menuWidth = 560.0;
-var _btnHeight = 28.0;
-var _stepW = 30.0;
-var _collectW = 118.0;
-var _footerBtnH = 32.0;
 var _qty = {}; // { itemId: qty } selector local por fila
+
+// deferred click (fuera de Columns para no romper layout)
+var _clickedCollectId = null;
+var _clickedCollectQty = 0;
+var _clickedAll = false;
+var _closeRequested = false;
+var _frameOpen = true;
 
 function pickupListHeight(itemCount) {
     var h = 16 + itemCount * 34;
@@ -31,54 +40,7 @@ function pickupListHeight(itemCount) {
 }
 
 function calcPickupMenuHeight(itemCount) {
-    // title + header + lista + footer + padding
     return Math.max(300, 30 + 78 + pickupListHeight(itemCount) + 78);
-}
-
-export function initDealerPickupMenu() {
-    log("[GSIS] DealerPickupMenu inicializado - tecla F cerca de la esfera de retiro");
-}
-
-function pushPickupStyle() {
-    ImGui.PushStyleColor(2, 15, 15, 20, 230);
-    ImGui.PushStyleColor(3, 12, 12, 16, 200);
-    ImGui.PushStyleColor(10, 20, 20, 28, 255);
-    ImGui.PushStyleColor(11, 25, 25, 35, 255);
-    ImGui.PushStyleColor(21, 30, 55, 80, 255);
-    ImGui.PushStyleColor(22, 40, 75, 110, 255);
-    ImGui.PushStyleColor(23, 20, 45, 65, 255);
-    ImGui.PushStyleColor(0, 200, 200, 200, 255);
-    ImGui.PushStyleColor(1, 100, 100, 110, 255);
-    ImGui.PushStyleColor(27, 50, 60, 75, 255);
-    ImGui.PushStyleColor(33, 25, 40, 60, 255);
-    ImGui.PushStyleColor(34, 40, 65, 95, 255);
-    ImGui.PushStyleVar(12, 6);
-    ImGui.PushStyleVar(3, 4);
-}
-
-function popPickupStyle() {
-    ImGui.PopStyleVar(2);
-    ImGui.PopStyleColor(12);
-}
-
-function pushCollectStyle() {
-    ImGui.PushStyleColor(21, 35, 70, 35, 255);
-    ImGui.PushStyleColor(22, 50, 95, 50, 255);
-    ImGui.PushStyleColor(23, 28, 55, 28, 255);
-}
-
-function popCollectStyle() {
-    ImGui.PopStyleColor(3);
-}
-
-function pushPickupCloseStyle() {
-    ImGui.PushStyleColor(21, 60, 25, 25, 255);
-    ImGui.PushStyleColor(22, 85, 30, 30, 255);
-    ImGui.PushStyleColor(23, 45, 18, 18, 255);
-}
-
-function popPickupCloseStyle() {
-    ImGui.PopStyleColor(3);
 }
 
 function freeWeight() {
@@ -162,7 +124,6 @@ function collectAll() {
         return false;
     }
 
-    // Copia de items — removeFromOrder puede vaciar el pedido en el ultimo
     var items = [];
     for (var i = 0; i < order.items.length; i++) {
         items.push({ id: order.items[i].id, qty: order.items[i].qty });
@@ -171,7 +132,6 @@ function collectAll() {
     for (var j = 0; j < items.length; j++) {
         var it = items[j];
         if (!collectItem(it.id, it.qty)) {
-            // Parcial: lo ya recogido queda en inventario; el resto sigue en el pedido
             return false;
         }
     }
@@ -190,35 +150,30 @@ function renderOrderList(order) {
         var maxQty = it.qty;
         var unitW = getItemWeight(it.id);
 
-        // col0: nombre + x qty pendiente
         ImGui.Text(getItemName(it.id) + " x" + maxQty);
         ImGui.NextColumn();
 
-        // col1: peso unitario
         ImGui.TextDisabled(unitW.toFixed(1) + " kg/u");
         ImGui.NextColumn();
 
-        // col2: selector qty
         var q = getPickupRowQty(it.id, maxQty);
-        if (ImGui.Button("<##pk_" + it.id, _stepW, _btnHeight)) {
+        if (ImGui.Button("<##pk_" + it.id, SIZES.stepW, SIZES.btnMd)) {
             if (q > 1) _qty[it.id] = q - 1;
         }
         ImGui.SameLine();
         ImGui.Text("" + q);
         ImGui.SameLine();
-        if (ImGui.Button(">##pk_" + it.id, _stepW, _btnHeight)) {
+        if (ImGui.Button(">##pk_" + it.id, SIZES.stepW, SIZES.btnMd)) {
             if (q < maxQty) _qty[it.id] = q + 1;
         }
         ImGui.NextColumn();
 
-        // col3: recoger esa qty (llena casi toda la columna)
-        pushCollectStyle();
-        if (ImGui.Button(t("BTN_PCK") + "##" + it.id, _collectW, _btnHeight)) {
-            // accion diferida post-End (ver clickedCollectId)
+        pushBtn(COLORS.accent);
+        if (ImGui.Button(t("BTN_PCK") + "##" + it.id, SIZES.collectW, SIZES.btnMd)) {
             _clickedCollectId = it.id;
             _clickedCollectQty = getPickupRowQty(it.id, maxQty);
         }
-        popCollectStyle();
+        popBtn();
         ImGui.NextColumn();
 
         if (i < order.items.length - 1) {
@@ -230,38 +185,24 @@ function renderOrderList(order) {
     ImGui.EndChild();
 }
 
-// deferred click (fuera de Columns para no romper layout)
-var _clickedCollectId = null;
-var _clickedCollectQty = 0;
-
-export function renderDealerPickupMenu() {
+function renderPickupWindow() {
     _clickedCollectId = null;
     _clickedCollectQty = 0;
-
-    ImGui.BeginFrame("GSIS_PICKUP");
-
-    if (!isPickupMenuVisible()) {
-        ImGui.SetCursorVisible(false);
-        ImGui.EndFrame();
-        return;
-    }
-
-    ImGui.SetCursorVisible(true);
+    _clickedAll = false;
+    _closeRequested = false;
+    _frameOpen = true;
 
     var order = getOrder();
     if (!order) {
         closePickupMenu();
-        ImGui.SetCursorVisible(false);
-        ImGui.EndFrame();
         return;
     }
 
-    pushPickupStyle();
-    ImGui.SetNextWindowSize(_menuWidth, calcPickupMenuHeight(order.items.length), 1);
-    ImGui.SetNextWindowPos(60.0, 80.0, 2);
+    pushMenuStyle();
+    ImGui.SetNextWindowSize(SIZES.pickupW, calcPickupMenuHeight(order.items.length), COND.Always);
+    ImGui.SetNextWindowPos(60.0, 80.0, COND.Once);
     var open = ImGui.Begin(t("PKC_TTL"), true, false, true, false, false);
 
-    // Header: inventario + libre + peso pedido
     var orderWeight = calcOrderWeight(order);
     var invW = getTotalWeight();
     ImGui.Text(t("INV_L", {
@@ -279,41 +220,50 @@ export function renderDealerPickupMenu() {
     ImGui.Separator();
     ImGui.Spacing();
 
-    // Filas: nombre | peso/u | < qty > | Recoger (en child scroll)
     renderOrderList(order);
 
     ImGui.Spacing();
     ImGui.Separator();
     ImGui.Spacing();
 
-    // Footer: RECOGER TODO + Cerrar al 50%
-    var half = (_menuWidth - 30) / 2;
-    pushCollectStyle();
-    var clickedAll = ImGui.Button(t("BTN_ALL"), half, _footerBtnH);
-    popCollectStyle();
+    var half = (SIZES.pickupW - 30) / 2;
+    pushBtn(COLORS.accent);
+    _clickedAll = ImGui.Button(t("BTN_ALL"), half, SIZES.btnLg);
+    popBtn();
     ImGui.SameLine();
-    pushPickupCloseStyle();
-    var clickedClose = ImGui.Button(t("BTN_CLS"), half, _footerBtnH);
-    popPickupCloseStyle();
+    pushBtn(COLORS.danger);
+    _closeRequested = ImGui.Button(t("BTN_CLS"), half, SIZES.btnLg);
+    popBtn();
 
     ImGui.End();
-    popPickupStyle();
-    ImGui.EndFrame();
+    popMenuStyle();
 
-    // Acciones post-frame (pedido puede haber cambiado)
+    _frameOpen = open;
+}
+
+function afterPickupFrame() {
     if (_clickedCollectId) {
         collectItem(_clickedCollectId, _clickedCollectQty);
     }
-    if (clickedAll) {
+    if (_clickedAll) {
         collectAll();
     }
-    if (clickedClose || !open) {
+    if (_closeRequested || !_frameOpen) {
         closePickupMenu();
     }
 }
 
+export function initDealerPickupMenu() {
+    log("[GSIS] DealerPickupMenu inicializado - tecla F cerca de la esfera de retiro");
+    registerWindow({
+        id: "GSIS_PICKUP",
+        visible: function () { return isPickupMenuVisible(); },
+        render: renderPickupWindow,
+        after: afterPickupFrame
+    });
+}
+
 register({
     name: "DealerPickupMenu",
-    init: initDealerPickupMenu,
-    update: renderDealerPickupMenu
+    init: initDealerPickupMenu
 });

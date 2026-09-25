@@ -243,6 +243,8 @@ export var STRINGS = {
     INV_HDR: { es: "INVENTARIO", en: "INVENTORY" },
     INV_WGT: { es: "Peso: {n} kg", en: "Weight: {n} kg" },
     INV_EMP: { es: "(inventario vacio)", en: "(inventory empty)" },
+    CMP_ERR: { es: "(error cargando componente)", en: "(error loading component)" },
+    CMP_NO: { es: "(componente no cargado - revisa los imports de index)", en: "(component not loaded - check index imports)" },
     MAG_AMM: { es: "{a}/{b} balas", en: "{a}/{b} rounds" },
     WPN_DMG: { es: "Daño: {n}", en: "Damage: {n}" },
     DOC_HDR: { es: "DOCUMENTOS", en: "DOCUMENTS" },

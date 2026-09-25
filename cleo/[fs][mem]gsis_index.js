@@ -24,7 +24,7 @@ import "./IronSyndicate/modules/gsis_Characters.js";
 import "./IronSyndicate/modules/gsis_WeaponDealer.js";
 import "./IronSyndicate/modules/gsis_DealerPickup.js";
 import "./IronSyndicate/modules/gsis_WeaponSeller.js";
-import "./IronSyndicate/core/gsis_UIManager.js";
+import "./IronSyndicate/ui/gsis_UIManager.js";
 import "./IronSyndicate/modules/gsis_Ballistic.js";
 import "./IronSyndicate/modules/gsis_FireButton.js";
 import "./IronSyndicate/ui/gsis_InventoryMenu.js";

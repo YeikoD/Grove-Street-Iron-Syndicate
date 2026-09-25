@@ -1,78 +1,74 @@
 // ============================================================================
-// GSIS VehiclesComponent - Componente de vehículos para UIManager
+// GSIS VehiclesComponent - Lista de Vehículos con Datos Completos
 // ============================================================================
-// Renderiza la gestión de documentos de vehículos como componente de pestaña.
+// Muestra cada vehículo registrado en tarjetas con todos sus campos visibles:
+// Modelo, ID, Colores, Salud, Estado de Motor, Candado y Coordenadas GPS.
 // ============================================================================
 
 import { getModuleData } from "../core/gsis_SaveManager.js";
 import { register } from "../core/gsis_ModuleRegistry.js";
-import { registerComponent, getConfig } from "../core/gsis_UIManager.js";
-import { t } from "../core/gsis_L10n.js";
+import { registerComponent } from "./gsis_UIManager.js";
+import { COLORS, SIZES, textColored, uiSectionHeader, uiStatRow, uiButton } from "./gsis_UIStyle.js";
 import { getVehicleName } from "../data/gsis_vehicle_data.js";
 
-// Componente de renderizado para la pestaña de vehículos
 function renderVehiclesComponent() {
-    var config = getConfig();
-    ImGui.BeginChild("veh_body", 0, config.listHeight, true);
-
     var vehicleData = getModuleData("VehicleModule");
     var vehicles = vehicleData ? vehicleData.vehicles : [];
 
-    if (vehicles.length === 0) {
-        ImGui.TextDisabled(t("DOC_NRV"));
-    } else {
+    uiSectionHeader("REGISTRO DE VEHÍCULOS DE LA BANDA");
+
+    if (!vehicles || vehicles.length === 0) {
+        ImGui.TextDisabled("No tienes ningún vehículo registrado en tu garaje.");
+        return;
+    }
+
+    ImGui.BeginChild("veh_list_full", SIZES.mainW - 30.0, SIZES.listH - 40.0, true);
+    try {
         for (var i = 0; i < vehicles.length; i++) {
             var v = vehicles[i];
             var modelName = getVehicleName(v.model);
 
-            ImGui.BeginChild("veh_card_" + i, 0, 85, true);
+            ImGui.BeginChild("veh_card_" + i, SIZES.mainW - 55.0, 105.0, true);
+            try {
+                // Fila 1: Título del Modelo e ID
+                textColored(modelName + " (ID Modelo: " + v.model + ")", COLORS.textGold);
+                ImGui.SameLine(520.0);
+                if (uiButton("UBICAR EN MAPA##map_" + i, 160.0, 22.0, COLORS.accent)) {
+                    log("[VehiclesComponent] Ubicar vehículo ID: " + v.model);
+                }
 
-            ImGui.Text(t("V_MODL", { name: modelName }));
-            ImGui.Separator();
+                ImGui.Separator();
 
-            ImGui.TextDisabled(t("V_ID", { n: v.model }));
-            ImGui.TextDisabled(t("V_COL", { a: v.color1, b: v.color2 }));
-            ImGui.TextDisabled(t("V_HLTH", { n: Math.floor(v.health) }));
+                // Fila 2: Salud y Colores
+                uiStatRow("Salud del motor: ", Math.floor(v.health || 0) + " / 1000", (v.health > 500) ? COLORS.textOk : COLORS.textErr);
+                ImGui.SameLine(320.0);
+                uiStatRow("Colores: ", (v.color1 || 0) + " / " + (v.color2 || 0), COLORS.textMuted);
 
-            if (v.engineOn) {
-                ImGui.TextColored(t("V_ENG1"), 80, 180, 80, 255);
-            } else {
-                ImGui.TextColored(t("V_ENG0"), 180, 80, 80, 255);
+                // Fila 3: Motor y Candado
+                uiStatRow("Motor: ", v.engineOn ? "ENCENDIDO" : "APAGADO", v.engineOn ? COLORS.textOk : COLORS.textErr);
+                ImGui.SameLine(320.0);
+                uiStatRow("Candado: ", v.locked ? "BLOQUEADO" : "DESBLOQUEADO", v.locked ? COLORS.textWarn : COLORS.textOk);
+
+                // Fila 4: Coordenadas GPS
+                if (v.x !== undefined && v.y !== undefined) {
+                    uiStatRow("Coordenadas GPS: ", "X: " + v.x.toFixed(1) + " | Y: " + v.y.toFixed(1), COLORS.textMuted);
+                }
+            } finally {
+                ImGui.EndChild();
             }
-            if (v.locked) {
-                ImGui.TextColored(t("V_LCK1"), 180, 150, 60, 255);
-            } else {
-                ImGui.TextColored(t("V_LCK0"), 80, 180, 80, 255);
-            }
-
-            if (v.x !== undefined && v.y !== undefined) {
-                ImGui.TextDisabled(t("V_POS", {
-                    x: v.x.toFixed(1),
-                    y: v.y.toFixed(1)
-                }));
-            }
-
-            ImGui.EndChild();
             ImGui.Spacing();
         }
+    } finally {
+        ImGui.EndChild();
     }
-
-    ImGui.EndChild();
 }
 
 export function initVehiclesComponent() {
-    log("[GSIS] VehiclesComponent inicializado");
-    // Registrar este componente en el UIManager
+    log("[GSIS] VehiclesComponent inicializado con vista completa de lista");
     registerComponent("vehicles", renderVehiclesComponent);
-}
-
-// Ya no necesitamos update propio - el UIManager maneja el renderizado
-export function renderVehiclesComponentUpdate() {
-    // No-op: renderizado manejado por UIManager
 }
 
 register({
     name: "VehiclesComponent",
-    init: initVehiclesComponent,
-    update: renderVehiclesComponentUpdate
+    init: initVehiclesComponent
 });
