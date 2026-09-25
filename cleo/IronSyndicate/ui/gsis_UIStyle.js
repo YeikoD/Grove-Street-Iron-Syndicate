@@ -44,7 +44,16 @@ export var SIZES = {
     rightColW: 280.0,  // Columna derecha (Detalles del item seleccionado)
     btnSm: 24.0,
     btnMd: 28.0,
-    btnLg: 32.0
+    btnLg: 32.0,
+    // Anchos de ventanas secundarias
+    pickupW: 520.0,
+    dealerW: 560.0,
+    trunkW: 780.0,
+    sellW: 560.0,
+    // Anchos de botones de fila y acción
+    stepW: 26.0,
+    actionW: 90.0,
+    collectW: 90.0
 };
 
 export var COL = {

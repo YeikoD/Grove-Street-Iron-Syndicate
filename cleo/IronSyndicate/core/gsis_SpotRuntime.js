@@ -102,10 +102,15 @@ export function updateSpotFKeySpot(c, type, visible, hasSpheres) {
     var n = nearestSpot(type, c);  // Busca spot mas cercano
     var open = visible;
 
-    if (n.dist < DIST.DEALER_ACCESS && Pad.IsKeyJustPressed(KEYS.DEALER)) {
-        open = !open;  // Toggle al presionar F dentro de rango
+    // Auto-apertura al entrar en la esfera o presionar tecla F en rango
+    if (n.dist < DIST.SPHERE || (n.dist < DIST.DEALER_ACCESS && Pad.IsKeyJustPressed(KEYS.DEALER))) {
+        open = true;
     }
-    if (open && n.dist > DIST.DEALER_CLOSE) open = false;  // Auto-cierre por histeresis
+
+    // Auto-cierre al salir de la distancia de interacción (igual que menú de baúl)
+    if (open && n.dist > DIST.DEALER_CLOSE) {
+        open = false;
+    }
 
     return { visible: open, spot: n.spot };  // Retorna estado y spot
 }

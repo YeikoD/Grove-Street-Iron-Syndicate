@@ -105,7 +105,7 @@ function renderTabs() {
 function renderMain() {
     pushMenuStyle();
 
-    ImGui.SetNextWindowSize(SIZES.mainW, SIZES.mainH, COND.Once);
+    ImGui.SetNextWindowSize(SIZES.mainW, SIZES.mainH, COND.Always);
     ImGui.SetNextWindowPos(180.0, 100.0, COND.Once);
 
     var open = ImGui.Begin("GROVE STREET IRON SYNDICATE##GSIS_MAIN_UI", true, false, false, false, false);
@@ -126,18 +126,10 @@ function renderMain() {
     }
     endTabBody();
 
-    ImGui.Spacing();
-    ImGui.Separator();
-    ImGui.Spacing();
-
-    pushBtn(COLORS.danger);
-    var clickedClose = ImGui.Button("CERRAR MENÚ (ESC)##btn_close_main", SIZES.mainW - 30.0, SIZES.btnMd);
-    popBtn();
-
     ImGui.End();
     popMenuStyle();
 
-    if (clickedClose || !open) {
+    if (!open) {
         closeMenu();
     }
 }

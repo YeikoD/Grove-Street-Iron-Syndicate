@@ -24,8 +24,8 @@ export var DIST = {
     TRUNK_ACCESS: 3.0,        // Maxima distancia para tecla R (menu baul)
     SPHERE: 0.75,             // Radio de la sphere del baul (auto-apertura menu)
     MENU_CLOSE: 1.5,          // Distancia para auto-cerrar menu baul
-    DEALER_ACCESS: 2.0,       // Radio para tecla F (menu dealer)
-    DEALER_CLOSE: 3.0         // Auto-cierre menu dealer (histeresis > ACCESS)
+    DEALER_ACCESS: 1.5,       // Radio para tecla F / auto-apertura menu dealer/seller/pickup
+    DEALER_CLOSE: 1.5         // Auto-cierre por distancia al alejarse de la esfera (igual que baul)
 };
 
 // Timers (milisegundos / frames)

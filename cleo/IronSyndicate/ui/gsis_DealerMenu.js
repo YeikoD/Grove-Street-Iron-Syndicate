@@ -117,7 +117,7 @@ function renderDealerWindow() {
     _frameOpen = true;
 
     pushMenuStyle();
-    ImGui.SetNextWindowSize(SIZES.dealerW, SIZES.mainH, COND.Once);
+    ImGui.SetNextWindowSize(SIZES.dealerW, SIZES.mainH, COND.Always);
     ImGui.SetNextWindowPos(50.0, 60.0, COND.Once);
     var open = ImGui.Begin(dealerMenuTitle(), true, false, false, false, false);
 
@@ -148,10 +148,6 @@ function renderDealerWindow() {
     renderCartSummary();
     ImGui.Spacing();
 
-    pushBtn(COLORS.danger);
-    _closeRequested = ImGui.Button(t("BTN_CLS"), SIZES.dealerW - 20, SIZES.btnLg);
-    popBtn();
-
     ImGui.End();
     popMenuStyle();
 
@@ -167,7 +163,7 @@ function afterDealerFrame() {
             closeDealerMenu();
         }
     }
-    if (_closeRequested || !_frameOpen) {
+    if (!_frameOpen) {
         closeDealerMenu();
     }
 }

@@ -226,13 +226,8 @@ function renderPickupWindow() {
     ImGui.Separator();
     ImGui.Spacing();
 
-    var half = (SIZES.pickupW - 30) / 2;
     pushBtn(COLORS.accent);
-    _clickedAll = ImGui.Button(t("BTN_ALL"), half, SIZES.btnLg);
-    popBtn();
-    ImGui.SameLine();
-    pushBtn(COLORS.danger);
-    _closeRequested = ImGui.Button(t("BTN_CLS"), half, SIZES.btnLg);
+    _clickedAll = ImGui.Button(t("BTN_ALL"), SIZES.pickupW - 20, SIZES.btnLg);
     popBtn();
 
     ImGui.End();
@@ -248,7 +243,7 @@ function afterPickupFrame() {
     if (_clickedAll) {
         collectAll();
     }
-    if (_closeRequested || !_frameOpen) {
+    if (!_frameOpen) {
         closePickupMenu();
     }
 }

@@ -50,7 +50,6 @@ var _showBudget = false;
 var _clickedOfferId = null;
 var _clickedOfferQty = 0;
 var _clickedOfferPrice = 0;
-var _closeRequested = false;
 var _frameOpen = true;
 
 function sellListHeight(itemCount) {
@@ -61,7 +60,7 @@ function sellListHeight(itemCount) {
 }
 
 function calcSellMenuHeight(itemCount) {
-    return Math.max(320, 30 + 96 + sellListHeight(itemCount) + 70);
+    return Math.max(260, 30 + 60 + sellListHeight(itemCount) + 25);
 }
 
 function getSellRowQty(itemId, maxQty) {
@@ -186,7 +185,6 @@ function renderSellWindow() {
     _clickedOfferId = null;
     _clickedOfferQty = 0;
     _clickedOfferPrice = 0;
-    _closeRequested = false;
     _frameOpen = true;
 
     var list = getSellableWeapons();
@@ -218,14 +216,6 @@ function renderSellWindow() {
         renderWeaponList(list);
     }
 
-    ImGui.Spacing();
-    ImGui.Separator();
-    ImGui.Spacing();
-
-    pushBtn(COLORS.danger);
-    _closeRequested = ImGui.Button(t("BTN_CLS"), SIZES.sellW - 20, SIZES.btnLg);
-    popBtn();
-
     ImGui.End();
     popMenuStyle();
 
@@ -236,7 +226,7 @@ function afterSellFrame() {
     if (_clickedOfferId) {
         doOffer(_clickedOfferId, _clickedOfferQty, _clickedOfferPrice);
     }
-    if (_closeRequested || !_frameOpen) {
+    if (!_frameOpen) {
         closeSellMenu();
     }
 }

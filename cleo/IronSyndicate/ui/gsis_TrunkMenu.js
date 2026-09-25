@@ -283,10 +283,6 @@ function renderTrunkWindow() {
     ImGui.TextDisabled(t("TRK_HNT"));
     ImGui.Spacing();
 
-    pushBtn(COLORS.danger);
-    _closeRequested = ImGui.Button(t("BTN_CTB"), SIZES.trunkW - 20, SIZES.btnLg);
-    popBtn();
-
     ImGui.End();
     popMenuStyle();
 
@@ -297,7 +293,7 @@ function afterTrunkFrame() {
     if (_clickId !== null && _clickVehicleId !== -1) {
         doTransfer(_clickVehicleId, _clickToTrunk, _clickId, _clickQty);
     }
-    if (_closeRequested || !_frameOpen) {
+    if (!_frameOpen) {
         resetQty();
         closeTrunk();
     }
