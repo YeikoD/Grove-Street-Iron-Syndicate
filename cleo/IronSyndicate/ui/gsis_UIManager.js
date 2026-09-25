@@ -196,7 +196,7 @@ export function renderUIManager() {
 
     try {
         // SetCursorVisible DEBE ejecutarse dentro de BeginFrame para actualizar el estado del cursor
-        ImGui.SetCursorVisible(anyVisible);
+        ImGui.SetCursorVisible(anyVisible ? 1 : 0);
         _cursorWasVisible = anyVisible;
 
         if (_uiState.menuVisible) {
