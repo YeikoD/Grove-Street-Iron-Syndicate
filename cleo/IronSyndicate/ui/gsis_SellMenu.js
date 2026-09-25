@@ -1,11 +1,5 @@
 // ============================================================================
-// GSIS SellMenu - Menu de trueque (punto de venta de armas)
-// ============================================================================
-// Lista solo armas del inventario con qty + oferta + Ofrecer.
-// NPC (personaje activo de la esfera) evalua techo/presupuesto;
-// UI orquesta removeItem + addScore.
-// Feedback via characters:say con characterId activo (seller_local/Juan/…).
-// Ventana registrada en UIManager (acciones en after(), post-EndFrame).
+// GSIS SellMenu - Menu de trueque (punto de venta de armas, Diseño Full-Width)
 // ============================================================================
 
 import { register } from "../core/gsis_ModuleRegistry.js";
@@ -13,7 +7,7 @@ import { registerWindow } from "./gsis_UIManager.js";
 import {
     SIZES, COND, COLORS,
     pushMenuStyle, popMenuStyle,
-    pushBtn, popBtn
+    uiButton, uiStatRow, uiSectionHeader, textColored
 } from "./gsis_UIStyle.js";
 import {
     isSellMenuVisible, closeSellMenu,
@@ -35,33 +29,20 @@ function playNpcLine(key, params) {
     });
 }
 
-// Título: nombre del personaje activo o fallback SEL_TTL
 function sellMenuTitle() {
     var n = query("characters:name", { characterId: getActiveCharacterId() });
-    if (n && n.name) return n.name;
+    if (n && n.name) return n.name + " - COMERCIO DE ARMAS";
     return t("SEL_TTL");
 }
 
-var _qty = {};        // { itemId: qty }
-var _offer = {};      // { itemId: precio unitario }
+var _qty = {};
+var _offer = {};
 var _showBudget = false;
 
-// deferred click
 var _clickedOfferId = null;
 var _clickedOfferQty = 0;
 var _clickedOfferPrice = 0;
 var _frameOpen = true;
-
-function sellListHeight(itemCount) {
-    var h = 16 + itemCount * 36;
-    if (h < 50) return 50;
-    if (h > 340) return 340;
-    return h;
-}
-
-function calcSellMenuHeight(itemCount) {
-    return Math.max(260, 30 + 60 + sellListHeight(itemCount) + 25);
-}
 
 function getSellRowQty(itemId, maxQty) {
     if (!_qty[itemId]) _qty[itemId] = 1;
@@ -76,7 +57,6 @@ function getRowOffer(itemId, sellPrice) {
     return _offer[itemId];
 }
 
-// Armas del inventario con sellPrice > 0
 function getSellableWeapons() {
     var items = getItems();
     var list = [];
@@ -99,63 +79,75 @@ function invQty(itemId) {
 }
 
 function renderWeaponList(list) {
-    ImGui.BeginChild("sl_list", 0, sellListHeight(list.length), true);
-    ImGui.Columns(5);
+    ImGui.BeginChild("sl_list", 0, -85.0, true);
+
+    uiSectionHeader("ARMAS DISPONIBLES EN TU INVENTARIO");
+
+    if (list.length === 0) {
+        ImGui.Spacing();
+        ImGui.TextDisabled(t("SEL_NON"));
+        ImGui.EndChild();
+        return;
+    }
+
+    ImGui.Columns(4);
+    textColored("ARMA", COLORS.textGold);
+    ImGui.NextColumn();
+    textColored("VALOR BASE", COLORS.textGold);
+    ImGui.NextColumn();
+    textColored("CANTIDAD Y OFERTA ($)", COLORS.textGold);
+    ImGui.NextColumn();
+    textColored("ACCIÓN", COLORS.textGold);
+    ImGui.NextColumn();
+    ImGui.Separator();
 
     for (var i = 0; i < list.length; i++) {
         var it = list[i];
         var maxQty = it.qty;
 
-        ImGui.Text(getItemName(it.id) + " x" + maxQty);
+        ImGui.Text(getItemName(it.id));
         ImGui.NextColumn();
 
-        ImGui.TextDisabled("$" + it.sellPrice);
+        ImGui.Text("$" + it.sellPrice);
         ImGui.NextColumn();
 
         var q = getSellRowQty(it.id, maxQty);
-        if (ImGui.Button("<##sq_" + it.id, SIZES.stepW, SIZES.btnSm)) {
+        if (ImGui.Button("<##sq_" + it.id, 16, SIZES.btnSm)) {
             if (q > 1) _qty[it.id] = q - 1;
         }
         ImGui.SameLine();
-        ImGui.Text("" + q);
+        ImGui.Text("" + q + "/" + maxQty);
         ImGui.SameLine();
-        if (ImGui.Button(">##sq_" + it.id, SIZES.stepW, SIZES.btnSm)) {
+        if (ImGui.Button(">##sq_" + it.id, 16, SIZES.btnSm)) {
             if (q < maxQty) _qty[it.id] = q + 1;
         }
-        ImGui.NextColumn();
 
+        ImGui.SameLine(130.0);
         var off = getRowOffer(it.id, it.sellPrice);
-        if (ImGui.Button("<##so_" + it.id, SIZES.stepW, SIZES.btnSm)) {
+        if (ImGui.Button("<##so_" + it.id, 16, SIZES.btnSm)) {
             if (off > 10) _offer[it.id] = off - 10;
             else _offer[it.id] = 1;
         }
         ImGui.SameLine();
         ImGui.Text("$" + off);
         ImGui.SameLine();
-        if (ImGui.Button(">##so_" + it.id, SIZES.stepW, SIZES.btnSm)) {
+        if (ImGui.Button(">##so_" + it.id, 16, SIZES.btnSm)) {
             _offer[it.id] = off + 10;
         }
         ImGui.NextColumn();
 
-        pushBtn(COLORS.accent);
-        if (ImGui.Button(t("BTN_OFF") + "##sl_" + it.id, SIZES.actionW, SIZES.btnSm)) {
+        if (uiButton("OFERTAR ARMA##sl_" + it.id, 130.0, SIZES.btnSm, COLORS.accent)) {
             _clickedOfferId = it.id;
             _clickedOfferQty = getSellRowQty(it.id, maxQty);
             _clickedOfferPrice = getRowOffer(it.id, it.sellPrice);
         }
-        popBtn();
         ImGui.NextColumn();
-
-        if (i < list.length - 1) {
-            ImGui.Separator();
-        }
     }
 
     ImGui.Columns(1);
     ImGui.EndChild();
 }
 
-// Ofrecer: pre-check qty -> offerWeapon -> removeItem + addScore
 function doOffer(itemId, qty, unitPrice) {
     var have = invQty(itemId);
     if (have < qty) {
@@ -191,29 +183,35 @@ function renderSellWindow() {
     var state = getSellState();
 
     pushMenuStyle();
-    ImGui.SetNextWindowSize(SIZES.sellW, calcSellMenuHeight(list.length), COND.Always);
-    ImGui.SetNextWindowPos(60.0, 80.0, COND.Once);
-    var open = ImGui.Begin(sellMenuTitle(), true, false, true, false, false);
+    ImGui.SetNextWindowSize(SIZES.sellW, SIZES.mainH, 1);
+    ImGui.SetNextWindowPos(180.0, 100.0, 2);
+    var open = ImGui.Begin(sellMenuTitle(), true, false, false, false, false);
+    ImGui.SetWindowSize(SIZES.sellW, SIZES.mainH, 0);
 
-    try {
-        ImGui.Text(t("MONEY", { n: new Player(0).storeScore() }));
-    } catch (e) {
-        ImGui.Text(t("MONEY2"));
-    }
-    ImGui.SameLine();
-    ImGui.TextDisabled("|  " + t("SEL_BUS", { list: state.interests.join(", ") }));
-    if (_showBudget) {
-        ImGui.SameLine();
-        ImGui.TextDisabled("|  " + t("SEL_BUD", { n: state.budget }));
-    }
+    var moneyStr = "$0";
+    try { moneyStr = "$" + new Player(0).storeScore().toLocaleString(); } catch (e) { }
+
+    uiStatRow("TU DINERO: ", moneyStr, COLORS.textGreen);
+    ImGui.SameLine(280.0);
+    uiStatRow("INTERÉS COMPRADOR: ", state.interests.join(", "), COLORS.textGold);
+
     ImGui.Spacing();
     ImGui.Separator();
     ImGui.Spacing();
 
-    if (list.length === 0) {
-        ImGui.TextDisabled(t("SEL_NON"));
-    } else {
-        renderWeaponList(list);
+    renderWeaponList(list);
+
+    ImGui.Spacing();
+    ImGui.Separator();
+    ImGui.Spacing();
+
+    textColored("NEGOCIACIÓN: ", COLORS.textGold);
+    ImGui.SameLine();
+    ImGui.TextDisabled("Los compradores pagan un extra considerable si el arma coincide con sus intereses.");
+
+    if (_showBudget) {
+        ImGui.SameLine();
+        uiStatRow("| PRESUPUESTO COMPRADOR: ", "$" + state.budget, COLORS.textGreen);
     }
 
     ImGui.End();

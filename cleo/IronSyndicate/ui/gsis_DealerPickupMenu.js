@@ -1,10 +1,5 @@
 // ============================================================================
-// GSIS DealerPickupMenu - Menu de retiro de pedidos del dealer
-// ============================================================================
-// Retiro item a item (qty del jugador) o RECOGER TODO.
-// Seguridad: pre-check peso (MISC.MAX_INVENTORY_WEIGHT) antes de addItem; solo quita del pedido
-// despues de addItem exitoso (sin items gratis ni pedido huerfano).
-// Ventana registrada en UIManager (acciones en after(), post-EndFrame).
+// GSIS DealerPickupMenu - Menu de retiro de pedidos del dealer (Diseño Full-Width)
 // ============================================================================
 
 import { register } from "../core/gsis_ModuleRegistry.js";
@@ -12,7 +7,7 @@ import { registerWindow } from "./gsis_UIManager.js";
 import {
     SIZES, COND, COLORS,
     pushMenuStyle, popMenuStyle,
-    pushBtn, popBtn
+    uiButton, uiStatRow, uiSectionHeader, textColored
 } from "./gsis_UIStyle.js";
 import {
     isPickupMenuVisible, closePickupMenu,
@@ -23,25 +18,11 @@ import { getItemName, getItemWeight } from "../data/gsis_item_data.js";
 import { MISC } from "../core/gsis_Config.js";
 import { t } from "../core/gsis_L10n.js";
 
-var _qty = {}; // { itemId: qty } selector local por fila
-
-// deferred click (fuera de Columns para no romper layout)
+var _qty = {};
 var _clickedCollectId = null;
 var _clickedCollectQty = 0;
 var _clickedAll = false;
-var _closeRequested = false;
 var _frameOpen = true;
-
-function pickupListHeight(itemCount) {
-    var h = 16 + itemCount * 34;
-    if (h < 50) return 50;
-    if (h > 320) return 320;
-    return h;
-}
-
-function calcPickupMenuHeight(itemCount) {
-    return Math.max(300, 30 + 78 + pickupListHeight(itemCount) + 78);
-}
 
 function freeWeight() {
     return MISC.MAX_INVENTORY_WEIGHT - getTotalWeight();
@@ -69,11 +50,6 @@ function getPickupRowQty(itemId, maxQty) {
     return _qty[itemId];
 }
 
-// Retiro seguro de qty de un item:
-// 1) qty valido dentro del pedido
-// 2) pre-check peso (MISC.MAX_INVENTORY_WEIGHT)
-// 3) addItem
-// 4) recien ahi removeFromOrder
 function collectItem(itemId, qty) {
     var order = getOrder();
     if (!order) return false;
@@ -81,35 +57,33 @@ function collectItem(itemId, qty) {
 
     var maxInOrder = orderQty(order, itemId);
     if (maxInOrder <= 0 || qty > maxInOrder) {
-        showTextBox(t("PKC_IVL"));
+        try { showTextBox(t("PKC_IVL")); } catch(e){}
         return false;
     }
 
     var w = getItemWeight(itemId) * qty;
     var free = freeWeight();
     if (w > free) {
-        showTextBox(t("INV_FR", {
-            free: free.toFixed(1),
-            need: w.toFixed(1)
-        }));
+        try {
+            showTextBox(t("INV_FR", {
+                free: free.toFixed(1),
+                need: w.toFixed(1)
+            }));
+        } catch(e){}
         return false;
     }
 
-    log("[DealerPickupMenu] Intentando agregar: " + itemId + " x" + qty);
     if (!addItem(itemId, qty)) {
-        log("[DealerPickupMenu] ERROR: addItem fallo para " + itemId);
-        showTextBox(t("PKC_ERR", { name: getItemName(itemId) }));
+        try { showTextBox(t("PKC_ERR", { name: getItemName(itemId) })); } catch(e){}
         return false;
     }
 
-    log("[DealerPickupMenu] addItem exitoso, removiendo del pedido: " + itemId);
     removeFromOrder(itemId, qty);
     _qty[itemId] = 1;
-    showTextBox(t("PKC_TAK", { qty: qty, name: getItemName(itemId) }));
+    try { showTextBox(t("PKC_TAK", { qty: qty, name: getItemName(itemId) })); } catch(e){}
     return true;
 }
 
-// RECOGER TODO: pre-check total, luego item por item (addItem + removeFromOrder)
 function collectAll() {
     var order = getOrder();
     if (!order) return false;
@@ -117,10 +91,12 @@ function collectAll() {
     var orderWeight = calcOrderWeight(order);
     var free = freeWeight();
     if (orderWeight > free) {
-        showTextBox(t("PKC_NOC", {
-            free: free.toFixed(1),
-            order: orderWeight.toFixed(1)
-        }));
+        try {
+            showTextBox(t("PKC_NOC", {
+                free: free.toFixed(1),
+                order: orderWeight.toFixed(1)
+            }));
+        } catch(e){}
         return false;
     }
 
@@ -137,48 +113,54 @@ function collectAll() {
     }
 
     _qty = {};
-    showTextBox(t("PKC_ALL"));
+    try { showTextBox(t("PKC_ALL")); } catch(e){}
     return true;
 }
 
 function renderOrderList(order) {
-    ImGui.BeginChild("pk_list", 0, pickupListHeight(order.items.length), true);
+    ImGui.BeginChild("pk_list", 0, -80.0, true);
+
+    uiSectionHeader("OBJETOS DISPONIBLES EN EL PEDIDO");
+
     ImGui.Columns(4);
+    textColored("PRODUCTO", COLORS.textGold);
+    ImGui.NextColumn();
+    textColored("PESO UNITARIO", COLORS.textGold);
+    ImGui.NextColumn();
+    textColored("CANTIDAD", COLORS.textGold);
+    ImGui.NextColumn();
+    textColored("ACCIÓN", COLORS.textGold);
+    ImGui.NextColumn();
+    ImGui.Separator();
 
     for (var i = 0; i < order.items.length; i++) {
         var it = order.items[i];
         var maxQty = it.qty;
         var unitW = getItemWeight(it.id);
 
-        ImGui.Text(getItemName(it.id) + " x" + maxQty);
+        ImGui.Text(getItemName(it.id));
         ImGui.NextColumn();
 
-        ImGui.TextDisabled(unitW.toFixed(1) + " kg/u");
+        ImGui.Text(unitW.toFixed(1) + " kg");
         ImGui.NextColumn();
 
         var q = getPickupRowQty(it.id, maxQty);
-        if (ImGui.Button("<##pk_" + it.id, SIZES.stepW, SIZES.btnMd)) {
+        if (ImGui.Button("<##pk_" + it.id, 20, SIZES.btnSm)) {
             if (q > 1) _qty[it.id] = q - 1;
         }
         ImGui.SameLine();
-        ImGui.Text("" + q);
+        ImGui.Text("" + q + " / " + maxQty);
         ImGui.SameLine();
-        if (ImGui.Button(">##pk_" + it.id, SIZES.stepW, SIZES.btnMd)) {
+        if (ImGui.Button(">##pk_" + it.id, 20, SIZES.btnSm)) {
             if (q < maxQty) _qty[it.id] = q + 1;
         }
         ImGui.NextColumn();
 
-        pushBtn(COLORS.accent);
-        if (ImGui.Button(t("BTN_PCK") + "##" + it.id, SIZES.collectW, SIZES.btnMd)) {
+        if (uiButton("RETIRAR OBJETO##pk_" + it.id, 130.0, SIZES.btnSm, COLORS.accent)) {
             _clickedCollectId = it.id;
             _clickedCollectQty = getPickupRowQty(it.id, maxQty);
         }
-        popBtn();
         ImGui.NextColumn();
-
-        if (i < order.items.length - 1) {
-            ImGui.Separator();
-        }
     }
 
     ImGui.Columns(1);
@@ -189,7 +171,6 @@ function renderPickupWindow() {
     _clickedCollectId = null;
     _clickedCollectQty = 0;
     _clickedAll = false;
-    _closeRequested = false;
     _frameOpen = true;
 
     var order = getOrder();
@@ -199,23 +180,21 @@ function renderPickupWindow() {
     }
 
     pushMenuStyle();
-    ImGui.SetNextWindowSize(SIZES.pickupW, calcPickupMenuHeight(order.items.length), COND.Always);
-    ImGui.SetNextWindowPos(60.0, 80.0, COND.Once);
-    var open = ImGui.Begin(t("PKC_TTL"), true, false, true, false, false);
+    ImGui.SetNextWindowSize(SIZES.pickupW, SIZES.mainH, 1);
+    ImGui.SetNextWindowPos(180.0, 100.0, 2);
+    var open = ImGui.Begin(t("PKC_TTL"), true, false, false, false, false);
+    ImGui.SetWindowSize(SIZES.pickupW, SIZES.mainH, 0);
 
-    var orderWeight = calcOrderWeight(order);
     var invW = getTotalWeight();
-    ImGui.Text(t("INV_L", {
-        w: invW.toFixed(1),
-        max: MISC.MAX_INVENTORY_WEIGHT
-    }));
-    ImGui.SameLine();
-    ImGui.TextDisabled("|  " + t("FRE_L", { n: freeWeight().toFixed(1) }));
-    ImGui.Spacing();
-    ImGui.Text(t("PKC_ORD", {
-        n: order.total,
-        w: orderWeight.toFixed(1)
-    }));
+    var orderW = calcOrderWeight(order);
+    var freeW = freeWeight();
+
+    uiStatRow("INVENTARIO CJ: ", invW.toFixed(1) + "/" + MISC.MAX_INVENTORY_WEIGHT + "kg", COLORS.textGreen);
+    ImGui.SameLine(280.0);
+    uiStatRow("PESO PEDIDO: ", orderW.toFixed(1) + "kg", COLORS.textGold);
+    ImGui.SameLine(480.0);
+    uiStatRow("ESPACIO LIBRE: ", freeW.toFixed(1) + "kg", freeW >= orderW ? COLORS.textGreen : COLORS.textDanger);
+
     ImGui.Spacing();
     ImGui.Separator();
     ImGui.Spacing();
@@ -226,9 +205,9 @@ function renderPickupWindow() {
     ImGui.Separator();
     ImGui.Spacing();
 
-    pushBtn(COLORS.accent);
-    _clickedAll = ImGui.Button(t("BTN_ALL"), SIZES.pickupW - 20, SIZES.btnLg);
-    popBtn();
+    if (uiButton("RECOGER TODO EL PEDIDO##all", 280.0, SIZES.btnLg, COLORS.accent)) {
+        _clickedAll = true;
+    }
 
     ImGui.End();
     popMenuStyle();

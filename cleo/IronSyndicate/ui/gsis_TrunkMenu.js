@@ -1,10 +1,5 @@
 // ============================================================================
-// GSIS TrunkMenu - Menu de baul (inventario <-> baul)
-// ============================================================================
-// Layout: header pesos, dos paneles scroll (inv | baul), qty por fila,
-//         Guardar/Sacar con pre-check de peso, Cerrar.
-// Ventana registrada en UIManager (render dentro de su frame; acciones
-// diferidas en after(), post-EndFrame, patron DealerPickupMenu).
+// GSIS TrunkMenu - Menu de baul (inventario <-> baul, Diseño Stacked Full-Width)
 // ============================================================================
 
 import { isTrunkOpen, getTrunkVehicleId, isTrunkMenuVisible, closeTrunkMenu, closeTrunk } from "../modules/gsis_Trunk.js";
@@ -20,15 +15,14 @@ import { registerWindow } from "./gsis_UIManager.js";
 import {
     SIZES, COND, COLORS,
     pushMenuStyle, popMenuStyle,
-    pushBtn, popBtn,
-    sectionTitle
+    uiButton, uiStatRow, uiSectionHeader, textColored
 } from "./gsis_UIStyle.js";
 import { t } from "../core/gsis_L10n.js";
 import { getVehicleName } from "../data/gsis_vehicle_data.js";
 import { getItemName, getItemWeight, getItemType, getMagazineDisplayName } from "../data/gsis_item_data.js";
 import { getClipSizeByItemId } from "../data/gsis_weapon_data.js";
 
-var _qty = {}; // { side_id: qty } selector local por fila
+var _qty = {};
 
 var CATEGORIES = [
     { key: "weapon", labelKey: "CAT_WPN" },
@@ -36,24 +30,11 @@ var CATEGORIES = [
     { key: "material", labelKey: "CAT_MAT" }
 ];
 
-// deferred click (fuera de Columns/End para no romper layout)
 var _clickToTrunk = false;
 var _clickId = null;
 var _clickQty = 0;
 var _clickVehicleId = -1;
-var _closeRequested = false;
 var _frameOpen = true;
-
-function trunkListHeight(rowCount) {
-    var h = 16 + rowCount * 34;
-    if (h < 80) return 80;
-    if (h > 340) return 340;
-    return h;
-}
-
-function calcMenuHeight(invCount, trunkCount) {
-    return Math.max(320, 110 + trunkListHeight(Math.max(invCount, trunkCount)) + 80);
-}
 
 function getTrunkRowQty(key, maxQty) {
     if (!_qty[key]) _qty[key] = 1;
@@ -66,9 +47,6 @@ function resetQty() {
     _qty = {};
 }
 
-// Transferencia segura inv<->baul con pre-check de espacio:
-// toTrunk=true: inv -> baul (chequea libre del baul; addToTrunk falla en silencio)
-// toTrunk=false: baul -> inv (chequea libre del inventario; mensaje detallado)
 function doTransfer(vehicleId, toTrunk, id, qty) {
     if (qty < 1) return false;
     var w = getItemWeight(id) * qty;
@@ -77,55 +55,46 @@ function doTransfer(vehicleId, toTrunk, id, qty) {
     if (toTrunk) {
         var trunkFree = getTrunkMaxCapacity(vehicleId) - getTrunkWeight(vehicleId);
         if (w > trunkFree) {
-            showTextBox(t("TRK_FUL", {
-                free: trunkFree.toFixed(1),
-                need: w.toFixed(1)
-            }));
+            try {
+                showTextBox(t("TRK_FUL", {
+                    free: trunkFree.toFixed(1),
+                    need: w.toFixed(1)
+                }));
+            } catch(e){}
             return false;
         }
         if (!addToTrunk(vehicleId, id, qty)) {
-            showTextBox(t("TRK_NOG"));
+            try { showTextBox(t("TRK_NOG")); } catch(e){}
             return false;
         }
-        showTextBox(t("TRK_PUT", { qty: qty, name: name }));
+        try { showTextBox(t("TRK_PUT", { qty: qty, name: name })); } catch(e){}
         _qty["i_" + id] = 1;
         return true;
     }
 
     var invFree = MISC.MAX_INVENTORY_WEIGHT - getTotalWeight();
     if (w > invFree) {
-        showTextBox(t("INV_FR", {
-            free: invFree.toFixed(1),
-            need: w.toFixed(1)
-        }));
+        try {
+            showTextBox(t("INV_FR", {
+                free: invFree.toFixed(1),
+                need: w.toFixed(1)
+            }));
+        } catch(e){}
         return false;
     }
     if (!removeFromTrunk(vehicleId, id, qty)) {
-        showTextBox(t("TRK_NON"));
+        try { showTextBox(t("TRK_NON")); } catch(e){}
         return false;
     }
-    showTextBox(t("TRK_TAK", { qty: qty, name: name }));
+    try { showTextBox(t("TRK_TAK", { qty: qty, name: name })); } catch(e){}
     _qty["t_" + id] = 1;
     return true;
 }
 
-function countRows(items) {
-    var n = 0;
-    for (var c = 0; c < CATEGORIES.length; c++) {
-        for (var i = 0; i < items.length; i++) {
-            if (getItemType(items[i].id) === CATEGORIES[c].key) n++;
-        }
-    }
-    return n;
-}
+function renderSide(listId, title, items, vehicleId, toTrunk, height) {
+    ImGui.BeginChild(listId, 0, height, true);
 
-// Lado del panel: child con borde + titulo DENTRO (mismo diseno en ambos lados)
-// 4 cols (nombre | peso/u | qty | accion); separador entre filas de la categoria
-function renderSide(listId, title, items, vehicleId, toTrunk, listH) {
-    ImGui.BeginChild(listId, 0, listH, true);
-    ImGui.Text(title);
-    ImGui.Separator();
-    ImGui.Spacing();
+    uiSectionHeader(title);
 
     var side = toTrunk ? "i" : "t";
     var shown = 0;
@@ -141,59 +110,56 @@ function renderSide(listId, title, items, vehicleId, toTrunk, listH) {
         if (catItems.length === 0) continue;
         shown += catItems.length;
 
-        sectionTitle(t(cat.labelKey));
         ImGui.Columns(4);
+
+        textColored("OBJETO", COLORS.textGold);
+        ImGui.NextColumn();
+        textColored("PESO", COLORS.textGold);
+        ImGui.NextColumn();
+        textColored("CANTIDAD", COLORS.textGold);
+        ImGui.NextColumn();
+        textColored("ACCIÓN", COLORS.textGold);
+        ImGui.NextColumn();
+        ImGui.Separator();
 
         for (var j = 0; j < catItems.length; j++) {
             var item = catItems[j];
             var maxQty = item.qty;
             var key = side + "_" + item.id;
+            var w = getItemWeight(item.id).toFixed(1);
 
             if (cat.key === "magazine") {
                 var magCap = getClipSizeByItemId(item.id);
                 var magAmmo = (item.ammo === undefined || item.ammo === null) ? (magCap || 0) : item.ammo;
                 ImGui.Text(getMagazineDisplayName(item) + " (" + magAmmo + "/" + magCap + ")");
             } else {
-                ImGui.Text(getItemName(item.id) + " x" + maxQty);
+                ImGui.Text(getItemName(item.id));
             }
             ImGui.NextColumn();
 
-            ImGui.TextDisabled(getItemWeight(item.id).toFixed(1) + " kg/u");
+            ImGui.Text(w + " kg (x" + maxQty + ")");
             ImGui.NextColumn();
 
             var q = getTrunkRowQty(key, maxQty);
-            if (ImGui.Button("<##" + key, SIZES.stepW, SIZES.btnMd)) {
+            if (ImGui.Button("<##" + key, 18, SIZES.btnSm)) {
                 if (q > 1) _qty[key] = q - 1;
             }
             ImGui.SameLine();
-            ImGui.Text("" + q);
+            ImGui.Text("" + q + " / " + maxQty);
             ImGui.SameLine();
-            if (ImGui.Button(">##" + key, SIZES.stepW, SIZES.btnMd)) {
+            if (ImGui.Button(">##" + key, 18, SIZES.btnSm)) {
                 if (q < maxQty) _qty[key] = q + 1;
             }
             ImGui.NextColumn();
 
-            pushBtn(COLORS.accent);
-            if (toTrunk) {
-                if (ImGui.Button(t("BTN_PUT") + "##" + key, SIZES.actionW, SIZES.btnMd)) {
-                    _clickToTrunk = true;
-                    _clickId = item.id;
-                    _clickQty = getTrunkRowQty(key, maxQty);
-                    _clickVehicleId = vehicleId;
-                }
-            } else {
-                if (ImGui.Button(t("BTN_TK") + "##" + key, SIZES.actionW, SIZES.btnMd)) {
-                    _clickToTrunk = false;
-                    _clickId = item.id;
-                    _clickQty = getTrunkRowQty(key, maxQty);
-                    _clickVehicleId = vehicleId;
-                }
+            var btnText = toTrunk ? "GUARDAR EN BAÚL" : "SACAR A INVENTARIO";
+            if (uiButton(btnText + "##" + key, 150.0, SIZES.btnSm, COLORS.accent)) {
+                _clickToTrunk = toTrunk;
+                _clickId = item.id;
+                _clickQty = getTrunkRowQty(key, maxQty);
+                _clickVehicleId = vehicleId;
             }
-            popBtn();
             ImGui.NextColumn();
-            if (j < catItems.length - 1) {
-                ImGui.Separator();
-            }
         }
         ImGui.Columns(1);
         ImGui.Spacing();
@@ -201,6 +167,7 @@ function renderSide(listId, title, items, vehicleId, toTrunk, listH) {
 
     ImGui.Columns(1);
     if (shown === 0) {
+        ImGui.Spacing();
         ImGui.TextDisabled(toTrunk ? t("TRK_EMI") : t("TRK_EMB"));
     }
     ImGui.EndChild();
@@ -210,7 +177,6 @@ function renderTrunkWindow() {
     _clickId = null;
     _clickQty = 0;
     _clickVehicleId = -1;
-    _closeRequested = false;
     _frameOpen = true;
 
     if (!isTrunkOpen() || getTrunkVehicleId() === -1) {
@@ -241,47 +207,27 @@ function renderTrunkWindow() {
     var trunkWeight = getTrunkWeight(vehicleId);
     var trunkMax = getTrunkMaxCapacity(vehicleId);
     var invWeight = getTotalWeight();
-    var invFree = MISC.MAX_INVENTORY_WEIGHT - invWeight;
-    var trunkFree = trunkMax - trunkWeight;
-    var listH = trunkListHeight(Math.max(countRows(invItems), countRows(trunkItems)));
 
     pushMenuStyle();
-    ImGui.SetNextWindowSize(SIZES.trunkW, calcMenuHeight(
-        countRows(invItems), countRows(trunkItems)), COND.Always);
-    ImGui.SetNextWindowPos(50.0, 100.0, COND.Once);
+    ImGui.SetNextWindowSize(SIZES.trunkW, SIZES.mainH, 1);
+    ImGui.SetNextWindowPos(180.0, 100.0, 2);
     var open = ImGui.Begin(t("TRK_TTL", {
         name: modelName,
         model: vehicle.model
-    }), true, false, true, false, false);
+    }), true, false, false, false, false);
+    ImGui.SetWindowSize(SIZES.trunkW, SIZES.mainH, 0);
 
-    ImGui.Text(t("INV_L", {
-        w: invWeight.toFixed(1),
-        max: MISC.MAX_INVENTORY_WEIGHT
-    }));
-    ImGui.SameLine();
-    ImGui.TextDisabled("|  " + t("FRE_L", { n: invFree.toFixed(1) }));
-    ImGui.Spacing();
-    ImGui.Text(t("TRK_L", {
-        w: trunkWeight.toFixed(1),
-        max: trunkMax
-    }));
-    ImGui.SameLine();
-    ImGui.TextDisabled("|  " + t("FRE_L", { n: trunkFree.toFixed(1) }));
-    ImGui.Spacing();
-    ImGui.Separator();
-    ImGui.Spacing();
-
-    ImGui.Columns(2);
-    renderSide("tk_inv", t("INV_HDR"), invItems, vehicleId, true, listH);
-    ImGui.NextColumn();
-    renderSide("tk_baul", t("TRK_H"), trunkItems, vehicleId, false, listH);
-    ImGui.Columns(1);
+    uiStatRow("INVENTARIO CJ: ", invWeight.toFixed(1) + "/" + MISC.MAX_INVENTORY_WEIGHT + "kg", COLORS.textGreen);
+    ImGui.SameLine(280.0);
+    uiStatRow("BAÚL (" + modelName + "): ", trunkWeight.toFixed(1) + "/" + trunkMax + "kg", COLORS.textGold);
 
     ImGui.Spacing();
     ImGui.Separator();
     ImGui.Spacing();
-    ImGui.TextDisabled(t("TRK_HNT"));
+
+    renderSide("tk_inv", "INVENTARIO CJ (GUARDAR EN BAÚL)", invItems, vehicleId, true, 185.0);
     ImGui.Spacing();
+    renderSide("tk_baul", "CONTENIDO DEL BAÚL (SACAR A INVENTARIO)", trunkItems, vehicleId, false, 185.0);
 
     ImGui.End();
     popMenuStyle();

@@ -1,11 +1,5 @@
 // ============================================================================
-// GSIS DealerMenu - Menu carrito del dealer mayorista
-// ============================================================================
-// Layout: header (dinero + total), catalogo con qty por fila + Agregar,
-//         resumen carrito, botones RESETEAR/COMPRAR, Cerrar
-// Compra orquestada desde UI: checkout() en WeaponDealer module
-// Personaje activo de la esfera: título + precios (ch.dealer markup/prices)
-// Ventana registrada en UIManager (acciones en after(), post-EndFrame).
+// GSIS DealerMenu - Menu carrito del dealer mayorista (Diseño Full-Width)
 // ============================================================================
 
 import { register } from "../core/gsis_ModuleRegistry.js";
@@ -13,7 +7,7 @@ import { registerWindow } from "./gsis_UIManager.js";
 import {
     SIZES, COND, COLORS,
     pushMenuStyle, popMenuStyle,
-    pushBtn, popBtn
+    uiButton, uiStatRow, uiSectionHeader, textColored
 } from "./gsis_UIStyle.js";
 import { t } from "../core/gsis_L10n.js";
 import { query } from "../core/gsis_EventBus.js";
@@ -25,17 +19,14 @@ import {
 import { WEAPON_DATA } from "../data/gsis_weapon_data.js";
 import { getItemName } from "../data/gsis_item_data.js";
 
-var _qty = {}; // { itemId: qty } selector local por fila (no es el carrito)
-
-// deferred post-frame
+var _qty = {};
 var _clickedReset = false;
 var _clickedCheckout = false;
-var _closeRequested = false;
 var _frameOpen = true;
 
 function dealerMenuTitle() {
     var n = query("characters:name", { characterId: getActiveCharacterId() });
-    if (n && n.name) return n.name;
+    if (n && n.name) return n.name + " - CATÁLOGO DE ARMAS";
     return t("DLR_TTL");
 }
 
@@ -44,7 +35,11 @@ function getQty(itemId) {
     return _qty[itemId];
 }
 
-function renderWeaponList() {
+function renderCatalogList() {
+    ImGui.BeginChild("dealer_catalog", 0, -95.0, true);
+
+    uiSectionHeader("CATÁLOGO DE ARMAS DISPONIBLES");
+
     var list = [];
     for (var i = 0; i < WEAPON_DATA.length; i++) {
         if (WEAPON_DATA[i].itemId === "pistol_assembled") continue;
@@ -53,6 +48,15 @@ function renderWeaponList() {
     }
 
     ImGui.Columns(4);
+    textColored("PRODUCTO", COLORS.textGold);
+    ImGui.NextColumn();
+    textColored("PRECIO", COLORS.textGold);
+    ImGui.NextColumn();
+    textColored("CANTIDAD", COLORS.textGold);
+    ImGui.NextColumn();
+    textColored("ACCIÓN", COLORS.textGold);
+    ImGui.NextColumn();
+    ImGui.Separator();
 
     for (var j = 0; j < list.length; j++) {
         var w = list[j];
@@ -63,31 +67,26 @@ function renderWeaponList() {
         ImGui.NextColumn();
 
         var q = getQty(w.itemId);
-        if (ImGui.Button("<##" + w.itemId, 22, SIZES.btnSm)) {
+        if (ImGui.Button("<##" + w.itemId, 20, SIZES.btnSm)) {
             if (q > 1) _qty[w.itemId] = q - 1;
         }
         ImGui.SameLine();
         ImGui.Text("" + q);
         ImGui.SameLine();
-        if (ImGui.Button(">##" + w.itemId, 22, SIZES.btnSm)) {
+        if (ImGui.Button(">##" + w.itemId, 20, SIZES.btnSm)) {
             if (q < 10) _qty[w.itemId] = q + 1;
         }
         ImGui.NextColumn();
 
-        pushBtn(COLORS.accent);
-        if (ImGui.Button(t("BTN_ADD") + "##" + w.itemId, 80, SIZES.btnSm)) {
+        if (uiButton("+ AÑADIR AL CARRITO##" + w.itemId, 150.0, SIZES.btnSm, COLORS.accent)) {
             addToCart(w.itemId, getQty(w.itemId));
             _qty[w.itemId] = 1;
         }
-        popBtn();
         ImGui.NextColumn();
-
-        if (j < list.length - 1) {
-            ImGui.Separator();
-        }
     }
 
     ImGui.Columns(1);
+    ImGui.EndChild();
 }
 
 function renderCartSummary() {
@@ -102,51 +101,50 @@ function renderCartSummary() {
         return;
     }
 
-    var line = "";
+    var line = "CARRITO: ";
     for (var i = 0; i < keys.length; i++) {
         if (i > 0) line += ", ";
         line += getItemName(keys[i]) + " x" + cart[keys[i]];
     }
-    ImGui.TextWrapped(line);
+    textColored(line, COLORS.text);
 }
 
 function renderDealerWindow() {
     _clickedReset = false;
     _clickedCheckout = false;
-    _closeRequested = false;
     _frameOpen = true;
 
     pushMenuStyle();
-    ImGui.SetNextWindowSize(SIZES.dealerW, SIZES.mainH, COND.Always);
-    ImGui.SetNextWindowPos(50.0, 60.0, COND.Once);
+    ImGui.SetNextWindowSize(SIZES.dealerW, SIZES.mainH, 1);
+    ImGui.SetNextWindowPos(180.0, 100.0, 2);
     var open = ImGui.Begin(dealerMenuTitle(), true, false, false, false, false);
+    ImGui.SetWindowSize(SIZES.dealerW, SIZES.mainH, 0);
 
-    ImGui.Text(t("MONEY", { n: getCJMoney() }));
-    ImGui.SameLine();
-    ImGui.TextDisabled("|  " + t("DLR_TOT", { n: getCartTotal() }));
-    ImGui.Spacing();
-
-    var half = (SIZES.dealerW - 30) / 2;
-    pushBtn(COLORS.warning);
-    _clickedReset = ImGui.Button(t("BTN_RST"), half, SIZES.btnLg);
-    popBtn();
-    ImGui.SameLine();
-    pushBtn(COLORS.accent);
-    _clickedCheckout = ImGui.Button(t("BTN_BUY"), half, SIZES.btnLg);
-    popBtn();
+    uiStatRow("DINERO CJ: ", "$" + getCJMoney().toLocaleString(), COLORS.textGreen);
+    ImGui.SameLine(320.0);
+    uiStatRow("TOTAL COMPRA: ", "$" + getCartTotal().toLocaleString(), COLORS.textGold);
 
     ImGui.Spacing();
     ImGui.Separator();
     ImGui.Spacing();
 
-    renderWeaponList();
+    renderCatalogList();
 
     ImGui.Spacing();
     ImGui.Separator();
     ImGui.Spacing();
 
     renderCartSummary();
+
     ImGui.Spacing();
+
+    if (uiButton("COMPRAR PEDIDO ($" + getCartTotal().toLocaleString() + ")##buy", 240.0, SIZES.btnLg, COLORS.accent)) {
+        _clickedCheckout = true;
+    }
+    ImGui.SameLine();
+    if (uiButton("VACIAR CARRITO##rst", 140.0, SIZES.btnLg, COLORS.danger)) {
+        _clickedReset = true;
+    }
 
     ImGui.End();
     popMenuStyle();

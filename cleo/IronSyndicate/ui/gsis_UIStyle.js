@@ -36,24 +36,24 @@ export var COLORS = {
 };
 
 export var SIZES = {
-    mainW: 820.0,      // Ancho amplio para vista 2 columnas estilo KCD
-    mainH: 540.0,      // Alto cómodo
+    mainW: 780.0,      // Ancho amplio para vista principal
+    mainH: 520.0,      // Alto cómodo
     tabH: 28.0,
-    listH: 420.0,
-    leftColW: 490.0,   // Columna izquierda (Lista de items)
-    rightColW: 280.0,  // Columna derecha (Detalles del item seleccionado)
+    listH: 390.0,
+    leftColW: 340.0,   // Columna izquierda amplio
+    rightColW: 240.0,  // Columna derecha amplio
     btnSm: 24.0,
     btnMd: 28.0,
     btnLg: 32.0,
-    // Anchos de ventanas secundarias
-    pickupW: 520.0,
-    dealerW: 560.0,
-    trunkW: 780.0,
-    sellW: 560.0,
+    // Anchos de ventanas secundarias (680.0 para que quepa todo el contenido de 4 columnas sin cortes)
+    pickupW: 680.0,
+    dealerW: 680.0,
+    trunkW: 680.0,
+    sellW: 680.0,
     // Anchos de botones de fila y acción
-    stepW: 26.0,
-    actionW: 90.0,
-    collectW: 90.0
+    stepW: 18.0,
+    actionW: 110.0,
+    collectW: 110.0
 };
 
 export var COL = {
