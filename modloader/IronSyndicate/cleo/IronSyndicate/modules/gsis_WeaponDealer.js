@@ -1,3 +1,7 @@
+// GSIS - WeaponDealer
+// Copyright (C) 2026  YeikoD
+// Licencia: GNU GPL v3 o posterior (texto completo en LICENSE).
+
 // ============================================================================
 // GSIS WeaponDealer - Dealer mayorista de armas (carrito + checkout)
 // ============================================================================

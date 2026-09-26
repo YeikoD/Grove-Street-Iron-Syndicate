@@ -1,3 +1,7 @@
+// GSIS - SpotRuntime
+// Copyright (C) 2026  YeikoD
+// Licencia: GNU GPL v3 o posterior (texto completo en LICENSE).
+
 // ============================================================================
 // GSIS SpotRuntime - Runtime compartido de esferas F (spots)
 // ============================================================================

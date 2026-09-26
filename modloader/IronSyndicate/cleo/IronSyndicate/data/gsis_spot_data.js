@@ -1,3 +1,7 @@
+// GSIS - Spot Data
+// Copyright (C) 2026  YeikoD
+// Licencia: GNU GPL v3 o posterior (texto completo en LICENSE).
+
 // GSIS Spot Data - Puntos de interaccion (esferas para tecla F)
 // Catalogo INDEPENDIENTE de actores: las esferas solo abren menus
 // N entradas por tipo — añadir aqui no toca Config ni actor_data

@@ -1,3 +1,7 @@
+// GSIS - Actor Anim Data
+// Copyright (C) 2026  YeikoD
+// Licencia: GNU GPL v3 o posterior (texto completo en LICENSE).
+
 // GSIS Actor Anim Data - Catalogo de animaciones de actores (IFP vanilla)
 // Runtime: modules/gsis_ActorAnims.js (REQUEST/HAS/PLAY + EventBus anims:*)
 // id debe ser unico; ifp "PED" no requiere REQUEST_ANIMATION ni REMOVE_ANIMATION

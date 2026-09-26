@@ -1,3 +1,7 @@
+// GSIS - Config
+// Copyright (C) 2026  YeikoD
+// Licencia: GNU GPL v3 o posterior (texto completo en LICENSE).
+
 // ============================================================================
 // GSIS Config - Teclas, distancias y timers centralizados
 // ============================================================================

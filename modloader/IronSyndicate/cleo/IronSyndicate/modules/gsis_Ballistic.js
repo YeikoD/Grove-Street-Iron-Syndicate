@@ -1,3 +1,7 @@
+// GSIS - Ballistic
+// Copyright (C) 2026  YeikoD
+// Licencia: GNU GPL v3 o posterior (texto completo en LICENSE).
+
 // ============================================================================
 // GSIS Ballistic - Equipo (armas en slot) + recarga por cinturon de cargadores
 // ============================================================================

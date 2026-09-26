@@ -1,3 +1,7 @@
+// GSIS - Character Data
+// Copyright (C) 2026  YeikoD
+// Licencia: GNU GPL v3 o posterior (texto completo en LICENSE).
+
 // GSIS Character Data - Catalogo de personajes (nombre, dialogos, actor)
 // Identidad narrativa: une nombre (L10n) + lineas de dialogo + ped visual.
 // El MODEL/spawn/dormancy viven en el actor (data/gsis_actor_data.js);

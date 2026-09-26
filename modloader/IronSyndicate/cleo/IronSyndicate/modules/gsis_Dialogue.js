@@ -1,3 +1,7 @@
+// GSIS - Dialogue
+// Copyright (C) 2026  YeikoD
+// Licencia: GNU GPL v3 o posterior (texto completo en LICENSE).
+
 // ============================================================================
 // GSIS Dialogue - Subtitulos / dialogos (00BB PRINT lowpriority)
 // ============================================================================

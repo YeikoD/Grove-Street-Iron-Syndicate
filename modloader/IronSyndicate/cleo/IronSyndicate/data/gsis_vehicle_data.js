@@ -1,3 +1,7 @@
+// GSIS - Vehicle Data
+// Copyright (C) 2026  YeikoD
+// Licencia: GNU GPL v3 o posterior (texto completo en LICENSE).
+
 // GSIS Vehicle Data - Capacidades de baúl de vehículos GTA SA
 // Basado en datos de open.mp
 // Capacidades en kilogramos (kg)
