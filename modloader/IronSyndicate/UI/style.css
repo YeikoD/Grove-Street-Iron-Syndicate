@@ -1,4 +1,4 @@
-/* SAWebUI — Estética Vanilla Pantalla Stats & Guía Interactiva para Modders.
+/* SAWebUI вЂ” EstГ©tica Vanilla Pantalla Stats & GuГ­a Interactiva para Modders.
    Proporciones medidas sobre captura real de GTA SA (1200x675) en vw/vh. */
 
 @font-face {
@@ -18,7 +18,7 @@
 }
 
 /* ============================================================================
-   TOKENS — tres capas. Ningun color literal deberia aparecer fuera de este
+   TOKENS вЂ” tres capas. Ningun color literal deberia aparecer fuera de este
    bloque; todo lo de abajo se apoya en lo de arriba.
 
      CAPA 1  Primitivas   valores crudos, sin significado. La rampa de grises,
@@ -123,7 +123,10 @@
 
   /* ------------------------------------------------ CAPA 2: SEMANTICOS -- */
 
-  --surface-panel: rgba(8, 8, 8, 0.86);
+  /* Un solo fondo para los boxes. Antes habia dos — --surface-panel al 0.86 y
+     --surface-overlay al 0.94 — y cada box pisaba el del otro para "ser igual".
+     Con dos tokens y dos overrides, cualquier cambio de uno dejaba al otro
+     desfasado. Uno solo y los dos boxes heredan. */
   --surface-overlay: rgba(10, 12, 16, 0.94);
   --surface-raised: var(--g-900);
   --surface-hover: var(--g-800);
@@ -135,31 +138,66 @@
   --border-hover: var(--g-500);
   --divider: var(--w-10);
 
+  /* El acento de marca. Es la UNICA puerta de entrada al verde: ningun
+     componente deberia tocar el primitivo --green directo, porque cambiar el
+     acento tiene que ser cambiar esta linea y nada mas. */
+  --accent: var(--green);
+
+  /* Estados semanticos: tono = lo que significa, no lo que se ve. Los usa
+     .meter--ok / --warn / --bad y las familias de tinte. */
+  --state-ok: var(--green);
+  --state-warn: var(--amber);
+  --state-bad: var(--red);
+  --state-info: var(--blue);
+
   --text-body: var(--g-100);
   --text-muted: var(--g-300);
   --text-inverse: var(--g-000);
   --text-gold: var(--gold);
-  --text-green: var(--green);
+  --text-accent: var(--accent);
+  --text-ok: var(--green-soft);
+  --text-warning: var(--state-warn);
+  --text-danger: var(--state-bad);
+  --text-info: var(--state-info);
 
-  /* ------------------------------------------- LAYOUT DEL PANAL (sin capa) -- */
+  /* --------------------------------------- GEOMETRIA DEL BOX POR DEFECTO -- */
+  /* Tokens de casa: la medida a la que dibuja TODOS los paneles. La receta
+     .panel los consume y los expone como --panel-*, que es lo que cada panel
+     sobreescribe. El contrato es simple:
 
-  /* Posicion del panel en pantalla. --margin-x lo comparten #panel y
-     #tutorial-box, asi que corrieron los dos juntos y siguen alineados.
-     Valores = 60% y 80% de los offsets anteriores (3.75vw / 25vh), que es
-     "subir 40%" y "correr 20%" medidos sobre el offset previo. */
-  --margin-x: 3vw;
-  --panel-top: 15vh;
-  --panel-w: 27vw;
-  /* Suelo de alto del panel. El box es content-driven (height:auto), asi que
-     esto no lo fija: lo下限. Medido: el panel renderiza ~30.5vh con la
-     pestana de inventario vacia (padding-top 1.8vh + subtitulo ~1.5vh +
-     tabs ~3.8vh + rows 19vh + nav ~3.4vh + padding-bottom 0.4vh + bordes).
-     +20% -> 36.5vh, +40% sobre eso -> 51.1vh.(top 15vh + 51.1vh deja el
-     borde inferior en 66vh, con 34vh de holgado.)
-     Es min-height y no height a proposito: el excedente va solo hacia abajo
-     porque top esta anclado, y ademas si un panel trae mas contenido sigue
-     creciendo en vez de cortarse. */
-  --panel-min-h: 51.1vh;
+       --box-*   el default de la casa. No se tocan desde un panel.
+       --panel-* lo que el panel concreto usa. Su default es el --box-*.
+
+     El inventario se va a ensanchar y lo va a hacer pisando UN token,
+     --panel-w, en su propia regla. El valor de casa queda intacto para los
+     demas paneles.
+
+     --box-x y --box-y salen de 80% y 60% de los offsets originales
+     (3.75vw / 25vh): "correr 20%" y "subir 40%" sobre el offset previo.
+     --box-x lo comparten los boxes de la misma fila, asi que corrieron juntos
+     y siguen alineados.
+
+     --box-h es alto ACOTADO, no min-height. Con min-height el panel seria de
+     alto automatico: creceria con el contenido y el scroll interno de #rows
+     nunca llegaria a activarse. Medido: el box renderiza ~30.5vh con la
+     lista vacia; +20% da 36.5vh y +40% sobre eso da 51.1vh, que deja el
+     borde inferior en 66vh con 34vh de holgado. */
+  --box-w: 27vw;
+  --box-h: 51.1vh;
+  --box-x: 3vw;
+  --box-y: 15vh;
+  --box-px: var(--spw-4);
+  --box-pb: var(--sp-2);
+
+  /* Ancho del panel PRINCIPAL, el que esta en pantalla ahora. Vive aparte de
+     --box-w a proposito: --box-w es la medida de casa para los paneles
+     futuros, y este es el ancho real del que esta pasando. El tutorial se
+     coloca al lado de este, asi que tiene que leer ESTE y no el default —
+     cuando el panel se ensancho a 32.4vw y el tutorial seguia anclado a
+     --box-w (27vw), se le monto encima. Que los dos lean el mismo token
+     hace que eso no pueda volver a pasar. */
+  --main-w: 32.4vw;
+
   --label-w: 9.8vw;
   --row-h: 3.1vh;
 
@@ -195,6 +233,189 @@ body {
   font-family: var(--font-ui);
   user-select: none;
   cursor: default;
+}
+
+/* ========================================================= RECETA: .table --
+   Lista de items en formato tabla, con la estructura de KCD: banda de grupo
+   arriba de cada categoria y columnas numericas alineadas a la derecha.
+
+   Reemplaza al par .row + .meter para el inventario. Con 40 items una barra de
+   peso por fila no dice nada util y encima no alinea las cifras; una tabla si.
+
+   La categoria NO va como columna: la banda del grupo ya la dice, igual que en
+   KCD. Eso le devuelve el ancho a la columna del nombre. */
+
+.table {
+  /* Ancho de la columna del icono. Vive como token propio y no metido en
+     --table-cols porque lo necesitan tres reglas: la grilla, el <img> del
+     icono y el sangrado de la banda de grupo. */
+  --table-icon-w: 2.8vh;
+
+  /* icon | nombre | cant | balas | peso | valor. El 1fr es el nombre, que
+     absorbe lo que sobre y por eso el nombre nunca queda desalineado al
+     cambiar el ancho del panel.
+
+     Las cuatro columnas numericas estan dimensionadas para que entre la
+     CABECERA, no el dato. Antes iban en 2.4 / 3.6 / 2.8 / 3.6vw y "CANT" no
+     entraba en 2.4vw: como las celdas van con text-align:right, lo que
+     desborda se come el gap de la izquierda y las etiquetas quedaban pegadas
+     ("CANIBALASPESOVALOR"). El dato nunca fue el que manda: la palabra mas
+     larga de cada columna es su encabezado. */
+  --table-cols: var(--table-icon-w) 1fr 3.2vw 3.8vw 3.2vw 3.8vw;
+  --table-gap: var(--spw-2);
+  --table-row-h: var(--row-h);
+  --table-fs: var(--fs-sm);
+  /* Las etiquetas del header van con tracking propio y mas cerrado que el del
+     resto de la UI: son el elemento que define el ancho de columna, asi que
+     cada pixel de tracking se paga dos veces. */
+  --table-head-fs: var(--fs-2xs);
+  --table-head-track: 0.08vw;
+
+  /* Grosor de las dos guias verticales de la tabla: el filete gris de la banda
+     de grupo y el filete de acento de la fila elegida. Vive aca para que las dos
+     se lean con el mismo peso y no puedan desincronizarse: antes eran 3px y 2px
+     y la diferencia de 1px se veía como descuido, no como diseño. */
+  --guide-w: 3px;
+
+  /* Padding horizontal de las filas. Tiene que separar al icono del filete de
+     la guia: con --spw-1 el icono quedaba a 3.8px de un filete de 3px, o sea
+     0.8px de aire, y se leian pegados. Con --spw-3 quedan 6.6px.
+     Es un token y no un valor porque lo usan .table__head y .table__row: si
+     solo se moviera la fila, las columnas dejarian de calzar con la cabecera. */
+  --table-row-pad-x: var(--spw-3);
+}
+
+.table__head,
+.table__row {
+  display: grid;
+  grid-template-columns: var(--table-cols);
+  gap: var(--table-gap);
+  align-items: center;
+}
+
+/* Cabecera. Se corre con el mismo grid que las filas para que las columnas
+   caigan exactamente arriba de sus datos. nowrap + overflow hidden son la
+   defensa: si un encabezado futuro no entra en su columna, se recorta en vez
+   de invadir la vecina y volver a pegarlas. */
+.table__head {
+  font-size: var(--table-head-fs);
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: var(--table-head-track);
+  padding: 0 var(--table-row-pad-x) var(--sp-2);
+  border-bottom: 1px solid var(--divider);
+}
+
+.table__head > span {
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/* Banda de grupo. El filete izquierdo es --g-600, el mismo gris del thumb del
+   scrollbar, para que las dos guias de la UI se lean como el mismo material y
+   el verde quede reservado para el acento y los estados.
+
+   El sangrado de la etiqueta es propio y corto a proposito. Alinearla con la
+   columna del nombre (icono + gap + padding = ~40px) la hacia leer como un item
+   mas: la banda dejaba de ser cabecera y parecia contenido. Con un espaciado
+   de escala propio la etiqueta queda pegada al filete, que es donde un titulo
+   de seccion tiene que estar. */
+.table__group {
+  --group-indent: var(--spw-3);
+
+  display: flex;
+  align-items: center;
+  gap: var(--spw-2);
+  font-size: var(--fs-2xs);
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: var(--spw-1);
+  background: var(--surface-hover);
+  border-left: var(--guide-w) solid var(--g-600);
+  padding: var(--sp-1) var(--group-indent);
+  margin-top: var(--sp-3);
+}
+
+.table__group:first-of-type {
+  margin-top: 0;
+}
+
+.table__group-count {
+  margin-left: auto;
+  color: var(--text-inverse);
+  opacity: 0.6;
+}
+
+.table__row {
+  height: var(--table-row-h);
+  font-size: var(--table-fs);
+  padding: 0 var(--table-row-pad-x);
+  cursor: pointer;
+  transition: background var(--dur-fast) ease;
+}
+
+.table__row:hover {
+  background: var(--w-04);
+}
+
+/* Fila elegida: banda de tinte con filete de acento. El color del texto va en
+   la FILA y no en el nombre, para que el nombre y las cifras sean del mismo
+   color por construccion. Si el color estuviera en .table__name, las celdas
+   numericas вЂ” que tienen el suyo вЂ” se desfasarian apenas una de las dos
+   cambiara, y en la fila elegida se leia nombre en oro con cifras en gris. */
+.table__row--selected {
+  background: var(--tint-ok-bg);
+  box-shadow: inset var(--guide-w) 0 0 var(--accent);
+  color: var(--text-gold);
+}
+
+/* El peso sigue siendo solo del nombre: el color es de toda la fila, el grosor
+   marca que celda es la que identifica el item. */
+.table__row--selected .table__name {
+  font-weight: 700;
+}
+
+/* Cifras: a la derecha y con ancho de digito fijo, para que los decimales
+   queden en columna en vez de bailar. Sin color propio a proposito вЂ” heredan el
+   de la fila, que es el mismo que el del nombre. */
+.table__num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: inherit;
+}
+
+/* Sin dato: la celda no queda vacia, queda con un guion para que la columna
+   siga leyГ©ndose como columna. */
+.table__num--none {
+  color: var(--text-muted);
+  opacity: 0.5;
+}
+
+.table__icon {
+  width: var(--table-icon-w);
+  height: var(--table-icon-w);
+  object-fit: contain;
+  justify-self: center;
+}
+
+/* Slot vacio donde no hay icono: mantiene la columna alineada sin inventar un
+   placeholder visible. */
+.table__icon-slot {
+  width: var(--table-icon-w);
+  height: var(--table-icon-w);
+  justify-self: center;
+}
+
+.table__name {
+  /* min-width:0 es lo que permite que la celda se encoja y active el ellipsis.
+     Sin eso el minimo automatico de un item de grid es su contenido, y un
+     nombre largo empuja las columnas numericas hacia la derecha. */
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* ============================================================ RECETA: .btn --
@@ -239,7 +460,7 @@ body {
   color: var(--btn-text-hover);
 }
 
-/* Pestañas: llenar el ancho disponible, texto chico y bold. */
+/* PestaГ±as: llenar el ancho disponible, texto chico y bold. */
 .btn--tab {
   flex: 1 1 0;
   --btn-height: 2.5vh;
@@ -250,11 +471,11 @@ body {
 .btn--tab.active {
   --btn-bg: var(--surface-active);
   --btn-text: var(--text-inverse);
-  --btn-border: var(--green);
-  box-shadow: inset 0 -2px 0 var(--green);
+  --btn-border: var(--accent);
+  box-shadow: inset 0 -2px 0 var(--accent);
 }
 
-/* Navegacion: misma receta que la pestaña, un pelo mas alta. */
+/* Navegacion: misma receta que la pestaГ±a, un pelo mas alta. */
 .btn--nav {
   flex: 1 1 0;
   --btn-height: 2.6vh;
@@ -285,19 +506,40 @@ body {
 }
 
 /* ========================================================= RECETA: .panel --
-   Reemplaza a .box. #panel y #tutorial-box solo overridean tokens: el fondo,
-   el borde, el padding y la sombra viven una sola vez. */
+   El box de la UI. Reemplaza a .box y ahora es tambien la fuente de la
+   geometria: toma los defaults de casa (--box-*) y los expone como --panel-*,
+   que es lo que cada panel sobreescribe. Un panel nuevo no declara medidas,
+   las hereda.
+
+   --panel-w   ancho    --panel-px  padding lateral
+   --panel-h   alto     --panel-pt  padding superior
+   --panel-x   izquierda--panel-pb  padding inferior
+   --panel-y   arriba   --panel-py  padding alto/base */
 
 .panel {
-  --panel-bg: var(--surface-panel);
-  --panel-border: var(--border-subtle);
+  --panel-bg: var(--surface-overlay);
+  --panel-border: var(--w-14);
   --panel-shadow: var(--shadow-panel);
+
+  /* Geometria: hereda los defaults de casa. Todo lo que sigue es override. */
+  --panel-w: var(--box-w);
+  --panel-h: var(--box-h);
+  --panel-x: var(--box-x);
+  --panel-y: var(--box-y);
+  --panel-px: var(--box-px);
+  --panel-pb: var(--box-pb);
   --panel-py: var(--sp-4);
   --panel-pt: var(--panel-py);
-  --panel-pb: var(--panel-py);
-  --panel-px: var(--spw-4);
 
   position: fixed;
+  left: var(--panel-x);
+  top: var(--panel-y);
+  width: var(--panel-w);
+  /* height y NO min-height. Con min-height el panel es de alto automatico:
+     crece con el contenido y el scroll interno de #rows nunca llega a
+     activarse porque siempre entra todo. Para que el area scrollee, el box
+     tiene que estar acotado. */
+  height: var(--panel-h);
   background: var(--panel-bg);
   border: 1px solid var(--panel-border);
   padding: var(--panel-pt) var(--panel-px) var(--panel-pb);
@@ -305,25 +547,26 @@ body {
 }
 
 #panel {
-  left: var(--margin-x);
-  top: var(--panel-top);
-  width: var(--panel-w);
-  min-height: var(--panel-min-h);
-  /* Columna flex para que #rows absorba el sobrante. En layout de bloque el
-     excedente de min-height cae DESPUES del ultimo hijo, asi que el nav
-     quedaba flotando en el medio con un vacio debajo. Con flex, #rows es el
-     unico hijo que crece y el nav queda pegado al borde inferior. */
+  /* Columna flex para que #rows absorba el espacio restante. En layout de
+     bloque el excedente cae DESPUES del ultimo hijo, asi que el nav quedaba
+     flotando en el medio con un vacio debajo. Con flex, #rows es el unico
+     hijo que crece y el nav queda pegado al borde inferior. */
   display: flex;
   flex-direction: column;
+  /* Ancho del panel principal. NO pisa --box-w: ese sigue en 27vw como
+     default de casa para los proximos paneles. */
+  --panel-w: var(--main-w);
+  /* Ancho propio de este panel: 27vw + 20% = 32.4vw. Pisar UN token es
+     justamente para esto вЂ” --box-w sigue en 27vw como default de casa para
+     los proximos paneles y para el tutorial. */
+  --panel-w: 32.4vw;
   /* El padding superior es la reserva que el titulo ya no ocupa en flujo,
      porque ahora es absoluto. Sin esto el box encogeria --title-size cada vez
      que el titulo cambia de tamano. */
   --panel-pt: var(--title-inset);
-  --panel-pb: var(--sp-2);
-  --panel-px: var(--spw-4);
 }
 
-/* ------------------------------------------------------------------ Título & Encabezado -- */
+/* ------------------------------------------------------------------ TГ­tulo & Encabezado -- */
 
 .panel-header {
   margin-bottom: var(--sp-2);
@@ -354,7 +597,7 @@ body {
 #subtitle {
   font-size: var(--fs-2xs);
   font-weight: 700;
-  color: var(--text-green);
+  color: var(--text-accent);
   letter-spacing: var(--spw-1);
   text-transform: uppercase;
   text-shadow: 1px 1px 2px var(--g-1000);
@@ -367,8 +610,8 @@ body {
   vertical-align: middle;
 }
 
-/* ---------------------------------------------------------------- Pestañas --
-   Las pestañas no tienen receta propia: son .btn.btn--tab mas el contenedor. */
+/* ---------------------------------------------------------------- PestaГ±as --
+   Las pestaГ±as no tienen receta propia: son .btn.btn--tab mas el contenedor. */
 
 #tabs {
   display: flex;
@@ -383,10 +626,36 @@ body {
 #rows {
   display: flex;
   flex-direction: column;
-  /* Suelo del area de contenido, y a la vez el unico hijo que crece: absorbe
-     todo el sobrante del min-height del panel para que el nav quede abajo. */
+  /* Area de contenido: unico hijo que crece, y el contenedor de scroll del
+     panel. min-height:0 es lo que permite que flexbox lo encoja hasta el
+     limite del panel вЂ” sin eso el default min-height:auto impide encogerlo
+     abaixo de su contenido y la lista se desborda en vez de scrollear.
+     El nav queda clavado al borde inferior porque no crece. */
   flex: 1 1 auto;
-  min-height: 19vh;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--g-600) transparent;
+}
+
+/* Scrollbar del area de items. CEF es Chromium, asi que las pseudo-clases
+   -webkit-scrollbar dan control del track y del thumb. */
+#rows::-webkit-scrollbar {
+  width: var(--spw-2);
+}
+
+#rows::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#rows::-webkit-scrollbar-thumb {
+  background: var(--g-600);
+  border-radius: var(--radius-sm);
+}
+
+#rows::-webkit-scrollbar-thumb:hover {
+  background: var(--border-hover);
 }
 
 .row {
@@ -462,15 +731,15 @@ body {
 /* Estados semanticos: los usan la barra de peso del inventario (warn cuando se
    pasa de la mitad, bad cuando no entra mas) y la de salud de vehiculos. */
 .meter--ok {
-  --meter-fill: var(--green);
+  --meter-fill: var(--state-ok);
 }
 
 .meter--warn {
-  --meter-fill: var(--amber);
+  --meter-fill: var(--state-warn);
 }
 
 .meter--bad {
-  --meter-fill: var(--red);
+  --meter-fill: var(--state-bad);
 }
 
 /* Reglas de input re-baseadas sobre los tokens. Hoy no las genera la app
@@ -504,8 +773,8 @@ body {
   border-color: var(--text-gold);
 }
 
-/* ------------------------------------------------------------- Navegación --
-   Igual que las pestañas: .btn.btn--nav mas el contenedor. */
+/* ------------------------------------------------------------- NavegaciГіn --
+   Igual que las pestaГ±as: .btn.btn--nav mas el contenedor. */
 
 #nav {
   display: flex;
@@ -523,21 +792,27 @@ body {
 }
 
 /* -------------------------------------------------- Ventana Tutorial Modal --
-   El tutorial es la segunda .panel: mismo fondo, borde, sombra y padding, con
-   otros tokens. Por eso no repite ninguna de esas cuatro propiedades. */
+   La segunda .panel. Comparte fondo y borde con la principal — son el mismo
+   material — y solo sobreescribe la geometria que tiene que ser distinta: se
+   coloca al lado del panel principal con un margen, es mas angosto y no tiene
+   alto fijo porque deja que el contenido lo determine.
+
+   El left sale de --main-w, NO de --box-w: el default de casa es 27vw y el
+   panel mide 32.4vw. Con --box-w el tutorial se le montaba encima en 85px.
+   Y --panel-w no sirve aca: las custom properties se resuelven en el elemento
+   donde se usan, asi que var(--panel-w) dentro de #tutorial-box daria el 36vw
+   que este mismo bloque declara, no el ancho del otro panel. */
 
 #tutorial-box {
-  left: calc(var(--margin-x) + var(--panel-w) + var(--spw-5));
-  top: var(--panel-top);
-  width: 36vw;
-  max-height: 65vh;
   display: flex;
   flex-direction: column;
   z-index: 100;
   animation: fadeIn var(--dur-slow) ease-out;
 
-  --panel-bg: var(--surface-overlay);
-  --panel-border: var(--w-14);
+  --panel-x: calc(var(--box-x) + var(--main-w) + var(--spw-5));
+  --panel-y: var(--box-y);
+  --panel-w: 36vw;
+  --panel-h: auto;
   --panel-pt: var(--sp-6);
   --panel-pb: var(--sp-6);
   --panel-px: var(--spw-5);
@@ -577,21 +852,6 @@ body {
   gap: var(--spw-3);
 }
 
-/* Badge que es link. La parte visual sale de .badge.badge--ok; aca solo van
-   las propiedades de layout que un chip estatico no tiene. */
-.brand-badge-subtle {
-  display: flex;
-  align-items: center;
-  gap: var(--spw-1);
-  text-decoration: none;
-  cursor: pointer;
-}
-
-.brand-badge-subtle:hover {
-  background: var(--tint-ok-bg-hi);
-  color: var(--text-inverse);
-}
-
 .tutorial-body {
   flex: 1 1 auto;
   overflow-y: auto;
@@ -617,7 +877,7 @@ body {
 .tutorial-body pre {
   background: var(--surface-sunken);
   border: 1px solid var(--g-700);
-  border-left: 3px solid var(--green);
+  border-left: 3px solid var(--accent);
   padding: var(--sp-5) var(--sp-4);
   font-family: var(--font-mono);
   font-size: var(--fs-sm);
@@ -631,7 +891,7 @@ body {
 .tutorial-body code {
   font-family: var(--font-mono);
   background: var(--w-10);
-  color: var(--text-green);
+  color: var(--text-accent);
   padding: var(--sp-1) var(--spw-1);
   border-radius: var(--radius-sm);
 }

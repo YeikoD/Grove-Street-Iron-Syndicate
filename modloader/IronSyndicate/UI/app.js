@@ -121,12 +121,127 @@ const TABS = {
   }
 };
 
-// State Map para renderizado
-const stateMap = {};
+// ------------------------------------------------------------------ MOCK --
+//
+// Datos de EJEMPLO para revisar el diseño en el navegador. No son del juego y
+// no se mandan nunca por el puente: en el juego lo que dibuja las filas son
+// los datos que mande el mod. Se cae solo apenas el puente se conecta
+// (ver dropMock).
 
-for (const tabKey in TABS) {
-  stateMap[tabKey] = TABS[tabKey].rows.map((r) => ({ ...r, el: null, fill: null, input: null }));
+const MOCK_MAX_WEIGHT = 12; // MISC.MAX_INVENTORY_WEIGHT del mod
+
+// Orden de las bandas de grupo. Es el mismo orden que usaba el menu de baul
+// del ImGui viejo, y el que corresponde a weapon > magazine > material.
+const CATS = [
+  { key: "weapon", label: "Armas" },
+  { key: "magazine", label: "Cargadores" },
+  { key: "material", label: "Materiales" }
+];
+
+// Imagenes de modloader\IronSyndicate\image\. Son 18 PNG y TODAS de armas:
+// materiales y cargadores no tienen. WEAPON_DATA no tiene campo "icon", asi
+// que el mapa es a mano y hay que mantenerlo en sync con el catalogo.
+const ICONS = {
+  "9mm": "9mm.png",
+  "pistol_assembled": "9mm.png",
+  "silenced_9mm": "silenced9mm.png",
+  "desert_eagle": "desertEagle.png",
+  "shotgun": "shotgun.png",
+  "sawed_off": "sawnoffShotgun.png",
+  "combat_shotgun": "combatShotgun.png",
+  "micro_uzi": "microSMG-Uzi.png",
+  "mp5": "mp5.png",
+  "tec9": "tec9.png",
+  "ak47": "ak47.png",
+  "m4_assembled": "m4.png",
+  "country_rifle": "countryRifle.png",
+  "sniper_rifle": "sniperRifle.png",
+  "rpg": "rpg.png",
+  "heat_seeker": "hsRocket.png",
+  "flamethrower": "flame-Thrower.png",
+  "minigun": "minigun.png"
+  // body_armor no tiene icono, y satchelCharge.png no corresponde a ningun
+  // item del catalogo: son los dos huecosknown del set.
+};
+
+const ICON_DIR = "../image/";
+
+// Fila de la tabla de inventario. Todo lo que KCD pone en columnas numericas va
+// como numero o null; null se dibuja como guion para que la columna se siga
+// leyendo como columna.
+function itemRow(o) {
+  return {
+    id: o.id,
+    kind: "table",
+    cat: o.cat,
+    name: o.qty > 1 ? o.name + " x" + o.qty : o.name,
+    qty: o.qty,
+    ammo: o.ammo || null,
+    weight: o.weight,
+    value: o.value || null,
+    icon: ICONS[o.id] || null,
+    tip: o.tipExtra || "",
+    tutorial: {
+      title: o.name,
+      html: `<p><span class="badge badge-warn">Mock</span> Fila de ejemplo, no viene del juego.</p>
+             <p>Peso: <b>${o.weight.toFixed(1)} kg</b> de ${MOCK_MAX_WEIGHT} kg de capacidad.</p>
+             <p>${o.qty > 1 ? "Apilado: " + o.qty + " unidades en una fila." : "Instanciado: una fila por unidad."}</p>`
+    }
+  };
 }
+
+const MOCK = {
+  inventory: [
+    // Armas: instanciadas, una fila por unidad, con su propia municion
+    itemRow({ id: "ak47", name: "AK-47", cat: "weapon", qty: 1, weight: 3.5, ammo: "30/30", value: 1500, tipExtra: "Fusil de asalto" }),
+    itemRow({ id: "silenced_9mm", name: "Pistola con silenciador", cat: "weapon", qty: 1, weight: 1.5, ammo: "9/17", value: 360, tipExtra: "Pistola" }),
+    itemRow({ id: "desert_eagle", name: "Desert Eagle", cat: "weapon", qty: 1, weight: 1.8, ammo: "3/7", value: 540, tipExtra: "Pistola" }),
+    // Cargadores: tambien instanciados, uno por unidad
+    itemRow({ id: "mag_ak47", name: "Cargador AK-47", cat: "magazine", qty: 1, weight: 0.2, ammo: "30/30", tipExtra: "Calidad 1" }),
+    itemRow({ id: "mag_9mm", name: "Cargador 9mm", cat: "magazine", qty: 1, weight: 0.2, ammo: "17/17", tipExtra: "Calidad 2" }),
+    itemRow({ id: "mag_desert_eagle", name: "Cargador Desert Eagle", cat: "magazine", qty: 1, weight: 0.2, ammo: "0/7", tipExtra: "Vacío" }),
+    // Materiales: SI se apilan, una sola fila con la cantidad
+    itemRow({ id: "scrap_metal", name: "Chatarra", cat: "material", qty: 5, weight: 2.5, tipExtra: "Material de fundición" }),
+    itemRow({ id: "gunpowder", name: "Pólvora", cat: "material", qty: 12, weight: 2.4, tipExtra: "Material de fundición" }),
+    itemRow({ id: "spring", name: "Muelle", cat: "material", qty: 8, weight: 0.8, tipExtra: "Componente" }),
+    itemRow({ id: "scope", name: "Mira", cat: "material", qty: 1, weight: 0.3, tipExtra: "Componente" })
+  ]
+};
+
+let mockActive = false;
+
+function applyMock() {
+  mockActive = true;
+  for (const tab of Object.keys(MOCK)) {
+    TABS[tab].rows = MOCK[tab];
+  }
+  stateMap = buildStateMap();
+}
+
+// En el juego el mock no debe aparecer ni un frame. Se cae en cuanto el puente
+// se anuncia, no cuando la pagina decide: si la pagina esta viva, el puente
+// ya esta inyectado.
+function dropMock() {
+  if (!mockActive) return false;
+  mockActive = false;
+  for (const tab of Object.keys(MOCK)) {
+    TABS[tab].rows = [];
+  }
+  stateMap = buildStateMap();
+  console.log("[GSIS] mock de diseño eliminado — ahora las filas vienen del mod");
+  return true;
+}
+
+// State Map para renderizado
+function buildStateMap() {
+  const m = {};
+  for (const tabKey in TABS) {
+    m[tabKey] = TABS[tabKey].rows.map((r) => ({ ...r, el: null, fill: null, meter: null }));
+  }
+  return m;
+}
+
+let stateMap = buildStateMap();
 
 // ---------------------------------------------------------------- HELPERS --
 
@@ -240,8 +355,16 @@ function buildRow(r) {
   label.textContent = r.label;
   el.appendChild(label);
 
+  // El estado del meter es una clase propia sobre el .meter, no un
+  // descendiente: la especificidad queda en una sola clase y el orden de la
+  // hoja deja de importar. Un mock o una fila real pueden pedir un estado
+  // semantico; si no lo piden, cae en el gris de solo lectura.
   const track = document.createElement("div");
-  track.className = r.readonly ? "meter meter--readonly" : "meter";
+  if (r.meterState) {
+    track.className = "meter meter--" + r.meterState;
+  } else {
+    track.className = r.readonly ? "meter meter--readonly" : "meter";
+  }
 
   const fill = document.createElement("div");
   fill.className = "meter__fill";
@@ -250,6 +373,10 @@ function buildRow(r) {
   r.fill = fill;
 
   el.appendChild(track);
+
+  if (r.tip) {
+    el.title = r.tip;
+  }
 
   el.addEventListener("click", () => {
     const rows = stateMap[currentTab];
@@ -264,14 +391,118 @@ function buildRow(r) {
   return el;
 }
 
+// Celda numerica. Un dato ausente se dibuja como guion y no como celda vacia:
+// si la celda desapareciera, la columna dejaria de leerse como columna.
+function cell(text) {
+  const c = document.createElement("span");
+  c.className = text == null ? "table__num table__num--none" : "table__num";
+  c.textContent = text == null ? "—" : text;
+  return c;
+}
+
+function buildTableRow(r) {
+  const el = document.createElement("div");
+  el.className = "table__row";
+  el.setAttribute("role", "option");
+  el.dataset.id = r.id;
+
+  // El slot vacio mantiene la columna alineada cuando el item no tiene icono
+  // (materiales y cargadores no tienen) en vez de correr todo a la izquierda.
+  if (r.icon) {
+    const img = document.createElement("img");
+    img.className = "table__icon";
+    img.src = ICON_DIR + r.icon;
+    img.alt = "";
+    el.appendChild(img);
+  } else {
+    const slot = document.createElement("div");
+    slot.className = "table__icon-slot";
+    el.appendChild(slot);
+  }
+
+  const name = document.createElement("span");
+  name.className = "table__name";
+  name.textContent = r.name;
+  el.appendChild(name);
+
+  el.appendChild(cell(r.qty != null ? String(r.qty) : null));
+  el.appendChild(cell(r.ammo));
+  el.appendChild(cell(r.weight != null ? r.weight.toFixed(1) : null));
+  el.appendChild(cell(r.value != null ? "$" + r.value : null));
+
+  if (r.tip) {
+    el.title = r.tip;
+  }
+
+  el.addEventListener("click", () => {
+    const rows = stateMap[currentTab];
+    const idx = rows.indexOf(r);
+    if (idx !== -1) {
+      selectRow(idx);
+      showTutorial(r);
+    }
+  });
+
+  r.el = el;
+  return el;
+}
+
+// Tabla KCD: cabecera, y despues una banda por categoria con sus filas debajo.
+// El orden de las bandas sale de CATS, no del orden del array, asi las filas
+// quedan agrupadas aunque el mod las mande mezcladas.
+function renderTable(rows) {
+  const wrap = document.createElement("div");
+  wrap.className = "table";
+
+  const head = document.createElement("div");
+  head.className = "table__head";
+  for (const h of ["", "Objeto", "Cant", "Balas", "Peso", "Valor"]) {
+    const c = document.createElement("span");
+    if (h !== "Objeto") {
+      c.className = "table__num";
+    }
+    c.textContent = h;
+    head.appendChild(c);
+  }
+  wrap.appendChild(head);
+
+  for (const cat of CATS) {
+    const items = rows.filter((r) => r.cat === cat.key);
+    if (items.length === 0) continue;
+
+    const band = document.createElement("div");
+    band.className = "table__group";
+    band.appendChild(document.createTextNode(cat.label));
+
+    const cnt = document.createElement("span");
+    cnt.className = "table__group-count";
+    cnt.textContent = items.length;
+    band.appendChild(cnt);
+
+    wrap.appendChild(band);
+    for (const r of items) {
+      wrap.appendChild(buildTableRow(r));
+    }
+  }
+
+  rowsBox.appendChild(wrap);
+}
+
 function renderTab(tabKey) {
   currentTab = tabKey;
   rowsBox.innerHTML = "";
 
   const rows = stateMap[tabKey];
-  for (const r of rows) {
-    rowsBox.appendChild(buildRow(r));
-    setBar(r, Number(r.value) || 1);
+
+  // Cada pestana elige su renderer por la forma de sus filas. El inventario es
+  // tabla; propiedades y vehiculos son listas simples con barra.
+  if (rows.length > 0 && rows[0].kind === "table") {
+    renderTable(rows);
+  } else {
+    for (const r of rows) {
+      rowsBox.appendChild(buildRow(r));
+      setBar(r, Number(r.value) || 1);
+    }
   }
 
   // Por data-tab y no por la classe: el selector queda estable aunque la
@@ -290,13 +521,13 @@ function selectRow(index) {
 
   selectedIndex = (index + rows.length) % rows.length;
   for (const [i, r] of rows.entries()) {
-    if (r.el) {
-      r.el.classList.toggle("selected", i === selectedIndex);
-      r.el.setAttribute("aria-selected", i === selectedIndex ? "true" : "false");
-    }
-    // El estado de la barra va como clase propia sobre el .meter, no como
-    // descendiente (.row.selected .meter__fill). Asi la especificidad es de
-    // una sola clase y el orden de la hoja deja de importar.
+    if (!r.el) continue;
+    // Cada sistema de fila tiene su clase de seleccion. El estado va como
+    // clase propia y no como descendiente, asi la especificidad queda en una
+    // sola clase y el orden de la hoja deja de importar.
+    const isTable = r.kind === "table";
+    r.el.classList.toggle(isTable ? "table__row--selected" : "selected", i === selectedIndex);
+    r.el.setAttribute("aria-selected", i === selectedIndex ? "true" : "false");
     if (r.meter) {
       r.meter.classList.toggle("meter--selected", i === selectedIndex);
     }
@@ -368,6 +599,15 @@ document.addEventListener("mousedown", () => {
 if (window.SAWeb) {
   for (const name of INBOUND) {
     window.SAWeb.on(name, (data) => {
+      // Red de seguridad del mock. Si la pagina arranco sin puente pero
+      // aparece uno despues, el mock cae igual y la lista queda vacia
+      // esperando los datos del mod. Nunca deberia pasar — el shim se inyecta
+      // antes de los scripts de la pagina — pero si pasa, que no queden items
+      // falsos en pantalla.
+      if (dropMock()) {
+        renderTab(currentTab);
+      }
+
       // El script avisa si el input de la UI quedo prendido o apagado (prende lo
       // mismo que el cursor, con F12). Es la unica fuente de verdad aca.
       if (name === "input" && data && typeof data.enabled === "boolean") {
@@ -417,6 +657,12 @@ if (window.SAWeb) {
 }
 
 // --------------------------------------------------------------------- INIT --
+
+// El mock es solo de diseño: se aplica unicamente si NO hay puente, o sea
+// cuando la pagina se abre en un navegador. En el juego lo dibuja el mod.
+if (!bridgeReady) {
+  applyMock();
+}
 
 renderTab("inventory");
 logState();
