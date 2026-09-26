@@ -7,10 +7,20 @@
 # Ignorar archivos de configuracion
 !.gitignore
 
+# Licencia y README (si no, el * de arriba los deja fuera)
+!LICENSE
+!README.md
+
 # El codigo del mod vive en la carpeta del mod (modloader\)
 !modloader/
 !modloader/IronSyndicate/
 !modloader/IronSyndicate/**
+
+# Assets de terceros: no son nuestros ni de Rockstar, asi que no se distribuyen
+# con el repo. Los archivos quedan en el juego, solo se sacan del control de
+# versiones. Ver seccion "Assets de terceros" del README.
+modloader/IronSyndicate/models/
+modloader/IronSyndicate/*.asi
 
 # El shim: unico archivo que CLEO escanea, en la raiz de cleo\
 !cleo/
