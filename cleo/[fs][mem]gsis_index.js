@@ -1,6 +1,6 @@
 // GSIS - [fs][mem]gsis_index
 // Copyright (C) 2026  YeikoD
-// Licencia: GNU GPL v3 o posterior (texto completo en LICENSE).
+// License: GNU GPL v3 or later (full text in LICENSE).
 
 // Punto de entrada del mod para CLEO Redux.
 //

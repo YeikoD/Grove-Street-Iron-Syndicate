@@ -1,6 +1,6 @@
 // GSIS - gsis_Items
 // Copyright (C) 2026  YeikoD
-// Licencia: GNU GPL v3 o posterior (texto completo en LICENSE).
+// License: GNU GPL v3 or later (full text in LICENSE).
 
 // GSIS_ItemsModule - Sistema de items
 import { registerModule, getModuleData, setModuleData } from "../core/gsis_SaveManager.js";

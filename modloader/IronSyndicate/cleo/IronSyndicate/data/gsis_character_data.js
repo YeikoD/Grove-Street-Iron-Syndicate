@@ -1,6 +1,6 @@
 // GSIS - Character Data
 // Copyright (C) 2026  YeikoD
-// Licencia: GNU GPL v3 o posterior (texto completo en LICENSE).
+// License: GNU GPL v3 or later (full text in LICENSE).
 
 // GSIS Character Data - Catalogo de personajes (nombre, dialogos, actor)
 // Identidad narrativa: une nombre (L10n) + lineas de dialogo + ped visual.

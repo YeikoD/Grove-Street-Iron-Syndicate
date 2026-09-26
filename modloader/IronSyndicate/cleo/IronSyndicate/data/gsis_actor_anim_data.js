@@ -1,6 +1,6 @@
 // GSIS - Actor Anim Data
 // Copyright (C) 2026  YeikoD
-// Licencia: GNU GPL v3 o posterior (texto completo en LICENSE).
+// License: GNU GPL v3 or later (full text in LICENSE).
 
 // GSIS Actor Anim Data - Catalogo de animaciones de actores (IFP vanilla)
 // Runtime: modules/gsis_ActorAnims.js (REQUEST/HAS/PLAY + EventBus anims:*)

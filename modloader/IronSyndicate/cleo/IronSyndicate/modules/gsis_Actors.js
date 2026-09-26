@@ -1,6 +1,6 @@
 // GSIS - Actors
 // Copyright (C) 2026  YeikoD
-// Licencia: GNU GPL v3 o posterior (texto completo en LICENSE).
+// License: GNU GPL v3 or later (full text in LICENSE).
 
 // ============================================================================
 // GSIS Actors - Spawn lifecycle de peds (permanent + descartables)

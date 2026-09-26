@@ -1,6 +1,6 @@
 // GSIS - Weapon Data
 // Copyright (C) 2026  YeikoD
-// Licencia: GNU GPL v3 o posterior (texto completo en LICENSE).
+// License: GNU GPL v3 or later (full text in LICENSE).
 
 // GSIS Weapon Data - Armas de fuego de GTA SA (stats y IDs reales del juego)
 // Fuentes: SA-MP/open.mp (weaponId, modelId, clip), gtabase.com (damage/fireRate/range/accuracy),

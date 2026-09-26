@@ -1,6 +1,6 @@
 // GSIS - Actor Data
 // Copyright (C) 2026  YeikoD
-// Licencia: GNU GPL v3 o posterior (texto completo en LICENSE).
+// License: GNU GPL v3 or later (full text in LICENSE).
 
 // GSIS Actor Data - Catalogo de actores (modelos, tareas, lifetime, placement)
 // Cada actor tiene spawn propio absoluto — NO se liga a esferas ni spots
