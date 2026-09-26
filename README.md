@@ -106,22 +106,36 @@ Eso significa que podés usar, modificar y redistribuir el mod, siempre que:
 ## Assets de terceros
 
 Estos archivos **no forman parte de este proyecto y no están cubiertos por la GPLv3**.
-Son de terceros: no son nuestros, así que no se redistribuyen con este repo (están en
-`.gitignore`).
+No son nuestros, así que no se versionan en este repo (ver `.gitignore`); se entregan
+aparte, en el ZIP de descarga.
 
-| Archivo | Qué es | Si falta |
-|---|---|---|
-| `models\fam4.dff`, `fam4.txd`, `fam5.dff`, `fam5.txd` | Modelos de peds de origen desconocido | El mod funciona; esos peds salen sin modelo propio |
-| `KeepNoAmmo.SA.asi` | ASI de otro autor, conservado para que las armas no pierdan munición al recargar | El módulo `Ballistic` sigue andando, pero el comportamiento de munición cambia |
+### `KeepNoAmmo.SA.asi`
 
-Si los conseguiste por tu cuenta, ponelos en `modloader\IronSyndicate\`; el juego los
-monta desde ahí vía Mod Loader.
+- **Qué es:** la parte de *hooks* (ASI) del mod [KeepNoAmmo][keepnoammo] de
+  **Junior_Djjr** (Valdir da Costa Junior). Hace que el arma no desaparezca del
+  inventario al quedarse sin munición, e incluye un "click" al intentar disparar vacío.
+- **Qué se incluye:** solo el `.asi`, sin el script CLEO del autor, porque GSIS ya
+  implementa cargadores, recarga y munición en su propio módulo `Ballistic`.
+- **Modificaciones:** ninguna. El archivo va tal cual.
+- **Licencia:** el autor no publica una licencia para este mod. La mayoría de sus
+  demás mods están bajo MIT. Se le pidió permiso explícito para redistribuirlo;
+  hasta que responda, el `.asi` no se incluye en el ZIP de descarga.
+- **Nota funcional:** el mod original desactiva la función de soltar armas
+  (TAB+N) del mod *Weapon Drop 'N Save*, porque usa el mismo comando.
 
-Lo que **sí** se distribuye con el mod: el código (`cleo\`, `modloader\...\cleo\`) y
-`image\*.png`, `sounds\dryfire.wav`.
+### `models\fam4.*` y `models\fam5.*`
 
-## Agradecimientos
+Modelos de peds de origen desconocido, extraídos del juego. **No se distribuyen**:
+no son nuestros ni son de Rockstar. Copialos de tu propia instalación si los
+necesitás; el mod funciona sin ellos, solo esos peds salen sin modelo propio.
 
-- [CLEO Redux](https://re.cleo.li/) y el equipo de CLEO
-- SilentPatch, y ThirteenAG por Ultimate ASI Loader y Mod Loader
-- El autor de `KeepNoAmmo.SA.asi`
+## Créditos
+
+- **[CLEO Redux][cleoredux]** y el equipo de CLEO
+- **SilentPatch**, y **ThirteenAG** por Ultimate ASI Loader y Mod Loader
+- **[Junior_Djjr][junior]** (Valdir da Costa Junior) por el mod
+  [KeepNoAmmo][keepnoammo], del que GSIS incluye la parte de hooks
+
+[cleoredux]: https://re.cleo.li/
+[junior]: https://github.com/JuniorDjjr
+[keepnoammo]: https://www.mixmods.com.br/2020/03/keepnoammo-continuar-sem-municao/
