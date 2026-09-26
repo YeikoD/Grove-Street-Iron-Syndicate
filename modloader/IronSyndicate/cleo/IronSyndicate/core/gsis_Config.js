@@ -54,7 +54,8 @@ export var MISC = {
     PICKUP_Y: -1715.6896,
     PICKUP_Z: 13.4925,
     PICKUP_MODEL: 1254,           // Modelo del pickup
-    PICKUP_DEALER_BLIP: 18        // Sprite radar del punto de retiro
+    PICKUP_DEALER_BLIP: 18,       // Sprite radar del punto de retiro
+    HIDE_RADAR_WHEN_MENU: true    // Oculta el radar con cualquier ventana de la UI
 };
 
 // Actores permanentes: dormancy por radio + budgets de spawn/check

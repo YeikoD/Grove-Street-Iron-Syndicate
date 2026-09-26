@@ -362,7 +362,7 @@ function armarInventario(data) {
     const inv = JSON.parse(json);
     setInventory(inv);
     _diag("inventario: " + (inv.rows ? inv.rows.length : 0) + " items, " +
-          (inv.weight || 0).toFixed(1) + "/" + (inv.maxWeight || 0) + " kg", "ok");
+      (inv.weight || 0).toFixed(1) + "/" + (inv.maxWeight || 0) + " kg", "ok");
   } catch (e) {
     // OJO: esto es lo que pasaba en silencio. Un dataJson truncado arma una
     // string rota aqui adentro y el menu queda vacio sin decir nada.
@@ -451,8 +451,58 @@ function emit(name, data) {
 // El browser NUNCA se cierra. La pagina se oculta y se muestra por classe, asi
 // que el DOM sigue vivo, los listeners siguen_atados y el tick() sigue corriendo
 // a 60fps aunque no haya nada visible.
+//
+// Mostrar no necesita nada: el panel sale de display:none y la animacion de
+// entrada se re-dispara sola. Ocultar si: .hidden es display:none, asi que si se
+// pusiera de una, el panel se borra en un frame y no hay salida que ver. Por eso
+// primero se marca .panel--closing, que corre fadeOut, y recien ahi se esconde.
+var _closeTimer = null;
+// El primer setPanelVisible() es el estado inicial (abajo, al final del script).
+// Ese no anima: si animara, el panel se veria aparecer y desvanecerse en los
+// primeros frames, que es justo el flash que la llamada inicial evita.
+var _panelInit = false;
+
+// La duracion sale de --dur-slow, no escrita aca: si el CSS la cambia, el
+// timeout sigue a la animacion sin que haya que tocar los dos.
+function panelAnimMs() {
+  var raw = getComputedStyle(panelEl).getPropertyValue("--dur-slow");
+  var ms = parseFloat(raw) * (raw.indexOf("ms") >= 0 ? 1 : 1000);
+  return ms > 0 ? ms : 200;
+}
+
 function setPanelVisible(visible) {
-  panelEl.classList.toggle("hidden", !visible);
+  if (_closeTimer !== null) {
+    clearTimeout(_closeTimer);
+    _closeTimer = null;
+  }
+
+  if (!_panelInit) {
+    _panelInit = true;
+    panelEl.classList.toggle("hidden", !visible);
+    return;
+  }
+
+  if (visible) {
+    // Las dos clases en un solo remove: el panel vuelve a ser visible en un
+    // paso, asi que la entrada arranca en el frame mismo. Si se sacara
+    // .hidden primero y .panel--closing despues, la de salida corria un frame
+    // en el aire y el panel titilaba al abrir.
+    panelEl.classList.remove("hidden", "panel--closing");
+    return;
+  }
+
+  // Si ya esta cerrandose o ya esta oculto no hay nada que hacer: reiniciar el
+  // timeout en cada llamada solo alargaria la espera.
+  if (panelEl.classList.contains("hidden") || panelEl.classList.contains("panel--closing")) {
+    return;
+  }
+
+  panelEl.classList.add("panel--closing");
+  _closeTimer = setTimeout(function () {
+    _closeTimer = null;
+    panelEl.classList.remove("panel--closing");
+    panelEl.classList.add("hidden");
+  }, panelAnimMs());
 }
 
 // ---------------------------------------------------------------- TUTORIAL --

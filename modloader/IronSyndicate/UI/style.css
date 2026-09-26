@@ -127,10 +127,9 @@
      Con dos tokens y dos overrides, cualquier cambio de uno dejaba al otro
      desfasado. Uno solo y los dos boxes heredan.
 
-     Negro puro. El alfa es el mismo para los dos boxes porque los dos leen
-     ESTE token — #panel y #tutorial-box no lo sobreescriben, asi que no pueden
-     desincronizarse. 0.88 deja ver la escena sin que el texto pierda lectura;
-     el default de SAWebUI era 0.86. */
+     Negro puro con alfa. #panel y #tutorial-box no lo sobreescriben, asi que
+     leen ESTE token y no pueden desincronizarse. El 0.84 deja ver la escena
+     sin que el texto pierda lectura; el default de SAWebUI era 0.86. */
   --surface-overlay: rgba(0, 0, 0, 0.84);
   --surface-raised: var(--g-900);
   --surface-hover: var(--g-800);
@@ -176,10 +175,8 @@
      --panel-w, en su propia regla. El valor de casa queda intacto para los
      demas paneles.
 
-     --box-x y --box-y salen de 80% y 60% de los offsets originales
-     (3.75vw / 25vh): "correr 20%" y "subir 40%" sobre el offset previo.
-     --box-x lo comparten los boxes de la misma fila, asi que corrieron juntos
-     y siguen alineados.
+     --box-y sale de 60% del offset original (25vh): "subir 40%" sobre el
+     previo. --box-x quedo en 0, con el box pegado al borde izquierdo.
 
      --box-h es alto ACOTADO, no min-height. Con min-height el panel seria de
      alto automatico: creceria con el contenido y el scroll interno de #rows
@@ -188,10 +185,12 @@
      borde inferior en 66vh con 34vh de holgado. */
   --box-w: 27vw;
   --box-h: 51.1vh;
-  /* Corrijo el desplazamiento en px, no en vw. Un nudge de posicion es una
-     cantidad constante: 5px son 5px en cualquier resolucion, mientras que
-     "5vw" habria sido 96px a 1920 y otra cosa entera en otra resolucion. */
-  --box-x: calc(3vw - 7px);
+  /* 0: el box arranca en el borde izquierdo de la pantalla. Antes era
+     calc(3vw - 7px), un nudge de posicion constante en px y no en vw. Lo
+     comparten los boxes de la misma fila --el tutorial se ancla a --box-x
+     para pegarse al principal--, asi que van juntos: si el principal se
+     corre, el tutorial se corre con el y el gap entre los dos no cambia. */
+  --box-x: 0;
   --box-y: 15vh;
   --box-px: var(--spw-4);
   --box-pb: var(--sp-2);
@@ -200,28 +199,24 @@
      --box-w a proposito: --box-w es la medida de casa para los paneles
      futuros, y este es el ancho real del que esta pasando. El tutorial se
      coloca al lado de este, asi que tiene que leer ESTE y no el default вЂ”
-     cuando el panel se ensancho a 32.4vw y el tutorial seguia anclado a
-     --box-w (27vw), se le monto encima. Que los dos lean el mismo token
-     hace que eso no pueda volver a pasar. */
-  --main-w: 32.4vw;
+     cuando el panel se ensancho y el tutorial seguia anclado a --box-w
+     (27vw), se le monto encima. Que los dos lean el mismo token hace que eso
+     no pueda volver a pasar.
+
+     Es la UNICA fuente del ancho principal: #panel lo toma por --panel-w y el
+     tutorial lo lee directo para calcular su left. Antes el valor estaba
+     escrito dos veces como literal (aca y en #panel) y ensanchar uno sin el
+     otro era justo el bug de arriba. Para cambiar el ancho se toca ESTA
+     linea. */
+  --main-w: 38vw;
 
   --label-w: 9.8vw;
   --row-h: 3.1vh;
 
-  /* Geometria del titulo sobre el borde del box.
-     --title-size   alto de la linea del titulo
-     --title-lift   cuanto asoma POR FUERA del borde superior
-     --title-inset  cuanto invade POR DENTRO (lo que queda del titulo abajo
-                    del borde, y por ende la reserva que el box le cede)
-     Los tres estan derivados: cambiar --title-size o --title-lift reajusta
-     la reserva del padding y el desborde juntos, sin tocar nada mas. */
+  /* Alto de la linea del titulo. El titulo vive DENTRO del box, como primer
+     hijo del encabezado: en flujo hereda el padding lateral del panel y queda
+     alineado con el subtitulo y con las pestanas por construccion. */
   --title-size: 5.2vh;
-  --title-lift: 3.4vh;
-  --title-inset: calc(var(--title-size) - var(--title-lift));
-  /* Desplazamiento horizontal del titulo respecto del borde del box. El default
-     de SAWebUI lo colgaba en -0.5vw, del lado de afuera del panel. 0.2vw lo deja
-     apenas adentro; 0.7vw lo alinea con el subtitulo de abajo. */
-  --title-x: 0.8vw;
 }
 
 * {
@@ -256,7 +251,7 @@ body {
   /* Ancho de la columna del icono. Vive como token propio y no metido en
      --table-cols porque lo necesitan tres reglas: la grilla, el <img> del
      icono y el sangrado de la banda de grupo. */
-  --table-icon-w: 2.8vh;
+  --table-icon-w: 3.1vh;
 
   /* icon | nombre | cant | balas | peso | valor. El 1fr es el nombre, que
      absorbe lo que sobre y por eso el nombre nunca queda desalineado al
@@ -270,12 +265,19 @@ body {
      larga de cada columna es su encabezado. */
   --table-cols: var(--table-icon-w) 1fr 3.2vw 3.8vw 3.2vw 3.8vw;
   --table-gap: var(--spw-2);
-  --table-row-h: var(--row-h);
-  --table-fs: var(--fs-sm);
+  /* Alto de fila y cuerpo propios de la tabla, sueltos de --row-h y --fs-sm.
+     Cuando el panel se ensancho a 38vw, filas de 3.1vh con texto de 1.6vh
+     quedaron chicas para el ancho que tienen. Se desacoplan a proposito:
+     --fs-sm es ademas el cuerpo de .btn y de .toast, asi que subirlo por la
+     escala global venia con los botones y el toast enganados al inventario.
+     --row-h sigue siendo el alto de las listas de las otras pestanas, que van
+     con .row y no con la tabla. */
+  --table-row-h: 3.4vh;
+  --table-fs: 1.8vh;
   /* Las etiquetas del header van con tracking propio y mas cerrado que el del
      resto de la UI: son el elemento que define el ancho de columna, asi que
      cada pixel de tracking se paga dos veces. */
-  --table-head-fs: var(--fs-2xs);
+  --table-head-fs: 1.35vh;
   --table-head-track: 0.08vw;
 
   /* Grosor de las dos guias verticales de la tabla: el filete gris de la banda
@@ -637,16 +639,39 @@ body {
   display: flex;
   flex-direction: column;
   /* Ancho del panel principal. NO pisa --box-w: ese sigue en 27vw como
-     default de casa para los proximos paneles. */
+     default de casa para los proximos paneles. Toma --main-w, que es donde
+     vive el valor: --main-w es lo que lee tambien el tutorial para pegarse
+     aca, asi que los dos anchos no pueden desincronizarse. */
   --panel-w: var(--main-w);
-  /* Ancho propio de este panel: 27vw + 20% = 32.4vw. Pisar UN token es
-     justamente para esto РІР‚вЂќ --box-w sigue en 27vw como default de casa para
-     los proximos paneles y para el tutorial. */
-  --panel-w: 32.4vw;
-  /* El padding superior es la reserva que el titulo ya no ocupa en flujo,
-     porque ahora es absoluto. Sin esto el box encogeria --title-size cada vez
-     que el titulo cambia de tamano. */
-  --panel-pt: var(--title-inset);
+  /* Alto completo: el box va de borde a borde vertical. Antes --box-y lo bajaba
+     15vh y --box-h lo cortaba en 51.1vh, dejando 34vh de escena vacia abajo.
+     Pisar los dos tokens alcanza porque .panel los lee de ahi. --box-y y
+     --box-h quedan intactos como default de casa: el tutorial se apoya en
+     --box-y y por eso no se mueve con este cambio. */
+  --panel-y: 0;
+  --panel-h: 100vh;
+  /* Entrada: la misma fadeIn del tutorial. No hay que re-dispararla a mano
+     porque el browser nunca se cierra —el panel sale de display:none por
+     clase, no se monta de nuevo— y una animacion se re-dispara sola cuando el
+     elemento vuelve a renderizarse. Por eso la salida SI necesita una clase
+     intermedia: .hidden es display:none, asi que sin ella el panel se borra
+     en un frame y no hay nada que animar. */
+  animation: fadeIn var(--dur-slow) ease-out;
+  /* El titulo ya no es absoluto, asi que no hay nada que reservar arriba: el
+     padding superior es el de casa, un poco mas aireado que --sp-4 para que la
+     linea del titulo no quede pegada al borde. */
+  --panel-pt: var(--sp-5);
+}
+
+/* Salida del panel principal. El ID va DOS veces a proposito: #panel ya
+   declara su animacion de entrada, y un selector de clase (0-1-0) no le gana
+   a uno de ID (1-0-0) ni declarandose despues. Hace falta #panel.panel--closing
+   (1-1-0) para que la de salida gane de verdad.
+
+   forwards para que el panel se quede en opaco 0 y corrido hasta que
+   setPanelVisible() (app.js) le ponga .hidden al terminar. */
+#panel.panel--closing {
+  animation: fadeOut var(--dur-slow) ease-in forwards;
 }
 
 /* ------------------------------------------------------------------ TР“В­tulo & Encabezado -- */
@@ -655,19 +680,14 @@ body {
   margin-bottom: var(--sp-2);
 }
 
-/* El titulo se ancla al borde superior del box en vez de empujarlo con un
-   margen negativo. Asi queda SIEMPRE asomando la misma cantidad, sin importar
-   cuanto crezca o mengue el contenido: el alto del box lo decide el contenido
-   y el titulo se apoya en el borde, no al reves. */
+/* El titulo va en flujo, arriba del subtitulo, dentro del box. Antes se
+   anclaba al borde superior con bottom:100% y un margen negativo para asomar
+   3.4vh por fuera: con el box de alto completo eso se caia de pantalla, y en
+   cualquier caso el desborde quedaba colgando sobre la escena. En flujo el
+   titulo hereda el padding lateral del panel, con lo que queda alineado con el
+   subtitulo y con las pestanas sin ningun token de desplazamiento. */
 #title {
-  position: absolute;
-  bottom: 100%;
-  left: var(--title-x);
-  /* bottom:100% apoya el pie del titulo en el borde; este margen negativo lo
-     baja --title-inset para que quede montado sobre el borde y no flotando
-     separado. Al ser absoluto no depende del padding ni del borde de .panel,
-     asi que no hay colapso de margenes que pueda moverlo. */
-  margin: 0 0 calc(-1 * var(--title-inset));
+  margin: 0;
   font-family: var(--font-display);
   font-size: var(--title-size);
   line-height: 1.0;
@@ -874,10 +894,10 @@ body {
    alto fijo porque deja que el contenido lo determine.
 
    El left sale de --main-w, NO de --box-w: el default de casa es 27vw y el
-   panel mide 32.4vw. Con --box-w el tutorial se le montaba encima en 85px.
-   Y --panel-w no sirve aca: las custom properties se resuelven en el elemento
-   donde se usan, asi que var(--panel-w) dentro de #tutorial-box daria el 36vw
-   que este mismo bloque declara, no el ancho del otro panel. */
+   panel principal es mas ancho que eso. Con --box-w el tutorial se le montaba
+   encima. Y --panel-w no sirve aca: las custom properties se resuelven en el
+   elemento donde se usan, asi que var(--panel-w) dentro de #tutorial-box daria
+   el 36vw que este mismo bloque declara, no el ancho del otro panel. */
 
 #tutorial-box {
   display: flex;
@@ -894,6 +914,12 @@ body {
   --panel-px: var(--spw-5);
 }
 
+/* Los dos caminos de la misma animacion. fadeIn la usa el tutorial y tambien
+   #panel; fadeOut es su inverso y solo la usa #panel al cerrar.
+
+   El desplazamiento es horizontal y no vertical porque ambos boxes se apoyan
+   en el borde izquierdo: entrar desde -10px los hace venir del canto, que es
+   de donde "salen" en pantalla. */
 @keyframes fadeIn {
   from {
     opacity: 0;
@@ -903,6 +929,18 @@ body {
   to {
     opacity: 1;
     transform: translateX(0);
+  }
+}
+
+@keyframes fadeOut {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateX(-10px);
   }
 }
 

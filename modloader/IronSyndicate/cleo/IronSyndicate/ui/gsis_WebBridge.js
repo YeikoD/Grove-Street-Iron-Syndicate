@@ -52,7 +52,7 @@
 // ============================================================================
 
 import { register } from "../core/gsis_ModuleRegistry.js";
-import { KEYS } from "../core/gsis_Config.js";
+import { KEYS, MISC } from "../core/gsis_Config.js";
 import { snapInventory } from "./gsis_WebData.js";
 import SAWeb from "../../../../SAWebUI/cleo/SAWebUI/SAWeb.js";
 
@@ -76,6 +76,13 @@ var _prevKeyEsc = false;
 // mandar los eventos input/panels en cada frame y se taparia la cola de 256.
 var _lastInput = null;
 var _lastPanels = null;
+
+// Ultimo valor enviado a Hud.DisplayRadar. Mismo latch que los otros dos.
+var _lastRadar = null;
+
+// Log de una sola vez si el build no expone ninguna de las dos formas de tocar
+// el radar, para no spamear el log en cada toggle.
+var _radarFallo = false;
 
 // ------------------------------------------------------------------ ESTADO --
 //
@@ -111,6 +118,34 @@ function send(name, data) {
     }
 }
 
+// El radar se esconde con la UI. Hud.DisplayRadar es la forma documentada en
+// CLEO Redux; native("DISPLAY_RADAR", ...) es el mismo comando por su nombre
+// clasico (0581) y es el camino que ya usa SAWeb.js, asi que va de respaldo:
+// si el build no expone el namespace, el radar igual se oculta. Un Hud que no
+// existe tira ReferenceError, que es catcheable, asi que el fallback dispara
+// solo en vez de tener que detectarlo.
+//
+// 0581 es write-only: no hay getter del estado del radar en ningun lado, asi
+// que no se puede restaurar "el estado previo". Cerrar la UI lo fuerza
+// visible, que es el default del juego.
+//
+// Ojo: 0581 saca el disco Y los blips (asi lo documenta Sanny Builder). Con la
+// UI abierta tampoco se ve el sprite del punto de retiro, ni ningun otro blip.
+function setRadar(show) {
+    try {
+        Hud.DisplayRadar(show);
+        return;
+    } catch (e) { }
+    try {
+        native("DISPLAY_RADAR", show ? 1 : 0);
+    } catch (e2) {
+        if (!_radarFallo) {
+            _radarFallo = true;
+            log("[WebBridge] no se pudo cambiar el radar: " + e2.message);
+        }
+    }
+}
+
 // anyVisible se deriva de los modulos en las fases siguientes. Por ahora solo
 // el menu principal: los overlays de baul / dealer / retiro / trueque se
 // enchufan aca con sus isXxxMenuVisible().
@@ -139,6 +174,14 @@ function broadcast() {
             SAWeb.setCursor(anyVisible ? SAWeb.CursorMode.VISIBLE : SAWeb.CursorMode.HIDDEN);
         } catch (e) { }
         send("input", { enabled: anyVisible });
+    }
+
+    // radar: mismo interruptor que el input, y por la misma razon va latcheado.
+    // Va aca y no en pollKeys() para que lo hereden las ventanas futuras
+    // (baul / dealer / retiro / trueque) apenas se enchufen en computeVisible().
+    if (MISC.HIDE_RADAR_WHEN_MENU && _lastRadar !== anyVisible) {
+        _lastRadar = anyVisible;
+        setRadar(!anyVisible);
     }
 
     // panels: que seccion tiene que verse. El browser sigue abierto siempre.
