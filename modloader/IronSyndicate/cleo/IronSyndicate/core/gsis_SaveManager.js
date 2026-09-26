@@ -72,6 +72,99 @@ function _rStr(path, sec, key, def) {
 }
 
 // ============================================================================
+// BASE64
+// ============================================================================
+//
+// Por que: el JSON crudo viaja dentro de un INI, y GTA no|round-trippea
+// texto con comillas, llaves ni dos puntos — el slot se guardaba bien pero al
+// leerlo el string llegaba incompleto y JSON.parse moria con "expecting '}'".
+// Base64 es [A-Za-z0-9+/=]: no hay un solo caracter que un parser de INI, un
+// buffer de linea o un salto de linea pueda interpretar. Mata la clase de
+// bug, no el caso.
+//
+// No se usa btoa/atob: el motor no los garantiza.
+
+var _B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+function _utf8Encode(str) {
+    var out = [];
+    for (var i = 0; i < str.length; i++) {
+        var c = str.charCodeAt(i);
+        if (c < 0x80) {
+            out.push(c);
+        } else if (c < 0x800) {
+            out.push(0xC0 | (c >> 6), 0x80 | (c & 0x3F));
+        } else if (c < 0xD800 || c >= 0xE000) {
+            out.push(0xE0 | (c >> 12), 0x80 | ((c >> 6) & 0x3F), 0x80 | (c & 0x3F));
+        } else {
+            // surrogate pair
+            i++;
+            var cp = 0x10000 + (((c & 0x3FF) << 10) | (str.charCodeAt(i) & 0x3FF));
+            out.push(0xF0 | (cp >> 18), 0x80 | ((cp >> 12) & 0x3F), 0x80 | ((cp >> 6) & 0x3F), 0x80 | (cp & 0x3F));
+        }
+    }
+    return out;
+}
+
+function _utf8Decode(bytes) {
+    var out = "";
+    for (var i = 0; i < bytes.length;) {
+        var b = bytes[i++];
+        if (b < 0x80) {
+            out += String.fromCharCode(b);
+        } else if (b < 0xE0) {
+            out += String.fromCharCode(((b & 0x1F) << 6) | (bytes[i++] & 0x3F));
+        } else if (b < 0xF0) {
+            out += String.fromCharCode(((b & 0x0F) << 12) | ((bytes[i++] & 0x3F) << 6) | (bytes[i++] & 0x3F));
+        } else {
+            var cp = ((b & 0x07) << 18) | ((bytes[i++] & 0x3F) << 12) | ((bytes[i++] & 0x3F) << 6) | (bytes[i++] & 0x3F);
+            cp -= 0x10000;
+            out += String.fromCharCode(0xD800 + (cp >> 10), 0xDC00 + (cp & 0x3FF));
+        }
+    }
+    return out;
+}
+
+function _b64Encode(str) {
+    var bytes = _utf8Encode(str);
+    var out = "";
+    for (var i = 0; i < bytes.length; i += 3) {
+        var b0 = bytes[i];
+        var b1 = (i + 1 < bytes.length) ? bytes[i + 1] : -1;
+        var b2 = (i + 2 < bytes.length) ? bytes[i + 2] : -1;
+        out += _B64.charAt(b0 >> 2);
+        out += _B64.charAt(((b0 & 3) << 4) | (b1 < 0 ? 0 : b1 >> 4));
+        out += (b1 < 0) ? "=" : _B64.charAt(((b1 & 15) << 2) | (b2 < 0 ? 0 : b2 >> 6));
+        out += (b2 < 0) ? "=" : _B64.charAt(b2 & 63);
+    }
+    return out;
+}
+
+function _b64Decode(str) {
+    var clean = "";
+    for (var i = 0; i < str.length; i++) {
+        var c = str.charAt(i);
+        if (c !== "=" && _B64.indexOf(c) >= 0) clean += c;
+    }
+    var bytes = [];
+    for (var j = 0; j < clean.length; j += 4) {
+        // Ojo: indexOf("") devuelve 0, no -1. Un caracter vacio hay que
+        // descartarlo antes, si no el padding empuja bytes basura.
+        var c2 = clean.charAt(j + 2);
+        var c3 = clean.charAt(j + 3);
+        var n0 = _B64.indexOf(clean.charAt(j));
+        var n1 = _B64.indexOf(clean.charAt(j + 1));
+        var n2 = c2 ? _B64.indexOf(c2) : -1;
+        var n3 = c3 ? _B64.indexOf(c3) : -1;
+        if (n0 < 0 || n1 < 0) return null;
+        bytes.push((n0 << 2) | (n1 >> 4));
+        if (n2 >= 0) bytes.push(((n1 & 15) << 4) | (n2 >> 2));
+        if (n3 >= 0) bytes.push(((n2 & 3) << 6) | n3);
+    }
+    return _utf8Decode(bytes);
+}
+
+// ============================================================================
 // SAVE / LOAD - JSON chunked via INI
 // ============================================================================
 
@@ -94,9 +187,13 @@ function saveGame(slot) {
             _log("[Save] Vehiculo id=" + veh.id + " x=" + veh.x.toFixed(1) + " y=" + veh.y.toFixed(1) + " z=" + veh.z.toFixed(1));
         }
     }
-    var json = JSON.stringify(GameState);  // Convierte estado a JSON
+    var json = _b64Encode(JSON.stringify(GameState));  // Base64: el INI no puede danarlo
     var path = _getSavePath(slot);  // Obtiene ruta del archivo
     var sec = "GSIS";  // Seccion INI
+
+    // Si el slot viejo tiene mas chunks que el nuevo, se pisa la clave "n" y las
+    // sobrantes quedan huerfanas. No molestan: la lectura usa n del encabezado.
+    _wStr(path, sec, "fmt", "b64");
 
     var chunks = [];
     for (var i = 0; i < json.length; i += _chunkSize) {
@@ -130,15 +227,39 @@ function loadGame(slot) {
     var n = _rInt(path, sec, "n", 0);
     if (n <= 0) { _log("Sin chunks"); return false; }
 
-    var json = "";
+    var raw = "";
+    var _diag = "n=" + n + " ";
     for (var i = 0; i < n; i++) {
         var chunk = _rStr(path, sec, "d" + i, "");
         if (chunk === "") { _log("Chunk vacio: d" + i); return false; }
-        json += chunk;
+        _diag += "d" + i + "=" + chunk.length + " ";
+        raw += chunk;
+    }
+
+    // Largo leido de cada chunk. Si el total no calza con lo que se escribio,
+    // el INI devolvio otra cosa y conviene saberlo: el mensaje solo dice DONDE
+    // se corto el save.
+    _log("[diag] " + _diag + "total=" + raw.length);
+
+    // El slot puede estar en el formato viejo (JSON crudo) o en el nuevo
+    // (base64, marcado con fmt=b64). Se intentan los dos y gana el que de JSON
+    // valido, asi que un slot anterior al fix sigue cargando sin tocarlo.
+    var parsed = null;
+    var fmt = _rStr(path, sec, "fmt", "");
+    var b64 = (fmt === "b64") ? _b64Decode(raw) : null;
+    if (b64 !== null) {
+        try { parsed = JSON.parse(b64); _log("Formato: base64."); } catch (e) { parsed = null; }
+    }
+    if (!parsed) {
+        try { parsed = JSON.parse(raw); _log("Formato: JSON crudo (slot viejo)."); }
+        catch (e) {
+            _log("JSON parse error: " + e.message);
+            _log("No se carga nada de este slot — se conserva el estado actual.");
+            return false;
+        }
     }
 
     try {
-        var parsed = JSON.parse(json);
         GameState.version = parsed.version || "1.0";
         GameState.ts = parsed.ts || 0;
         GameState.player = parsed.player || GameState.player;
@@ -155,7 +276,7 @@ function loadGame(slot) {
             }
         }
 
-        _log("JSON parse OK. Chunks: " + n + " Len: " + json.length);
+        _log("JSON parse OK. Chunks: " + n);
     } catch (e) {
         _log("JSON parse error: " + e.message);
         return false;

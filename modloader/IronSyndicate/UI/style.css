@@ -1,4 +1,4 @@
-/* SAWebUI вЂ” EstГ©tica Vanilla Pantalla Stats & GuГ­a Interactiva para Modders.
+/* SAWebUI РІР‚вЂќ EstР“В©tica Vanilla Pantalla Stats & GuР“В­a Interactiva para Modders.
    Proporciones medidas sobre captura real de GTA SA (1200x675) en vw/vh. */
 
 @font-face {
@@ -18,7 +18,7 @@
 }
 
 /* ============================================================================
-   TOKENS вЂ” tres capas. Ningun color literal deberia aparecer fuera de este
+   TOKENS РІР‚вЂќ tres capas. Ningun color literal deberia aparecer fuera de este
    bloque; todo lo de abajo se apoya en lo de arriba.
 
      CAPA 1  Primitivas   valores crudos, sin significado. La rampa de grises,
@@ -116,7 +116,6 @@
 
   /* Formas y movimiento. */
   --radius-sm: 2px;
-  --icon-sm: 1.4vh;
   --dur-fast: 0.1s;
   --dur: 0.15s;
   --dur-slow: 0.2s;
@@ -126,8 +125,13 @@
   /* Un solo fondo para los boxes. Antes habia dos — --surface-panel al 0.86 y
      --surface-overlay al 0.94 — y cada box pisaba el del otro para "ser igual".
      Con dos tokens y dos overrides, cualquier cambio de uno dejaba al otro
-     desfasado. Uno solo y los dos boxes heredan. */
-  --surface-overlay: rgba(10, 12, 16, 0.94);
+     desfasado. Uno solo y los dos boxes heredan.
+
+     Negro puro. El alfa es el mismo para los dos boxes porque los dos leen
+     ESTE token — #panel y #tutorial-box no lo sobreescriben, asi que no pueden
+     desincronizarse. 0.88 deja ver la escena sin que el texto pierda lectura;
+     el default de SAWebUI era 0.86. */
+  --surface-overlay: rgba(0, 0, 0, 0.84);
   --surface-raised: var(--g-900);
   --surface-hover: var(--g-800);
   --surface-active: var(--g-700);
@@ -184,7 +188,10 @@
      borde inferior en 66vh con 34vh de holgado. */
   --box-w: 27vw;
   --box-h: 51.1vh;
-  --box-x: 3vw;
+  /* Corrijo el desplazamiento en px, no en vw. Un nudge de posicion es una
+     cantidad constante: 5px son 5px en cualquier resolucion, mientras que
+     "5vw" habria sido 96px a 1920 y otra cosa entera en otra resolucion. */
+  --box-x: calc(3vw - 7px);
   --box-y: 15vh;
   --box-px: var(--spw-4);
   --box-pb: var(--sp-2);
@@ -192,7 +199,7 @@
   /* Ancho del panel PRINCIPAL, el que esta en pantalla ahora. Vive aparte de
      --box-w a proposito: --box-w es la medida de casa para los paneles
      futuros, y este es el ancho real del que esta pasando. El tutorial se
-     coloca al lado de este, asi que tiene que leer ESTE y no el default —
+     coloca al lado de este, asi que tiene que leer ESTE y no el default вЂ”
      cuando el panel se ensancho a 32.4vw y el tutorial seguia anclado a
      --box-w (27vw), se le monto encima. Que los dos lean el mismo token
      hace que eso no pueda volver a pasar. */
@@ -274,7 +281,7 @@ body {
   /* Grosor de las dos guias verticales de la tabla: el filete gris de la banda
      de grupo y el filete de acento de la fila elegida. Vive aca para que las dos
      se lean con el mismo peso y no puedan desincronizarse: antes eran 3px y 2px
-     y la diferencia de 1px se veía como descuido, no como diseño. */
+     y la diferencia de 1px se veГ­a como descuido, no como diseГ±o. */
   --guide-w: 3px;
 
   /* Padding horizontal de las filas. Tiene que separar al icono del filete de
@@ -363,7 +370,7 @@ body {
 /* Fila elegida: banda de tinte con filete de acento. El color del texto va en
    la FILA y no en el nombre, para que el nombre y las cifras sean del mismo
    color por construccion. Si el color estuviera en .table__name, las celdas
-   numericas вЂ” que tienen el suyo вЂ” se desfasarian apenas una de las dos
+   numericas РІР‚вЂќ que tienen el suyo РІР‚вЂќ se desfasarian apenas una de las dos
    cambiara, y en la fila elegida se leia nombre en oro con cifras en gris. */
 .table__row--selected {
   background: var(--tint-ok-bg);
@@ -378,7 +385,7 @@ body {
 }
 
 /* Cifras: a la derecha y con ancho de digito fijo, para que los decimales
-   queden en columna en vez de bailar. Sin color propio a proposito вЂ” heredan el
+   queden en columna en vez de bailar. Sin color propio a proposito РІР‚вЂќ heredan el
    de la fila, que es el mismo que el del nombre. */
 .table__num {
   text-align: right;
@@ -387,7 +394,7 @@ body {
 }
 
 /* Sin dato: la celda no queda vacia, queda con un guion para que la columna
-   siga leyГ©ndose como columna. */
+   siga leyР“В©ndose como columna. */
 .table__num--none {
   color: var(--text-muted);
   opacity: 0.5;
@@ -416,6 +423,82 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* ======================================================== RECETA: .toast --
+   Feedback de una accion. Vive dentro del panel y por eso es absolute: no
+   participa del flex column, asi que aparece y desaparece sin mover la tabla.
+
+   El fondo va sobre la caja porque se superpone a las filas — sin el, el texto
+   se pierde contra el texto de los items. El filete de la izquierda lleva el
+   tono, y con --guide-w para que pese igual que las guias de la tabla. */
+
+.toast {
+  --toast-tone: var(--state-info);
+  --toast-text: var(--text-info);
+
+  position: absolute;
+  left: var(--panel-px);
+  right: var(--panel-px);
+  bottom: var(--sp-6);
+  display: flex;
+  align-items: center;
+  padding: var(--sp-2) var(--spw-2);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border-strong);
+  border-left: var(--guide-w) solid var(--toast-tone);
+  font-size: var(--fs-sm);
+  color: var(--toast-text);
+  z-index: 10;
+}
+
+.toast--ok {
+  --toast-tone: var(--state-ok);
+  --toast-text: var(--text-ok);
+}
+
+.toast--bad {
+  --toast-tone: var(--state-bad);
+  --toast-text: var(--text-danger);
+}
+
+.toast--warn {
+  --toast-tone: var(--state-warn);
+  --toast-text: var(--text-warning);
+}
+
+.toast--info {
+  --toast-tone: var(--state-info);
+  --toast-text: var(--text-info);
+}
+
+/* ======================================================== RECETA: .diag --
+   Diagnostico del transporte, a proposito visible en el DOM.
+
+   Todo el debugging de este puente fue a ciegas: los errores de la pagina van a
+   console, que sin devtools no existe, asi que un menu vacio no daba ninguna
+   pista. Esta caja dice que esta recibiendo el mod, cuantos trozos de cuantos, y
+   si el JSON armo. Se saca cuando el transporte este probado.
+
+   Misma receta que .toast pero sin fondo: es texto de estado, no un evento, y
+   tiene que poder leerse encima de cualquier cosa. */
+.diag {
+  position: absolute;
+  left: var(--panel-px);
+  right: var(--panel-px);
+  bottom: var(--sp-2);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  pointer-events: none;
+  z-index: 11;
+}
+
+.diag--ok {
+  color: var(--text-ok);
+}
+
+.diag--bad {
+  color: var(--text-danger);
 }
 
 /* ============================================================ RECETA: .btn --
@@ -460,7 +543,7 @@ body {
   color: var(--btn-text-hover);
 }
 
-/* PestaГ±as: llenar el ancho disponible, texto chico y bold. */
+/* PestaР“В±as: llenar el ancho disponible, texto chico y bold. */
 .btn--tab {
   flex: 1 1 0;
   --btn-height: 2.5vh;
@@ -475,7 +558,7 @@ body {
   box-shadow: inset 0 -2px 0 var(--accent);
 }
 
-/* Navegacion: misma receta que la pestaГ±a, un pelo mas alta. */
+/* Navegacion: misma receta que la pestaР“В±a, un pelo mas alta. */
 .btn--nav {
   flex: 1 1 0;
   --btn-height: 2.6vh;
@@ -557,7 +640,7 @@ body {
      default de casa para los proximos paneles. */
   --panel-w: var(--main-w);
   /* Ancho propio de este panel: 27vw + 20% = 32.4vw. Pisar UN token es
-     justamente para esto вЂ” --box-w sigue en 27vw como default de casa para
+     justamente para esto РІР‚вЂќ --box-w sigue en 27vw como default de casa para
      los proximos paneles y para el tutorial. */
   --panel-w: 32.4vw;
   /* El padding superior es la reserva que el titulo ya no ocupa en flujo,
@@ -566,7 +649,7 @@ body {
   --panel-pt: var(--title-inset);
 }
 
-/* ------------------------------------------------------------------ TГ­tulo & Encabezado -- */
+/* ------------------------------------------------------------------ TР“В­tulo & Encabezado -- */
 
 .panel-header {
   margin-bottom: var(--sp-2);
@@ -603,15 +686,8 @@ body {
   text-shadow: 1px 1px 2px var(--g-1000);
 }
 
-/* Logo chico del tutorial-box */
-.brand-tiny-logo {
-  height: var(--icon-sm);
-  width: auto;
-  vertical-align: middle;
-}
-
-/* ---------------------------------------------------------------- PestaГ±as --
-   Las pestaГ±as no tienen receta propia: son .btn.btn--tab mas el contenedor. */
+/* ---------------------------------------------------------------- PestaР“В±as --
+   Las pestaР“В±as no tienen receta propia: son .btn.btn--tab mas el contenedor. */
 
 #tabs {
   display: flex;
@@ -628,7 +704,7 @@ body {
   flex-direction: column;
   /* Area de contenido: unico hijo que crece, y el contenedor de scroll del
      panel. min-height:0 es lo que permite que flexbox lo encoja hasta el
-     limite del panel вЂ” sin eso el default min-height:auto impide encogerlo
+     limite del panel РІР‚вЂќ sin eso el default min-height:auto impide encogerlo
      abaixo de su contenido y la lista se desborda en vez de scrollear.
      El nav queda clavado al borde inferior porque no crece. */
   flex: 1 1 auto;
@@ -773,8 +849,8 @@ body {
   border-color: var(--text-gold);
 }
 
-/* ------------------------------------------------------------- NavegaciГіn --
-   Igual que las pestaГ±as: .btn.btn--nav mas el contenedor. */
+/* ------------------------------------------------------------- NavegaciР“С–n --
+   Igual que las pestaР“В±as: .btn.btn--nav mas el contenedor. */
 
 #nav {
   display: flex;
@@ -792,8 +868,8 @@ body {
 }
 
 /* -------------------------------------------------- Ventana Tutorial Modal --
-   La segunda .panel. Comparte fondo y borde con la principal — son el mismo
-   material — y solo sobreescribe la geometria que tiene que ser distinta: se
+   La segunda .panel. Comparte fondo y borde con la principal вЂ” son el mismo
+   material вЂ” y solo sobreescribe la geometria que tiene que ser distinta: se
    coloca al lado del panel principal con un margen, es mas angosto y no tiene
    alto fijo porque deja que el contenido lo determine.
 

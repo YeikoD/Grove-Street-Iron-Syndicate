@@ -11,23 +11,27 @@
 //
 // Contrato con cleo\IronSyndicate\ui\gsis_WebBridge.js:
 //
-//   pagina -> CLEO   emit("ready", { ui: "main" })
-//                    emit("cmd",   { cmd: "<nombre>", ...args })
+//   LA PAGINA NO MANDA NADA. En CLEO Redux 1.5.0 los scripts JS no reciben
+//   eventos: asyncWait no reanuda, setTimeout/setInterval no disparan y
+//   addEventListener nunca entrega (probado el 26/09 con cleo\zz_sonda.js). O
+//   sea que la pagina -> CLEO esta muerta y no hay nada que عليها inventar.
 //
 //   CLEO -> pagina   receive("input",  { enabled: bool })     cursor + teclado
-//                    receive("panels", { menu: bool, ... })  que seccion mostrar
-//                    receive("state",  { ... })               datos del panel
-//                    receive("toast",  { key | text, params })
-//                    receive("l10n",   { es: {...}, en: {...} })
-//                    receive("reply",  { cmd, ok, data | error })
+//                    receive("panels", { menu: bool })       que seccion mostrar
+//                    receive("inv",    { i, n, d })          inventario troceado
+//                    receive("toast",  { text, tone })
+//                    receive("ping",   {})                    una vez por segundo
 //
-// ARRANQUE. La pagina arranca VISIBLE a proposito: abierta en un navegador
-// normal se puede ver y navegar el panel entero sin el juego. Cuando el CLEO
-// levanta el bridge, este manda "panels" y ahi si la visibilidad pasa a ser de
-// la pagina. La ausencia de puente es el modo preview, no un error.
+//   El "inv" llega partido porque el dataJson de SAWEB_SEND_EVENT tiene ~255
+//   caracteres utiles y el snapshot ronda los 1700. La pagina lo arma sola en
+//   armarInventario().
+//
+// ARRANQUE. Sin puente (abierto en un navegador normal) la pagina arranca
+// VISIBLE y con el mock de diseño, para poder revisarla a ojo. Con puente
+// arranca CERRADA y vacía, esperando que el mod le empuje el inventario.
 // ============================================================================
 
-const INBOUND = ["ready", "input", "panels", "state", "toast", "l10n", "ping", "reply"];
+const INBOUND = ["input", "panels", "inv", "toast", "ping"];
 const EMIT_THROTTLE_MS = 100;
 
 const bridgeReady = !!(window.SAWeb && window.SAWeb.hasBridge);
@@ -242,6 +246,140 @@ function buildStateMap() {
 }
 
 let stateMap = buildStateMap();
+
+// -------------------------------------------------- INVENTARIO REAL DEL MOD --
+//
+// El mock de arriba es solo de diseño. Cuando hay puente, las filas son las que
+// manda gsis_WebData.js con snapInventory(), empujadas por el mod en "inv" y
+// armadas aca. snapRow() convierte la fila del snapshot a la misma forma que
+// produce itemRow(), asi el render es uno solo para las dos fuentes.
+//
+// El snapshot ya trae los textos en español y el tip armado: la pagina no
+// consulta ITEMS ni WEAPON_DATA, no los tiene.
+
+function snapRow(o) {
+  const instanciado = o.qty <= 1;
+  return {
+    id: o.id,
+    kind: "table",
+    cat: o.cat,
+    name: o.qty > 1 ? o.name + " x" + o.qty : o.name,
+    qty: o.qty,
+    ammo: o.ammo === undefined ? null : o.ammo,
+    weight: o.weight,
+    value: o.value === undefined ? null : o.value,
+    icon: ICONS[o.id] || null,
+    tip: o.tip || "",
+    tutorial: {
+      title: o.name,
+      html:
+        `<p>${o.tip || "Sin detalle."}</p>` +
+        `<p>Peso: <b>${Number(o.weight).toFixed(1)} kg</b> — ${instanciado ? "una fila por unidad." : "apilado: " + o.qty + " unidades."}</p>` +
+        (o.ammo !== null && o.ammo !== undefined ? `<p>Municion: <b>${o.ammo}</b></p>` : "") +
+        (o.value ? `<p>Valor: <b>$${o.value}</b></p>` : ""),
+      actionLabel: instanciado && o.cat === "weapon" ? "Equipar" : null,
+      action: instanciado && o.cat === "weapon" ? () => emit("cmd", { cmd: "inv:equip", id: o.id }) : null
+    }
+  };
+}
+
+const subtitleEl = document.getElementById("subtitle");
+const toastEl = document.getElementById("toast");
+let toastTimer = null;
+
+// El peso del subtitulo lo escribe el mod, no la pagina: es el unico que sabe
+// cuanto entra y cuanto pesa.
+function setInventory(inv) {
+  if (!inv) return;
+  TABS.inventory.rows = (inv.rows || []).map(snapRow);
+  if (subtitleEl) {
+    subtitleEl.textContent =
+      "Peso: " + Number(inv.weight || 0).toFixed(1) + "kg/" + Number(inv.maxWeight || 0) + "kg";
+  }
+  stateMap = buildStateMap();
+  if (currentTab === "inventory") {
+    renderTab("inventory");
+  }
+}
+
+// ------------------------------------------------- ARMADO DE TROZOS --
+//
+// El mod no puede mandarme un evento: en CLEO Redux 1.5.0 los scripts JS no
+// reciben eventos (probado el 26/09, ver gsis_WebBridge.js). La unica direccion
+// que funciona es mod -> pagina, asi que el mod empuja el snapshot.
+//
+// Y no lo manda entero: el dataJson de SAWEB_SEND_EVENT viaja como string de
+// parametro de comando CLEO y el tope duro son 255 chars (GetStringParam con
+// maxlen unsigned char). El snapshot ronda los 3000, asi que llega partido en
+// "inv" con {i, n, d} y hay que armarlo aca.
+//
+// Cada parte reinicia el buffer porque el snapshot es siempre entero: si llegara
+// una tanda incompleta (el juego cerrado a mitad), al proximo snapshot completo
+// el buffer se pisa solo igual.
+let _invPartes = [];
+let _invEsperadas = 0;
+
+// Diagnostico VISIBLE. Todo el debugging de este puente fue a ciegas porque los
+// errores de la pagina van a console, que sin devtools no existe: se veia un menu
+// vacio sin ninguna pista. Esta linea vive en el DOM y dice que esta recibiendo.
+const _diagEl = document.getElementById("diag");
+function _diag(text, tone) {
+  if (!_diagEl) return;
+  _diagEl.textContent = text;
+  _diagEl.className = "diag" + (tone ? " diag--" + tone : "");
+}
+
+function armarInventario(data) {
+  if (!data || typeof data.i !== "number" || typeof data.n !== "number") {
+    _diag("llegó 'inv' con forma rara: " + JSON.stringify(data).slice(0, 60), "bad");
+    return;
+  }
+  if (data.i === 0) {
+    _invPartes = [];
+    _invEsperadas = data.n;
+  }
+  if (data.n !== _invEsperadas) {
+    _diag("tanda inconsistente: n=" + data.n + " esperaba " + _invEsperadas, "bad");
+    return;
+  }
+  _invPartes[data.i] = data.d || "";
+
+  if (_invPartes.length < _invEsperadas) {
+    _diag("recibiendo inventario: " + _invPartes.length + "/" + _invEsperadas + " trozos");
+    return;
+  }
+  for (let k = 0; k < _invEsperadas; k++) {
+    if (typeof _invPartes[k] !== "string") {
+      _diag("falta el trozo " + k + " de " + _invEsperadas, "bad");
+      return;
+    }
+  }
+
+  const json = _invPartes.join("");
+  _invPartes = [];
+  _invEsperadas = 0;
+  try {
+    const inv = JSON.parse(json);
+    setInventory(inv);
+    _diag("inventario: " + (inv.rows ? inv.rows.length : 0) + " items, " +
+          (inv.weight || 0).toFixed(1) + "/" + (inv.maxWeight || 0) + " kg", "ok");
+  } catch (e) {
+    // OJO: esto es lo que pasaba en silencio. Un dataJson truncado arma una
+    // string rota aqui adentro y el menu queda vacio sin decir nada.
+    _diag("JSON inválido (" + json.length + " chars): " + e.message, "bad");
+    console.log("[GSIS] no se pudo parsear el snapshot: " + e.message);
+  }
+}
+
+// El toast es la unica superficie para texto que viene del mod sin abrir un
+// panel encima del panel.
+function showToast(text, tone) {
+  if (!toastEl || !text) return;
+  toastEl.className = "toast toast--" + (tone || "info");
+  toastEl.textContent = text;
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toastEl.classList.add("hidden"), 2600);
+}
 
 // ---------------------------------------------------------------- HELPERS --
 
@@ -624,6 +762,15 @@ if (window.SAWeb) {
       // preview y el apagado son el mismo mecanismo.
       if (name === "panels" && data && typeof data.menu === "boolean") {
         setPanelVisible(data.menu);
+        if (data.menu && _diagEl && !_diagEl.textContent) {
+          _diag("menú abierto — esperando inventario", "warn");
+        }
+      }
+
+      // El mod empuja el inventario troceado en "inv" (no se puede pedir: los
+      // scripts JS no reciben eventos).
+      if (name === "inv") {
+        armarInventario(data);
       }
 
       if (name === "ping") {
@@ -667,11 +814,24 @@ if (!bridgeReady) {
 renderTab("inventory");
 logState();
 
-// Arranca visible. En el navegador se ve el panel entero para poder revisarlo;
-// en el juego el bridge manda "panels" apenas la pagina dice "ready" y la
-// apaga hasta que el jugador apriete I.
-setPanelVisible(true);
+// Arranca CERRADO si hay puente. Antes arrancaba visible y esperaba al "panels"
+// para apagarse, o sea que en el juego se veia el menu entera durante los
+// frames entre que la pagina carga y que llega el primer mensaje del bridge.
+// Con puente no hay nada que mirar todavia (el inventario llega despues), asi
+// que arrancar cerrada no pierde nada y elimina el flash.
+//
+// Sin puente (preview en un navegador) arranca visible, que es lo unico que
+// sirve para revisar el diseno a ojo.
+setPanelVisible(!bridgeReady);
 
 if (bridgeReady) {
-  emit("ready", { ui: "main", mode: "gsis_web_ui" });
+  _diag("conectado al mod — apretá I", "warn");
 }
+
+// El mod NO puede recibir eventos, asi que la pagina no manda nada: no hay
+// "ready", no hay "cmd", no hay "inv:get". Todo es de una sola via: el mod
+// empuja "panels" e "inv" y la pagina reacciona. Ver gsis_WebBridge.js.
+//
+// Las acciones (equipar, cinturon) NO funcionan: no hay canal de vuelta de la
+// pagina al mod. El inventario es de solo lectura. Ver "ACCIONES" en
+// gsis_WebBridge.js.

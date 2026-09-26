@@ -1,0 +1,17 @@
+[GSIS]
+n=15
+d0={"version":"1.0","ts":1790362604461,"player":{"model":0,"cleanMoney":0,"dirtyMoney":0},"VehicleModule":{"vehicles":[{"mo
+d1=del":542,"x":2496.591552734375,"y":-1682.4539794921875,"z":13.10747241973877,"heading":106.17040252685547,"health":867,"
+d2=color1":31,"color2":93,"id":1,"locked":true,"engineOn":true,"trunk":[],"trunkOpen":false}]},"Inventory":{"documents":[]}
+d3=,"ItemManager":{"equipped":false,"items":[{"id":"9mm","qty":1},{"id":"scrap_metal","qty":5},{"id":"mag_9mm","qty":1,"amm
+d4=o":17,"quality":1},{"id":"9mm","qty":1,"hasMag":true,"ammo":17}],"trunks":{"1":[{"id":"9mm","qty":1,"hasMag":true,"ammo"
+d5=:17},{"id":"9mm","qty":1,"hasMag":true,"ammo":17},{"id":"9mm","qty":1,"hasMag":true,"ammo":17},{"id":"9mm","qty":1,"hasM
+d6=ag":true,"ammo":17},{"id":"9mm","qty":1,"hasMag":true,"ammo":17},{"id":"9mm","qty":1,"hasMag":true,"ammo":17},{"id":"9mm
+d7=","qty":1,"hasMag":true,"ammo":17},{"id":"9mm","qty":1,"hasMag":true,"ammo":17},{"id":"9mm","qty":1,"hasMag":true,"ammo"
+d8=:17},{"id":"9mm","qty":1,"hasMag":true,"ammo":17},{"id":"9mm","qty":1,"hasMag":true,"ammo":17},{"id":"9mm","qty":1,"hasM
+d9=ag":true,"ammo":17},{"id":"9mm","qty":1,"hasMag":true,"ammo":17},{"id":"9mm","qty":1,"hasMag":true,"ammo":17},{"id":"9mm
+d10=","qty":1,"hasMag":true,"ammo":17},{"id":"9mm","qty":1,"hasMag":true,"ammo":17},{"id":"9mm","qty":1,"hasMag":true,"ammo"
+d11=:17},{"id":"mp5","qty":1},{"id":"ak47","qty":1,"hasMag":true,"ammo":30},{"id":"ak47","qty":1,"hasMag":true,"ammo":30}]}}
+d12=,"Properties":{"owned":[]},"DealerOrders":{"items":[{"id":"9mm","qty":2},{"id":"silenced_9mm","qty":2},{"id":"sawed_off"
+d13=,"qty":1},{"id":"combat_shotgun","qty":1},{"id":"mp5","qty":1}],"total":5500,"purchasedAt":1790177338584},"Ballistic":{"
+d14=equipped":{}}}

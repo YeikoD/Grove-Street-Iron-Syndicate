@@ -13,22 +13,56 @@
 //   - El browser NUNCA se cierra. Se oculta y se muestra la seccion con
 //     .hidden, asi el DOM sigue vivo y el tick() sigue corriendo a 60fps.
 //
-// La pagina nunca alcanza una native: todo entra por el router de comandos
-// CMDS, que es una tabla blanca de nombre -> funcion de modulo.
+// LA PAGINA NO MANDA NADA. En CLEO Redux 1.5.0 los scripts JS no reciben
+// eventos: asyncWait no reanuda la corrutina, setTimeout/setInterval no
+// disparan y addEventListener nunca entrega. Probado el 26/09 con un script
+// suelto en cleo\ (sin tocar el mod): timers=0, eventos=0 con 1500 ticks.
+//
+// O sea que no hay router de comandos ni puede haber. La unica direccion que
+// funciona es CLEO -> pagina, que es un comando nativo. Este modulo se limita
+// a PUSH: el es dueno del estado y le empuja a la pagina "panels" cuando cambia
+// y "inv" con el inventario troceado cada PUSH_MS. Las acciones (equipar,
+// guardar en cinturon) quedan sin hacer: no hay canal de vuelta.
 //
 // Orden de imports: este archivo va DESPUES de Trunk / WeaponDealer /
 // DealerPickup / WeaponSeller en gsis_index.js, porque el orden de imports es
 // el orden de updateAll(). Asi los flags de proximidad de este frame ya estan
 // calculados cuando el bridge los lee.
+//
+// ============================================================================
+// ACCIONES — NO FUNCIONAN (limite del runtime, no del mod)
+// ============================================================================
+//
+// Equipar, guardar en cinturon, sacar del cinturon, vender: nada de eso se puede
+// hacer desde la pagina. Requeriría que la pagina mande un "cmd" al mod, y esa
+// direccion esta muerta: el plugin de CLEO dispara TriggerEvent("saweb:main:cmd")
+// pero los scripts JS de CLEO Redux 1.5.0 no reciben eventos. Medido el 26/09 con
+// un script suelto en cleo\: asyncWait no reanuda la corrutina, setTimeout y
+// setInterval no disparan, y addEventListener nunca entrega ni con un
+// dispatchEvent propio. Ensamblado 1500 ticks con timers=0 y eventos=0.
+//
+// El inventario es de SOLO LECTURA. La UI muestra lo que hay y se actualiza
+// sola. Las acciones quedan para cuando el runtime las soporte; si se arregla
+// ever, el camino es:
+//   1. la pagina manda emit("cmd", {cmd:"inv:equip", id:...})
+//   2. el bridge on("main","cmd") lo despacha
+//   3. equipWeapon(id) y se devuelve el snapshot nuevo
+// Todo el lado del modulo ya existe y se provó (gsis_WebData.js), lo que falta es
+// solo el canal de vuelta.
 // ============================================================================
 
 import { register } from "../core/gsis_ModuleRegistry.js";
 import { KEYS } from "../core/gsis_Config.js";
-import SAWeb, { onAny } from "../../../../SAWebUI/cleo/SAWebUI/SAWeb.js";
+import { snapInventory } from "./gsis_WebData.js";
+import SAWeb from "../../../../SAWebUI/cleo/SAWebUI/SAWeb.js";
 
 var UI_ID = "main";
 var DEBOUNCE_MS = 200;
 var KEY_ESC = 27;
+
+// El brake de pulsaciones vive en DEBOUNCE_MS, arriba. CMD_MIN_MS se fue con el
+// router de comandos: la pagina ya no puede mandar nada, asi que no hay
+// reintentos que frenar.
 
 var _uiState = {
     menuVisible: false,
@@ -43,15 +77,14 @@ var _prevKeyEsc = false;
 var _lastInput = null;
 var _lastPanels = null;
 
-// ------------------------------------------------------------------ JUGADOR --
-
-function setPlayerControl(enable) {
-    try {
-        native("SET_PLAYER_CONTROL", 0, enable ? 1 : 0);
-    } catch (e) { }
-}
-
 // ------------------------------------------------------------------ ESTADO --
+//
+// No se toca SET_PLAYER_CONTROL. El default del runtime es CursorMode.HIDDEN y
+// el juego conserva mouse y teclado con el menu abierto: el click llega por el
+// WndProc hook de la ASI, no por el cursor del sistema, y el input se enruta
+// por donde esta el puntero (dentro de la UI -> CEF, fuera -> GTA). Bloquear al
+// jugador era copie-pega de ImGui y ademas rompia poder jugar con el menu
+// abierto, que es justamente lo que se quiere.
 
 export function isMenuVisible() {
     return _uiState.menuVisible;
@@ -60,13 +93,11 @@ export function isMenuVisible() {
 export function openMenu() {
     _uiState.menuVisible = true;
     _uiState.keyDebounce = Date.now();
-    setPlayerControl(false);
 }
 
 export function closeMenu() {
     _uiState.menuVisible = false;
     _uiState.keyDebounce = Date.now();
-    setPlayerControl(true);
 }
 
 // -------------------------------------------------------------- ENVIO A PAGINA --
@@ -118,39 +149,12 @@ function broadcast() {
     }
 }
 
-// -------------------------------------------------------------- ROUTER COMANDOS --
-
-// Tabla blanca. La pagina solo puede invocar lo que este aca. Cada handler
-// devuelve un valor serializable o null; el resultado vuelve a la pagina como
-// el evento "reply" con el id que ella mando.
-var CMDS = {
-    ping: function () {
-        return { pong: true, at: Date.now() };
-    }
-};
-
-function dispatch(name, data) {
-    var fn = CMDS[name];
-    if (!fn) {
-        log("[WebBridge] Comando desconocido: " + name);
-        send("reply", { cmd: name, ok: false, error: "unknown_command" });
-        return;
-    }
-    try {
-        var result = fn(data || {});
-        send("reply", { cmd: name, ok: true, data: result === undefined ? null : result });
-    } catch (e) {
-        log("[WebBridge] Error en '" + name + "': " + e.message);
-        send("reply", { cmd: name, ok: false, error: String(e) });
-    }
-}
-
 // ------------------------------------------------------------------ TECLADO --
 
 // isKeyPressed es estado sostenido, no flanco, asi que el rising edge va aqui.
-// Se usa el codigo virtual crudo y no el sistema de input del juego a proposito:
-// el menu tiene que responder aunque los controles de CJ esten bloqueados por
-// SET_PLAYER_CONTROL.
+// Se usa el codigo virtual crudo y no Pad.IsKeyJustPressed porque el juego
+// sigue teniendo el teclado (el runtime solo se queda con el suyo cuando hay
+// una UI abierta), y el menu tiene que responder igual con los dos.
 function pollKeys() {
     var now = Date.now();
 
@@ -178,6 +182,24 @@ function pollKeys() {
             closeMenu();
         }
     }
+
+    // El estado de visibilidad se propaga TODOS los frames, no solo cuando cambia
+    // la tecla. broadcast() esta latcheado (_lastInput / _lastPanels), asi que
+    // solo manda algo cuando el valor difiere de verdad: el costo por frame es un
+    // isOpen() y un par de comparaciones.
+    //
+    // Sin esto la I da vuelta menuVisible por dentro y no se lo dice a nadie:
+    // el toggle queda muerto. Y como el primer frame siempre pasa (los latches
+    // arrancan en null), la pagina recibe el estado inicial apenas el browser
+    // esta abierto, sin depender de ningun evento de la pagina.
+    broadcast();
+
+    // El inventario se empuja con el menu abierto. pushInventory() se auto
+    // limita por tiempo, asi que llamarlo cada frame no genera trafico: solo
+    // corta un evento cada PUSH_MS.
+    if (_uiState.menuVisible) {
+        pushInventory();
+    }
 }
 
 // ------------------------------------------------------------------- INIT --
@@ -192,38 +214,98 @@ function initWebBridge() {
     }
 }
 
-onAny(UI_ID, function (event, data) {
-    if (!event) {
-        return;
-    }
-    if (event === "ready") {
-        log("[WebBridge] Pagina lista: " + JSON.stringify(data));
-        // La pagina arranca creyendo que el input esta apagado. Se le manda el
-        // estado real de una vez, no solo cuando cambie.
-        _lastInput = null;
-        _lastPanels = null;
-        broadcast();
-        return;
-    }
-    if (event === "cmd") {
-        var d = data || {};
-        dispatch(d.cmd, d);
-        return;
-    }
-    if (event === "pong") {
-        log("[WebBridge] pong de la pagina: " + JSON.stringify(data));
-        return;
-    }
-    log("[WebBridge] Evento sin manejar: " + event);
-});
+// ================================================================= PUSH DEL INVENTARIO ==
+//
+//Por que push y no pedido/respuesta: en CLEO Redux 1.5.0 los scripts JS no
+//reciben eventos. Probado el 26/09 con cleo\zz_sonda.js, sin tocar el mod:
+//
+//   [S2] A: async entro
+//   [S2] E: tick sincrono 90 (asyncWait=0 timers=0)     <- asyncWait no reanuda
+//   timers=0  eventos=0
+//
+// o sea: wait(0) rinde, asyncWait no reanuda, setTimeout/setInterval no
+//disparan y addEventListener nunca entrega. La pagina -> CLEO esta muerta: el
+// TriggerEvent del plugin no tiene a quien entregale. La unica direccion que
+// funciona es CLEO -> pagina, que es un comando nativo y anda (los "panels"
+// llegaban).
+//
+// Asique el puente no espera que la pagina pida nada: le empuja el snapshot y la
+// pagina se dibuja sola.
+//
+// CUANDO SE EMPUJA. No cada frame: la UI vieja (ImGui) leia getItems() en vivo
+// y solo dibujaba cuando algo cambiaba. Aca el equivalente es comparar el
+// snapshot con el ultimo enviado y mandar solo si difiere. Se sigue mirando cada
+// PUSH_MS para no pagar el stringify en cada frame, pero si no cambio no sale
+// nada. El precio: un cambio tarda hasta PUSH_MS en verse, 400ms, que es
+// imperceptible para un menu.
+//
+// TROCEADO: el dataJson de SAWEB_SEND_EVENT viaja como string de comando CLEO.
+// El plugin lo lee con GetStringParam(ctx, buffer, 255) y maxlen es unsigned char,
+// o sea 255 es el tope DURO del parametro (SAWEB_API.md seccion 8 dice "~255
+// caracteres utiles", lo que implica que el payload real es menor).
+//
+// Con CHUNK=160 el dataJson llegaba a 222 chars: demasiado cerca del tope. Si se
+// trunca, el chunk llega como JSON valido pero corrupto, la pagina arma una
+// string rota, JSON.parse falla, y el error se va a console — invisible sin
+// devtools, y el menu se ve vacio sin explicacion. Por eso 60: el dataJson queda
+// en ~80 chars, lejos de cualquier tope plausible.
+var PUSH_MS = 400;
+var PUSH_CHUNK = 60;
+var _lastPush = 0;
+var _lastJson = null;
 
-function updateWebBridge() {
-    pollKeys();
-    broadcast();
+// Solo se loguea la primera tanda y solo si algo va mal. Asi el log dice si el
+// transporte funciona sin llenarse de ruido.
+var _diag = { primera: true, fallos: 0 };
+
+function _diagSend(i, total, dataJson, ok) {
+    if (ok) {
+        return;
+    }
+    if (_diag.fallos < 3) {
+        _diag.fallos++;
+        log("[WebBridge] send('inv', " + i + "/" + total + ") fallo. dataJson=" + dataJson.length + " chars");
+    }
 }
+
+function pushInventory() {
+    var now = Date.now();
+    if (now - _lastPush < PUSH_MS) {
+        return;
+    }
+    _lastPush = now;
+
+    var json;
+    try {
+        json = JSON.stringify(snapInventory());
+    } catch (e) {
+        log("[WebBridge] snapInventory fallo: " + e.message);
+        return;
+    }
+
+    // Solo si cambio. Un menu abierto en el juego no genera trafico.
+    if (json === _lastJson) {
+        return;
+    }
+    _lastJson = json;
+
+    var total = Math.max(1, Math.ceil(json.length / PUSH_CHUNK));
+    for (var i = 0; i < total; i++) {
+        var dataJson = JSON.stringify({ i: i, n: total, d: json.substr(i * PUSH_CHUNK, PUSH_CHUNK) });
+        var ok = send("inv", { i: i, n: total, d: json.substr(i * PUSH_CHUNK, PUSH_CHUNK) });
+        _diagSend(i, total, dataJson, ok);
+    }
+
+    if (_diag.primera) {
+        _diag.primera = false;
+        log("[WebBridge] inventario empujado: " + json.length + " chars en " + total + " chunks");
+    }
+}
+
+// ------------------------------------------------------------------- REGISTRO --
 
 register({
     name: "WebBridge",
     init: initWebBridge,
-    update: updateWebBridge
+    update: pollKeys
 });
