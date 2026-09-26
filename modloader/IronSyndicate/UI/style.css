@@ -474,35 +474,6 @@ body {
   --toast-text: var(--text-info);
 }
 
-/* ======================================================== RECETA: .diag --
-   Diagnostico del transporte, a proposito visible en el DOM.
-
-   Todo el debugging de este puente fue a ciegas: los errores de la pagina van a
-   console, que sin devtools no existe, asi que un menu vacio no daba ninguna
-   pista. Esta caja dice que esta recibiendo el mod, cuantos trozos de cuantos, y
-   si el JSON armo. Se saca cuando el transporte este probado.
-
-   Misma receta que .toast pero sin fondo: es texto de estado, no un evento, y
-   tiene que poder leerse encima de cualquier cosa. */
-.diag {
-  position: absolute;
-  left: var(--panel-px);
-  right: var(--panel-px);
-  bottom: var(--sp-2);
-  font-size: var(--fs-xs);
-  color: var(--text-muted);
-  pointer-events: none;
-  z-index: 11;
-}
-
-.diag--ok {
-  color: var(--text-ok);
-}
-
-.diag--bad {
-  color: var(--text-danger);
-}
-
 /* ============================================================ RECETA: .btn --
    Un solo lugar donde vive como se ve un boton. Antes .tab, .navbtn,
    .btn-action y #tut-close repetian el mismo bloque de cinco o seis

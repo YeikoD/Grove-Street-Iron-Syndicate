@@ -319,19 +319,17 @@ function setInventory(inv) {
 let _invPartes = [];
 let _invEsperadas = 0;
 
-// Diagnostico VISIBLE. Todo el debugging de este puente fue a ciegas porque los
-// errores de la pagina van a console, que sin devtools no existe: se veia un menu
-// vacio sin ninguna pista. Esta linea vive en el DOM y dice que esta recibiendo.
-const _diagEl = document.getElementById("diag");
-function _diag(text, tone) {
-  if (!_diagEl) return;
-  _diagEl.textContent = text;
-  _diagEl.className = "diag" + (tone ? " diag--" + tone : "");
+// Diagnostico del transporte. Antes vivia en el DOM (#diag) y se leia abajo del
+// panel, encimandose con los botones de navegacion. Se saco de la pantalla: lo
+// que queda va a console, que es donde ya mandaba el resto del debugging de
+// este puente.
+function _diag(text) {
+  console.log("[GSIS] " + text);
 }
 
 function armarInventario(data) {
   if (!data || typeof data.i !== "number" || typeof data.n !== "number") {
-    _diag("llegó 'inv' con forma rara: " + JSON.stringify(data).slice(0, 60), "bad");
+    _diag("llegó 'inv' con forma rara: " + JSON.stringify(data).slice(0, 60));
     return;
   }
   if (data.i === 0) {
@@ -339,7 +337,7 @@ function armarInventario(data) {
     _invEsperadas = data.n;
   }
   if (data.n !== _invEsperadas) {
-    _diag("tanda inconsistente: n=" + data.n + " esperaba " + _invEsperadas, "bad");
+    _diag("tanda inconsistente: n=" + data.n + " esperaba " + _invEsperadas);
     return;
   }
   _invPartes[data.i] = data.d || "";
@@ -350,7 +348,7 @@ function armarInventario(data) {
   }
   for (let k = 0; k < _invEsperadas; k++) {
     if (typeof _invPartes[k] !== "string") {
-      _diag("falta el trozo " + k + " de " + _invEsperadas, "bad");
+      _diag("falta el trozo " + k + " de " + _invEsperadas);
       return;
     }
   }
@@ -362,12 +360,11 @@ function armarInventario(data) {
     const inv = JSON.parse(json);
     setInventory(inv);
     _diag("inventario: " + (inv.rows ? inv.rows.length : 0) + " items, " +
-      (inv.weight || 0).toFixed(1) + "/" + (inv.maxWeight || 0) + " kg", "ok");
+      (inv.weight || 0).toFixed(1) + "/" + (inv.maxWeight || 0) + " kg");
   } catch (e) {
     // OJO: esto es lo que pasaba en silencio. Un dataJson truncado arma una
     // string rota aqui adentro y el menu queda vacio sin decir nada.
-    _diag("JSON inválido (" + json.length + " chars): " + e.message, "bad");
-    console.log("[GSIS] no se pudo parsear el snapshot: " + e.message);
+    _diag("JSON inválido (" + json.length + " chars): " + e.message);
   }
 }
 
@@ -812,8 +809,8 @@ if (window.SAWeb) {
       // preview y el apagado son el mismo mecanismo.
       if (name === "panels" && data && typeof data.menu === "boolean") {
         setPanelVisible(data.menu);
-        if (data.menu && _diagEl && !_diagEl.textContent) {
-          _diag("menú abierto — esperando inventario", "warn");
+        if (data.menu) {
+          _diag("menú abierto — esperando inventario");
         }
       }
 
@@ -875,7 +872,7 @@ logState();
 setPanelVisible(!bridgeReady);
 
 if (bridgeReady) {
-  _diag("conectado al mod — apretá I", "warn");
+  _diag("conectado al mod — apretá I");
 }
 
 // El mod NO puede recibir eventos, asi que la pagina no manda nada: no hay
