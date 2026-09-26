@@ -7,24 +7,21 @@
 # Ignorar archivos de configuracion
 !.gitignore
 
-# Incluir solo archivos de GSIS (proyecto principal)
-!cleo/
-!cleo/IronSyndicate/
-!cleo/IronSyndicate/**
-!cleo/gsis_*.js
-!cleo/*gsis_index.js
-
-# Incluir solo la carpeta del mod en modloader
+# El codigo del mod vive en la carpeta del mod (modloader\)
 !modloader/
 !modloader/IronSyndicate/
 !modloader/IronSyndicate/**
 
+# El shim: unico archivo que CLEO escanea, en la raiz de cleo\
+!cleo/
+!cleo/*gsis_index.js
+
 # Ignorar archivos generados dentro de IronSyndicate
 # Pero mantener las carpetas para estructura
-cleo/IronSyndicate/logs/*.log
-cleo/IronSyndicate/saves/*.json
-cleo/IronSyndicate/*.log
-cleo/IronSyndicate/*.json.bak
+modloader/IronSyndicate/cleo/IronSyndicate/logs/*.log
+modloader/IronSyndicate/cleo/IronSyndicate/saves/*.json
+modloader/IronSyndicate/cleo/IronSyndicate/*.log
+modloader/IronSyndicate/cleo/IronSyndicate/*.json.bak
 
 # Ignorar saves del juego (no son GSIS)
 cleo/cleo_saves/

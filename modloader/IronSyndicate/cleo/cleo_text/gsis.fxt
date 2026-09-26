@@ -1,0 +1,101 @@
+SAVEINT ~g~GSIS: Interior detectado - guardado
+SAVEAUT ~g~GSIS: Auto-save
+SAVE_OK ~g~Partida guardada (Slot {slot})
+SAVE_ER ~r~Error al guardar
+INV_FUL ~r~Inventario lleno
+INV_FR ~r~Inventario lleno (libre {free} kg, necesitas {need} kg)
+DBG_ITM ~g~+1 9mm, +5 chatarra, +1 cargador
+TRK_FUL ~r~Baul lleno (libre {free} kg, necesitas {need} kg)
+TRK_NOG ~r~No se pudo guardar
+TRK_PUT ~g~Guardaste {qty}x {name}
+TRK_NON ~r~No se pudo sacar
+TRK_TAK ~g~Sacaste {qty}x {name}
+VHC_NON ~r~No hay vehiculo registrado cercano
+VHC_DUP ~r~Vehiculo ya registrado (#{id})
+VHC_REG ~g~Vehiculo registrado (#{id})
+VHC_DST ~r~Vehiculo destruido/perdido - eliminado del registro
+VHC_LD ~y~Cargando modelo {model}...
+ENG_ON ~g~Motor encendido
+ENG_OFF ~r~Motor apagado
+LCK_CLS ~r~Puertas cerradas
+LCK_OPN ~g~Puertas abiertas
+PKPNEAR ~y~Estas cerca del pickup
+PKP_FAR ~b~Te alejaste del pickup
+PROP_UN ~r~Propiedad desconocida
+PROP_OW ~r~Ya es tuya: {name}
+PROP_BY ~g~Compraste: {name} (-${n})
+MON_LOW ~r~Dinero insuficiente (falta ${n})
+CRT_EMP ~r~Carrito vacio
+ORD_OK ~g~Pedido confirmado (-${n})
+PKC_IVL ~r~Cantidad invalida en el pedido
+PKC_ERR ~r~Error al agregar al inventario: {name}
+PKC_TAK ~g~Recogiste {qty}x {name}
+PKC_NOC ~r~No cabe todo: libre {free} kg, pedido {order} kg. Recoge de a poco.
+PKC_ALL ~g~Pedido recogido completo
+BTN_CLS Cerrar
+BTN_BUY Comprar
+BTN_RST RESETEAR
+BTN_ADD Agregar
+BTN_PUT Guardar
+BTN_TK Sacar
+BTN_PCK Recoger
+BTN_OPN Abrir
+BTN_ALL RECOGER TODO
+BTN_OFF Ofrecer
+BTN_CTB Cerrar Baul
+MONEY Dinero: ${n}
+MONEY2 Dinero: $?
+FRE_L Libre: {n} kg
+INV_L Inventario: {w}/{max} kg
+CAT_WPN Armas
+CAT_MAT Materiales
+CAT_MAG Cargadores
+INV_TTL Inventario
+INV_HDR INVENTARIO
+INV_WGT Peso: {n} kg
+INV_EMP (inventario vacio)
+CMP_ERR (error cargando componente)
+CMP_NO (componente no cargado - revisa los imports de index)
+MAG_AMM {a}/{b} balas
+WPN_DMG Daño: {n}
+DOC_HDR DOCUMENTOS
+DOC_CNT Documentos: {n}
+DOC_NON No tienes documentos
+DOC_NRV No tienes vehiculos registrados
+ARM_HDR ARMAMENTO
+MAT_HDR MATERIALES
+PRP_HDR PROPIEDADES
+VEH_HDR VEHICULOS
+NO_MAG No tienes cargadores equipados
+MAG_OUT ~g~Cargador extraido
+BELTFUL ~r~Cinturon de cargadores lleno
+EQP_OK ~g~Arma equipada
+EQP_OUT ~g~Arma guardada en el inventario
+V_MODL Modelo: {name}
+V_ID ID: {n}
+V_COL Color: {a} / {b}
+V_HLTH Salud: {n}%
+V_ENG1 Motor: ON
+V_ENG0 Motor: OFF
+V_LCK1 Puertas: Cerradas
+V_LCK0 Puertas: Abiertas
+V_POS Pos: {x}, {y}
+PRP_CST Costo: ${n} | Nomina: ${w}/dia
+PRP_OWN PROPIA
+TY_TALL taller
+TY_ALM almacen
+DLR_TTL Armeria Mayorista
+DLR_TOT Total carrito: ${n}
+CRT_UI Carrito vacio
+TRK_TTL Baul - {name} ({model})
+TRK_L Baul: {w}/{max} kg
+TRK_H BAUL
+TRK_EMI (inventario vacio)
+TRK_EMB (baul vacio)
+TRK_HNT B: menu | 3: cerrar baul | Alejarse cierra el menu
+PKC_TTL Retiro de pedido
+PKC_ORD Pedido: ${n}  |  Peso: {w} kg
+SEL_TTL Trueque — Cliente local
+SEL_BUS Busca hoy: {list}
+SEL_BUD Presupuesto: ${n}
+SEL_NON (no tienes armas para vender)
