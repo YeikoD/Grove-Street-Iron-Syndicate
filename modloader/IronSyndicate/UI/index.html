@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="es">
+
+<head>
+  <meta charset="utf-8">
+  <title>IronSyndicate</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+  <!-- Panel Principal Estilo GTA SA Stats Menu -->
+  <section id="panel" class="panel">
+    <div class="panel-header">
+      <h1 id="title">Inventario</h1>
+      <div id="subtitle">Peso: 0kg/12kg</div>
+    </div>
+
+    <!-- Pestañas de Secciones: los 7 paneles del mod -->
+    <!-- Pestañas del menú principal. Baúl / Armería / Retiro / Trueque son
+         ventanas flotantes por proximidad, no pestañas: no van acá. -->
+    <div id="tabs" role="tablist">
+      <button class="btn btn--tab active" data-tab="inventory" role="tab">Inventario</button>
+      <button class="btn btn--tab" data-tab="properties" role="tab">Propiedades</button>
+      <button class="btn btn--tab" data-tab="vehicles" role="tab">Vehículos</button>
+    </div>
+
+    <!-- Filas Interactivas -->
+    <div id="rows" role="listbox" aria-label="Navegación IronSyndicate"></div>
+
+    <!-- Botones de Navegación -->
+    <div id="nav" aria-label="Controles de navegación">
+      <span id="nav-prev" class="btn btn--nav" title="Sección Anterior (Flecha Izq / Q)">&#9664;</span>
+      <span id="nav-next" class="btn btn--nav" title="Sección Siguiente (Flecha Der / E)">&#9654;</span>
+    </div>
+
+  </section>
+
+  <!-- Ventana Secundaria: detalle del panel / ayuda -->
+  <section id="tutorial-box" class="panel hidden">
+    <div class="tutorial-header">
+      <h2 id="tut-title">Título</h2>
+      <div class="tutorial-header-right">
+        <a href="https://github.com/YeikoD/SAWebUI" target="_blank" class="badge badge--success brand-badge-subtle"
+          title="GitHub: YeikoD/SAWebUI">
+          <img src="assets/logo_yeiko_v1.png" alt="" class="brand-tiny-logo">
+          <span>By Yeiko</span>
+        </a>
+        <button id="tut-close" class="btn btn--ghost" title="Cerrar (ESC)">&#10005;</button>
+      </div>
+    </div>
+    <div id="tut-content" class="tutorial-body">
+      <!-- El contenido interactivo y código se inyecta dinámicamente -->
+    </div>
+    <div class="tutorial-footer">
+      <button id="tut-action" class="btn btn--primary">Ejecutar Prueba</button>
+      <span class="tut-tip">Pulsa <b>ENTER</b> o haz click para ver los detalles del tutorial</span>
+    </div>
+  </section>
+
+  <script src="app.js"></script>
+</body>
+
+</html>

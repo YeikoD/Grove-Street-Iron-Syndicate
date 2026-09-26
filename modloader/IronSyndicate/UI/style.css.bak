@@ -1,0 +1,670 @@
+/* SAWebUI — Estética Vanilla Pantalla Stats & Guía Interactiva para Modders.
+   Proporciones medidas sobre captura real de GTA SA (1200x675) en vw/vh. */
+
+@font-face {
+  font-family: "SAWeb Diploma";
+  src: url("assets/webfonts_Diploma-Regular/Diploma-Regular.ttf.woff") format("woff");
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+
+@font-face {
+  font-family: "SAWeb Gothic";
+  src: url("assets/fonts/saweb-gothic.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+
+/* ============================================================================
+   TOKENS — tres capas. Ningun color literal deberia aparecer fuera de este
+   bloque; todo lo de abajo se apoya en lo de arriba.
+
+     CAPA 1  Primitivas   valores crudos, sin significado. La rampa de grises,
+                          los alfas de blanco, los tonos y las familias de tinte.
+     CAPA 2  Semanticos  que pide un componente: superficie, borde, texto. Cada
+                          rol tiene UN valor.
+     CAPA 3  Recetas      viven junto al componente (.btn, .meter, .panel,
+                          .badge) y exponen sus propias custom properties para
+                          que las variantes sean overrides de una linea.
+   ============================================================================ */
+
+:root {
+  /* ------------------------------------------------------ CAPA 1: PRIMITIVAS -- */
+
+  /* Rampa de grises. Reemplaza los ~30 hex sueltos que tenian el mismo rol
+     escrito de 2 a 3 maneras (#888 / #8a8a8a / #888888, por ejemplo). */
+  --g-950: #0b0b0c;   /* sunken: input, code block */
+  --g-900: #131415;   /* superficie de boton en reposo */
+  --g-800: #242628;   /* superficie hover */
+  --g-700: #2f3134;   /* superficie activa / track seleccionado */
+  --g-600: #3d4044;   /* borde fuerte */
+  --g-500: #4a4e53;   /* borde hover */
+  --g-400: #5f646a;   /* track del meter */
+  --g-300: #8a9099;   /* texto muted */
+  --g-200: #b6bcc3;   /* fill del meter */
+  --g-100: #d4d7da;   /* texto body */
+  --g-000: #ffffff;   /* texto inverso */
+
+  /* Blancos con alfa: velos de fila y bordes. */
+  --w-04: rgba(255, 255, 255, 0.04);
+  --w-08: rgba(255, 255, 255, 0.08);
+  --w-10: rgba(255, 255, 255, 0.10);
+  --w-14: rgba(255, 255, 255, 0.14);
+
+  /* Tones. Cada familia de tinte toma su texto de aca, asi el hue tiene una
+     sola definicion. --amber existe para que "warn" y "success" no sean el
+     mismo verde: antes eran #4ed967 y #9fd6a0 sobre fondos casi iguales. */
+  --gold: #ece5d3;
+  --green: #4ed967;
+  --green-soft: #9fd6a0;
+  --amber: #e0b54a;
+  --blue: #8fb4d4;
+  --red: #f58484;
+
+  /* Familias de tinte: fondo + borde + texto. Antes eran 12 hex a mano. */
+  --tint-info-bg: #16283a;
+  --tint-info-bd: #2d547d;
+  --tint-info-tx: var(--blue);
+
+  --tint-ok-bg: #16301c;
+  --tint-ok-bg-hi: #1e4226;
+  --tint-ok-bd: #336e3c;
+  --tint-ok-tx: var(--green-soft);
+
+  --tint-warn-bg: #322a12;
+  --tint-warn-bd: #6e5a1e;
+  --tint-warn-tx: var(--amber);
+
+  --tint-bad-bg: #351313;
+  --tint-bad-bd: #752929;
+  --tint-bad-tx: var(--red);
+
+  /* Sombras. */
+  --shadow-panel: 0 0.5vh 2vh rgba(0, 0, 0, 0.5);
+
+  /* Tipografia. Los stacks estaban repetidos 2 o 3 veces. */
+  --font-display: "SAWeb Diploma", "SAWeb Gothic", serif;
+  --font-ui: "Arial Narrow", "Liberation Sans Narrow", Arial, sans-serif;
+  --font-mono: "Consolas", "Courier New", monospace;
+
+  /* Escala de type. Colapsa los 10 tamanhos que habia en 7 pasos; los 1.3 /
+     1.5 / 1.7 / 1.8 se caen en los vecinos (3-7% de diferencia). */
+  --fs-2xs: 1.25vh;
+  --fs-xs: 1.4vh;
+  --fs-sm: 1.6vh;
+  --fs-md: 1.75vh;
+  --fs-lg: 2.2vh;
+  --fs-xl: 3.2vh;
+
+  /* Espaciado vertical. */
+  --sp-1: 0.2vh;
+  --sp-2: 0.4vh;
+  --sp-3: 0.6vh;
+  --sp-4: 0.8vh;
+  --sp-5: 1vh;
+  --sp-6: 1.2vh;
+
+  /* Espaciado horizontal. */
+  --spw-1: 0.2vw;
+  --spw-2: 0.3vw;
+  --spw-3: 0.5vw;
+  --spw-4: 0.7vw;
+  --spw-5: 1vw;
+
+  /* Formas y movimiento. */
+  --radius-sm: 2px;
+  --radius-md: 3px;
+  --icon-sm: 1.4vh;
+  --dur-fast: 0.1s;
+  --dur: 0.15s;
+  --dur-slow: 0.2s;
+
+  /* ------------------------------------------------ CAPA 2: SEMANTICOS -- */
+
+  --surface-panel: rgba(8, 8, 8, 0.86);
+  --surface-overlay: rgba(10, 12, 16, 0.94);
+  --surface-raised: var(--g-900);
+  --surface-hover: var(--g-800);
+  --surface-active: var(--g-700);
+  --surface-sunken: var(--g-950);
+
+  --border-subtle: var(--w-08);
+  --border-strong: var(--g-600);
+  --border-hover: var(--g-500);
+  --divider: var(--w-10);
+
+  --text-body: var(--g-100);
+  --text-muted: var(--g-300);
+  --text-inverse: var(--g-000);
+  --text-gold: var(--gold);
+  --text-green: var(--green);
+
+  /* ------------------------------------------- LAYOUT DEL PANAL (sin capa) -- */
+
+  --margin-x: 3.75vw;
+  --panel-w: 22vw;
+  --label-w: 9.8vw;
+  --row-h: 3.1vh;
+
+  /* Geometria del titulo sobre el borde del box.
+     --title-size   alto de la linea del titulo
+     --title-lift   cuanto asoma POR FUERA del borde superior
+     --title-inset  cuanto invade POR DENTRO (lo que queda del titulo abajo
+                    del borde, y por ende la reserva que el box le cede)
+     Los tres estan derivados: cambiar --title-size o --title-lift reajusta
+     la reserva del padding y el desborde juntos, sin tocar nada mas. */
+  --title-size: 5.2vh;
+  --title-lift: 3.4vh;
+  --title-inset: calc(var(--title-size) - var(--title-lift));
+  /* Desplazamiento horizontal del titulo respecto del borde del box. El default
+     de SAWebUI lo colgaba en -0.5vw, del lado de afuera del panel. 0.2vw lo deja
+     apenas adentro; 0.7vw lo alinea con el subtitulo de abajo. */
+  --title-x: 0.8vw;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  color: var(--text-body);
+  font-family: var(--font-ui);
+  user-select: none;
+  cursor: default;
+}
+
+/* ============================================================ RECETA: .btn --
+   Un solo lugar donde vive como se ve un boton. Antes .tab, .navbtn,
+   .btn-action y #tut-close repetian el mismo bloque de cinco o seis
+   propiedades con hex distintos. Ahora cada variante declara sus tokens y
+   esta regla los lee. Anadir un boton nuevo es una linea, no una copia. */
+
+.btn {
+  --btn-bg: var(--surface-raised);
+  --btn-bg-hover: var(--surface-hover);
+  --btn-border: var(--border-strong);
+  --btn-border-hover: var(--border-hover);
+  --btn-text: var(--text-muted);
+  --btn-text-hover: var(--text-inverse);
+  --btn-height: 2.6vh;
+  --btn-py: 0;
+  --btn-px: var(--spw-4);
+  --btn-fs: var(--fs-sm);
+  --btn-weight: 400;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--btn-height);
+  padding: var(--btn-py) var(--btn-px);
+  background: var(--btn-bg);
+  border: 1px solid var(--btn-border);
+  color: var(--btn-text);
+  font-family: inherit;
+  font-size: var(--btn-fs);
+  font-weight: var(--btn-weight);
+  cursor: pointer;
+  /* Propiedades explicitas en vez de "all": animar solo lo que cambia evita
+     sorpresas cuando se agrega una propiedad nueva a la receta. */
+  transition: background var(--dur) ease, color var(--dur) ease, border-color var(--dur) ease;
+}
+
+.btn:hover {
+  background: var(--btn-bg-hover);
+  border-color: var(--btn-border-hover);
+  color: var(--btn-text-hover);
+}
+
+/* Pestañas: llenar el ancho disponible, texto chico y bold. */
+.btn--tab {
+  flex: 1 1 0;
+  --btn-height: 2.5vh;
+  --btn-fs: var(--fs-xs);
+  --btn-weight: 700;
+}
+
+.btn--tab.active {
+  --btn-bg: var(--surface-active);
+  --btn-text: var(--text-inverse);
+  --btn-border: var(--green);
+  box-shadow: inset 0 -2px 0 var(--green);
+}
+
+/* Navegacion: misma receta que la pestaña, un pelo mas alta. */
+.btn--nav {
+  flex: 1 1 0;
+  --btn-height: 2.6vh;
+}
+
+/* Accion primaria del tutorial. Alto automatico: es texto, no una tira. */
+.btn--primary {
+  --btn-bg: var(--tint-ok-bg);
+  --btn-bg-hover: var(--tint-ok-bg-hi);
+  --btn-border: var(--tint-ok-bd);
+  --btn-text: var(--tint-ok-tx);
+  --btn-text-hover: var(--text-inverse);
+  --btn-height: auto;
+  --btn-py: var(--sp-3);
+  --btn-px: var(--spw-5);
+  --btn-weight: 700;
+}
+
+/* Cierre: sin fondo ni borde hasta que lo pasan por encima. */
+.btn--ghost {
+  --btn-bg: transparent;
+  --btn-bg-hover: var(--surface-hover);
+  --btn-border: transparent;
+  --btn-border-hover: var(--border-strong);
+  --btn-height: auto;
+  --btn-px: var(--spw-2);
+  --btn-fs: var(--fs-lg);
+}
+
+/* ========================================================= RECETA: .panel --
+   Reemplaza a .box. #panel y #tutorial-box solo overridean tokens: el fondo,
+   el borde, el padding y la sombra viven una sola vez. */
+
+.panel {
+  --panel-bg: var(--surface-panel);
+  --panel-border: var(--border-subtle);
+  --panel-shadow: var(--shadow-panel);
+  --panel-py: var(--sp-4);
+  --panel-pt: var(--panel-py);
+  --panel-pb: var(--panel-py);
+  --panel-px: var(--spw-4);
+
+  position: fixed;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  padding: var(--panel-pt) var(--panel-px) var(--panel-pb);
+  box-shadow: var(--panel-shadow);
+}
+
+#panel {
+  left: var(--margin-x);
+  top: 25vh;
+  width: var(--panel-w);
+  /* El padding superior es la reserva que el titulo ya no ocupa en flujo,
+     porque ahora es absoluto. Sin esto el box encogeria --title-size cada vez
+     que el titulo cambia de tamano. */
+  --panel-pt: var(--title-inset);
+  --panel-pb: var(--sp-2);
+  --panel-px: var(--spw-4);
+}
+
+/* ------------------------------------------------------------------ Título & Encabezado -- */
+
+.panel-header {
+  margin-bottom: var(--sp-2);
+}
+
+/* El titulo se ancla al borde superior del box en vez de empujarlo con un
+   margen negativo. Asi queda SIEMPRE asomando la misma cantidad, sin importar
+   cuanto crezca o mengue el contenido: el alto del box lo decide el contenido
+   y el titulo se apoya en el borde, no al reves. */
+#title {
+  position: absolute;
+  bottom: 100%;
+  left: var(--title-x);
+  /* bottom:100% apoya el pie del titulo en el borde; este margen negativo lo
+     baja --title-inset para que quede montado sobre el borde y no flotando
+     separado. Al ser absoluto no depende del padding ni del borde de .panel,
+     asi que no hay colapso de margenes que pueda moverlo. */
+  margin: 0 0 calc(-1 * var(--title-inset));
+  font-family: var(--font-display);
+  font-size: var(--title-size);
+  line-height: 1.0;
+  color: var(--text-gold);
+  text-shadow: 0.25vh 0.25vh 0 var(--g-000);
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+#subtitle {
+  font-size: var(--fs-2xs);
+  font-weight: 700;
+  color: var(--text-green);
+  letter-spacing: var(--spw-1);
+  text-transform: uppercase;
+  text-shadow: 1px 1px 2px var(--g-000);
+}
+
+/* Logo chico del tutorial-box */
+.brand-tiny-logo {
+  height: var(--icon-sm);
+  width: auto;
+  vertical-align: middle;
+}
+
+/* ---------------------------------------------------------------- Pestañas --
+   Las pestañas no tienen receta propia: son .btn.btn--tab mas el contenedor. */
+
+#tabs {
+  display: flex;
+  gap: var(--spw-1);
+  margin-bottom: var(--sp-4);
+  border-bottom: 1px solid var(--divider);
+  padding-bottom: var(--sp-2);
+}
+
+/* ------------------------------------------------------------------- Filas -- */
+
+#rows {
+  display: flex;
+  flex-direction: column;
+  min-height: 19vh;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  height: var(--row-h);
+  font-size: var(--fs-md);
+  padding: 0 var(--spw-2);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: background var(--dur-fast) ease;
+}
+
+.row:hover {
+  background: var(--w-04);
+}
+
+.row .label {
+  flex: 0 0 var(--label-w);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.row.selected {
+  color: var(--text-inverse);
+  background: var(--w-08);
+}
+
+.row.selected .label {
+  font-weight: 700;
+  color: var(--text-gold);
+}
+
+/* ======================================================== RECETA: .meter --
+   La barra de progreso. Antes el estado vivia en descendientes
+   (.row.selected .track, .row.readonly .fill): tres niveles de especificidad
+   y el orden de la hoja decidia el resultado. Ahora cada estado es UNA clase
+   sobre el elemento, asi que el orden ya no importa.
+
+   --selected se declara despues de --readonly a proposito: una fila
+   seleccionada tiene que verse seleccionada, sea readonly o no. */
+
+.meter {
+  --meter-h: 1.2vh;
+  --meter-track: var(--g-400);
+  --meter-fill: var(--g-200);
+
+  position: relative;
+  flex: 1 1 auto;
+  height: var(--meter-h);
+  background: var(--meter-track);
+  overflow: hidden;
+}
+
+.meter__fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0;
+  background: var(--meter-fill);
+  transition: width var(--dur-fast) linear;
+}
+
+.meter--readonly {
+  --meter-fill: var(--g-300);
+}
+
+.meter--selected {
+  --meter-track: var(--g-700);
+  --meter-fill: var(--g-000);
+}
+
+/* Estados semanticos: los usan la barra de peso del inventario (warn cuando se
+   pasa de la mitad, bad cuando no entra mas) y la de salud de vehiculos. */
+.meter--ok {
+  --meter-fill: var(--green);
+}
+
+.meter--warn {
+  --meter-fill: var(--amber);
+}
+
+.meter--bad {
+  --meter-fill: var(--red);
+}
+
+/* Reglas de input re-baseadas sobre los tokens. Hoy no las genera la app
+   (todas las filas son kind=fixed) pero las necesitan los paneles reales:
+   sliders de cantidad, precio editable en el trueque, filtros. */
+.row input[type="range"] {
+  position: absolute;
+  inset: -2vh 0;
+  width: 100%;
+  height: auto;
+  margin: 0;
+  opacity: 0;
+  cursor: ew-resize;
+}
+
+.row input[type="text"] {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 2.4vh;
+  background: var(--surface-sunken);
+  border: 1px solid var(--border-strong);
+  color: var(--text-inverse);
+  font: inherit;
+  font-size: var(--fs-sm);
+  padding: 0 var(--spw-3);
+  outline: none;
+  user-select: text;
+}
+
+.row input[type="text"]:focus {
+  border-color: var(--text-gold);
+}
+
+/* ------------------------------------------------------------- Navegación --
+   Igual que las pestañas: .btn.btn--nav mas el contenedor. */
+
+#nav {
+  display: flex;
+  gap: var(--spw-3);
+  margin-top: var(--sp-4);
+}
+
+/* ------------------------------------------------------- Paneles (GSIS) -- */
+
+/* El browser NUNCA se cierra: la pagina se oculta y se muestra por classe.
+   El DOM sigue vivo y el tick() sigue corriendo. !important porque #panel y
+   #tutorial-box tienen display propio y la regla tiene que ganar. */
+.hidden {
+  display: none !important;
+}
+
+/* -------------------------------------------------- Ventana Tutorial Modal --
+   El tutorial es la segunda .panel: mismo fondo, borde, sombra y padding, con
+   otros tokens. Por eso no repite ninguna de esas cuatro propiedades. */
+
+#tutorial-box {
+  left: calc(var(--margin-x) + var(--panel-w) + var(--spw-5));
+  top: 25vh;
+  width: 36vw;
+  max-height: 65vh;
+  display: flex;
+  flex-direction: column;
+  z-index: 100;
+  animation: fadeIn var(--dur-slow) ease-out;
+
+  --panel-bg: var(--surface-overlay);
+  --panel-border: var(--w-14);
+  --panel-pt: var(--sp-6);
+  --panel-pb: var(--sp-6);
+  --panel-px: var(--spw-5);
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.tutorial-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--divider);
+  padding-bottom: var(--sp-4);
+  margin-bottom: var(--sp-5);
+}
+
+.tutorial-header h2 {
+  font-family: var(--font-display);
+  font-size: var(--fs-xl);
+  color: var(--text-gold);
+  font-weight: 400;
+}
+
+.tutorial-header-right {
+  display: flex;
+  align-items: center;
+  gap: var(--spw-3);
+}
+
+/* Badge que es link. La parte visual sale de .badge.badge--ok; aca solo van
+   las propiedades de layout que un chip estatico no tiene. */
+.brand-badge-subtle {
+  display: flex;
+  align-items: center;
+  gap: var(--spw-1);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.brand-badge-subtle:hover {
+  background: var(--tint-ok-bg-hi);
+  color: var(--text-inverse);
+}
+
+.tutorial-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding-right: var(--spw-3);
+  font-size: var(--fs-md);
+  line-height: 1.45;
+  color: var(--text-body);
+}
+
+.tutorial-body p {
+  margin-bottom: var(--sp-5);
+}
+
+.tutorial-body ul {
+  margin-left: var(--spw-5);
+  margin-bottom: var(--sp-5);
+}
+
+.tutorial-body li {
+  margin-bottom: var(--sp-2);
+}
+
+.tutorial-body pre {
+  background: var(--surface-sunken);
+  border: 1px solid var(--g-700);
+  border-left: 3px solid var(--green);
+  padding: var(--sp-5) var(--sp-4);
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  color: var(--text-body);
+  overflow-x: auto;
+  margin: var(--sp-5) 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.tutorial-body code {
+  font-family: var(--font-mono);
+  background: var(--w-10);
+  color: var(--text-green);
+  padding: var(--sp-1) var(--spw-1);
+  border-radius: var(--radius-sm);
+}
+
+.tutorial-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-top: 1px solid var(--divider);
+  padding-top: var(--sp-5);
+  margin-top: var(--sp-5);
+}
+
+.tut-tip {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
+/* ========================================================= RECETA: .badge --
+   Chip de estado. Antes eran cuatro clases que repetian background / color /
+   border con doce hex distintos. Ahora una receta y cuatro overrides. */
+
+.badge {
+  --badge-bg: var(--w-08);
+  --badge-bd: var(--border-subtle);
+  --badge-tx: var(--text-muted);
+
+  display: inline-block;
+  padding: var(--sp-1) var(--spw-2);
+  font-size: var(--fs-2xs);
+  font-weight: 700;
+  border-radius: var(--radius-sm);
+  margin-right: var(--spw-1);
+  background: var(--badge-bg);
+  border: 1px solid var(--badge-bd);
+  color: var(--badge-tx);
+}
+
+.badge--info {
+  --badge-bg: var(--tint-info-bg);
+  --badge-bd: var(--tint-info-bd);
+  --badge-tx: var(--tint-info-tx);
+}
+
+.badge--warn {
+  --badge-bg: var(--tint-warn-bg);
+  --badge-bd: var(--tint-warn-bd);
+  --badge-tx: var(--tint-warn-tx);
+}
+
+.badge--success {
+  --badge-bg: var(--tint-ok-bg);
+  --badge-bd: var(--tint-ok-bd);
+  --badge-tx: var(--tint-ok-tx);
+}
+
+.badge--danger {
+  --badge-bg: var(--tint-bad-bg);
+  --badge-bd: var(--tint-bad-bd);
+  --badge-tx: var(--tint-bad-tx);
+}
