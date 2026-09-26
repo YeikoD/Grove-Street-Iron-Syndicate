@@ -24,16 +24,8 @@ import "./IronSyndicate/modules/gsis_Characters.js";
 import "./IronSyndicate/modules/gsis_WeaponDealer.js";
 import "./IronSyndicate/modules/gsis_DealerPickup.js";
 import "./IronSyndicate/modules/gsis_WeaponSeller.js";
-import "./IronSyndicate/ui/gsis_UIManager.js";
 import "./IronSyndicate/modules/gsis_Ballistic.js";
 import "./IronSyndicate/modules/gsis_FireButton.js";
-import "./IronSyndicate/ui/gsis_InventoryMenu.js";
-import "./IronSyndicate/ui/gsis_PropertiesComponent.js";
-import "./IronSyndicate/ui/gsis_VehiclesComponent.js";
-import "./IronSyndicate/ui/gsis_TrunkMenu.js";
-import "./IronSyndicate/ui/gsis_DealerMenu.js";
-import "./IronSyndicate/ui/gsis_DealerPickupMenu.js";
-import "./IronSyndicate/ui/gsis_SellMenu.js";
 
 log("========Grove Street Iron Syndicate=========");
 
