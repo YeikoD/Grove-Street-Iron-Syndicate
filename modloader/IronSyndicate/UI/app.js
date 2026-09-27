@@ -1356,16 +1356,30 @@ function crearPanel(id) {
 // flujo: son dos paneles compitiendo por el mismo lugar y el flujo manda,
 // porque se abrio por proximidad y el inventario por una tecla.
 //
-// El panel del inventario no se destruye ni se reconstruye: queda con su ultimo
-// render y cuando el flujo se cierra vuelve a estar como estaba. Por eso no hace
-// falta guardarse nada: su estado vive en stateMap, que no se toco.
+// REGLA 1: aca NO se decide la visibilidad de #panel. Ese cambio es de
+// setPanelVisible(), que la hace con setPanelVisible(uiState.menu) en este mismo
+// handler y es la unica que puede apagarlo.
+//
+// Antes esta funcion hacia las dos cosas, con panelEl.classList.toggle("hidden",
+// !!id). Con id "" eso es toggle("hidden", false), que es QUITAR la clase: al
+// cerrarse un menu de proximidad encendia el panel del inventario. Y no lo
+// tapaba nadie despues, porque setPanelVisible(false) sale temprano sin programar
+// temporizador cuando el panel ya estaba oculto — que es justo el estado en que
+// estaba. El sintoma era el inventario abierto solo al alejarse de una esfera, con
+// los datos viejos o sin datos, y para cerrarlo habia que apretar I.
+//
+// Ahora: con flujo se apaga #panel (el flujo es un HERMANO suyo, no un hijo, asi
+// que hay que apagarlo explicitamente) y sin flujo no se toca, porque su
+// visibilidad ya la decidio setPanelVisible con el menu.
 function setPantalla(id) {
   // El panel se arma antes del loop que muestra y oculta: si se creara despues,
   // el loop no lo veria y el panel nuevo se quedaria con el "hidden" con que
   // nacio, invisible aunque le tocara estar en pantalla.
   if (id) panelDe(id);
 
-  panelEl.classList.toggle("hidden", !!id);
+  if (id) {
+    panelEl.classList.add("hidden");
+  }
   for (const otro of Object.keys(_paneles)) {
     _paneles[otro].sec.classList.toggle("hidden", otro !== id);
   }
@@ -2361,6 +2375,28 @@ if (window.SAWeb) {
         // regla y no como una preferencia: si flow y menu llegan con algo abierto,
         // el mod esta roto y esta pagina no lo puede arreglar.
         setPantalla(uiState.menu ? uiState.flow : "");
+
+        // La pagina reporta su estado al mod, que lo loguea.
+        //
+        // Sin esto la pagina es ciega para diagnosticar: sus _diag() van a
+        // console.log y el runtime NO captura OnConsoleMessage, asi que no quedan
+        // en ningun lado. Y lo que hay que ver cuando algo se ve mal es justamente
+        // esto: que le llego a la pagina, y que quedo en el DOM despues de
+        // procesarlo. Con el mod diciendo "menu=0" y la pagina mostrando un panel,
+        // los dos lados tienen que estar en el MISMO log, o la contradiccion se
+        // busca a ciegas.
+        //
+        // "hidden" va porque es la verdad del DOM, no la del intention: el bug de
+        // que el panel quedara prendido era setPantalla quitando el hidden que
+        // setPanelVisible todavia no habia puesto, y eso solo se ve mirando la
+        // clase que quedo, no la que se pidio.
+        emitCommand({
+          cmd: "ui:diag",
+          dice: (uiState.menu ? (uiState.flow || "inventario") : "nada"),
+          flow: uiState.flow,
+          hidden: panelEl.classList.contains("hidden"),
+          menu: uiState.menu
+        });
         if (uiState.menu) {
           _diag(uiState.flow ? ("menú " + uiState.flow + " abierto") : "menú abierto — esperando inventario");
         }

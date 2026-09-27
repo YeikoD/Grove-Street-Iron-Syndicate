@@ -296,6 +296,35 @@ function broadcast() {
     var st = inputState();
     st.menu = anyVisible;
     st.flow = flow;
+
+    // Que se le esta diciendo a la pagina, y como se cambio. Una linea por cambio,
+    // latcheada, asi que no cuesta nada por frame.
+    //
+    // Esta aca, DESPUES de armar st, y no antes: la version anterior logueaba
+    // pantallaVisible(), que es lo que el mod CREEE que deberia verse. Eso no es lo
+    // que la pagina recibe, y la diferencia entre las dos cosas es el bug —
+    // "se abrio el inventario" es exactamente el caso en que anyVisible es true y
+    // el flujo es "". Con la variable equivocada en el log, el bug se veía limpio.
+    //
+    // La linea lleva las dos: lo que la pagina recibe (menu y flow) y la pantalla
+    // que el mod cree. Cuando discrepan, se ve en la misma linea.
+    var etiqueta = "menu=" + (st.menu ? 1 : 0) + " flow=\"" + flow + "\" (" + (visible || "nada") + ")";
+    if (_lastVisible !== etiqueta) {
+        log("[WebInterface] pagina: " + (_lastVisible || "(nada)") + " -> " + etiqueta);
+        _lastVisible = etiqueta;
+    }
+
+    // La divergencia que rompe la REGLA 1, sale sola porque es la unica forma de
+    // que la pagina muestre el inventario sin que nadie lo haya abierto: "hay
+    // algo visible" pero el flujo visible es ninguno. Con las dos lineas de arriba
+    // esto se ve, pero llega tarde —en el log del frame siguiente— y con el sintoma
+    // de por medio. Sale aca, en el frame en que pasa.
+    if (anyVisible && !flow && !_uiState.menuVisible) {
+        log("[WebInterface] DIVERGE: hay menu visible pero ninguno en pantalla. " +
+            "La pagina va a mostrar el inventario. anyMenuVisible()=" +
+            anyMenuVisible() + " menuVisible=" + _uiState.menuVisible);
+    }
+
     var sig = st.read + "|" + st.mode + "|" + st.keys + "|" + st.focus + "|" + st.anyMenu + "|" + st.flow;
     if (_lastUiState !== sig) {
         _lastUiState = sig;
@@ -431,12 +460,16 @@ function pantallaVisible() {
 // cada camino decidiera por su cuenta, uno de los dos se desincroniza y la
 // pagina hace algo distinto de lo que hace la tecla.
 //
-// Devuelve true si algo cambio, para que el que llama sepa si redibujar.
-function togglePanel(now) {
+// El parametro "de" dice quien la llamo y va al log. No es decorativo: el panel
+// principal tiene una sola puerta (esta funcion), asi que cuando aparece sin que
+// nadie la haya pedido, el log tiene que poder decir quien lo pidio. Sin eso la
+// pregunta "por que se abrio el inventario" no tiene respuesta.
+function togglePanel(now, de) {
     if (now - _uiState.keyDebounce <= DEBOUNCE_MS) {
         return false;
     }
     if (_uiState.menuVisible) {
+        log("[WebInterface] panel principal cerrado por " + de);
         closeMenu();
         return true;
     }
@@ -444,9 +477,10 @@ function togglePanel(now) {
     if (flow) {
         // REGLA 1: con un flujo abierto la I no abre el inventario. Y no lo
         // "cierra" tampoco, porque no hay inventario abierto que cerrar.
-        log("[WebInterface] toggle ignorado: hay un flujo abierto (" + flow + ")");
+        log("[WebInterface] toggle ignorado (" + de + "): hay un flujo abierto (" + flow + ")");
         return false;
     }
+    log("[WebInterface] panel principal abierto por " + de);
     openMenu();
     return true;
 }
@@ -484,7 +518,7 @@ function pollKeys() {
     _prevKeyEsc = keyEsc;
 
     if (justI) {
-        togglePanel(now);
+        togglePanel(now, "tecla I");
     } else if (justEsc && _uiState.menuVisible) {
         if (now - _uiState.keyDebounce > DEBOUNCE_MS) {
             closeMenu();
@@ -564,6 +598,11 @@ var _anyVisible = false;
 // pollKeys(). Vive aca y no como local de broadcast() porque lo necesitan dos
 // funciones y duplicar el calculo es como se desincronizan.
 var _flowVisible = "";
+// La ultima pantalla que se le dijo a la pagina, para el log de transiciones de
+// arriba. Arranca en "" y no en null a proposito: el log tiene que arrancar con
+// "(nada) -> lo que sea", porque un null inicial haria que la primera pantalla no
+// se registrara y ahi empieza justo el bug que se quiere ver.
+var _lastVisible = "";
 
 // ------------------------------------------------------------ COMANDOS DE LA PAGINA --
 //
@@ -651,8 +690,28 @@ function handleCommand(cmd) {
                 // por la misma funcion: si cada camino decidiera por su cuenta,
                 // uno de los dos terminaria abriendo algo que el otro prohibe.
                 case "ui:toggle":
-                    if (!togglePanel(Date.now())) return false;
+                    if (!togglePanel(Date.now(), "comando ui:toggle")) return false;
                     return true;
+
+                // La pagina reporta que le llego y que quedo en el DOM. No es una
+                // accion: no cambia nada, se loguea y se sigue.
+                //
+                // Existe porque la pagina era ciega para diagnosticar: sus _diag()
+                // van a console.log y el runtime no captura OnConsoleMessage, asi
+                // que no quedan en ningun archivo. Con el mod diciendo "menu=0" y
+                // la pagina mostrando un panel, los dos lados tienen que estar en el
+                // mismo log; si no, la contradiccion se busca a ciegas.
+                //
+                // "hidden" es el que sirve: es la clase que REALMENTE quedo en el
+                // DOM, no la que se pidio. El bug del panel que no se apagaba era
+                // dos funciones peleandose por la misma clase, y eso solo se
+                // diferencia mirando el resultado.
+                case "ui:diag":
+                    log("[WebInterface] pagina dice: " + (data && data.dice) +
+                        " flow=\"" + (data && data.flow) + "\"" +
+                        " menu=" + (data && data.menu) +
+                        " #panel" + (data && data.hidden ? " OCULTO" : " VISIBLE"));
+                    return false;
 
                 case "inv:equip":
                 if (!id) return false;

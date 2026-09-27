@@ -398,7 +398,14 @@ export function inputState() {
 // que el getter solo confirmaria lo que ya se sabe.
 export function refresh() {
     if (!anyMenuVisible()) {
-        _state.read = false;
+        // No hay nada que preguntar: con el menu cerrado la respuesta es
+        // "cerrado" y no vale la pena ir a la ASI.
+        //
+        // OJO con _state.read: NO se toca. read significa "el getter se pudo
+        // leer", y dejarlo en false cada vez que no hay menu hace que la pagina
+        // (y sus diagnosticos) digan que no se pudo leer cuando en realidad se
+        // leyo bien. El resto de los campos si se ponen en cero, porque con el
+        // menu cerrado su valor correcto es ese.
         _state.mode = 0;
         _state.keys = false;
         _state.focus = "";
@@ -448,10 +455,17 @@ export function refresh() {
 // jugador esta eligiendo un item.
 //
 // Se suprime por "hay menu" y no por "la pagina tiene el teclado" a proposito.
-// Son condiciones distintas: con el menu abierto y el puntero AFUERA de la UI,
-// las teclas las tiene el juego —la pagina no las ve— y los hotkeys del mod
-// seguirian disparando. Que el menu se sienta modal depende de que la
-// supresion valga en los dos casos.
+// Son condiciones distintas, y la distincion se nota: con el menu abierto, el
+// juego deja de ver TODAS las teclas —la region de input de la UI es la pantalla
+// completa, ver arriba— y ademas el mod no podria abrir ni cerrar nada con una
+// tecla pollada. Asi que suprimir por "la pagina tiene el teclado" dejaria
+// disparar los hotkeys del mod en el instante en que la pagina suelte el
+// teclado, que es un momento que el jugador no controla. Que el menu se sienta
+// modal depende de que la supresion valga siempre que haya menu.
+//
+// La otra razon es historica y sigue valiendo: si la supresion dependiera de una
+// bandera que el runtime puede cambiar en cualquier frame, el modulo seeria
+// impredecible. "Hay menu" es del mod y no cambia por sorpresa.
 //
 // rawKeyDown es la unica excepcion, y es del WebInterface: sus teclas de abrir
 // y cerrar tienen que funcionar justo cuando el menu esta visible, que es el
@@ -466,6 +480,14 @@ export function rawKeyDown(vk) {
     return readDown(vk);
 }
 
+// FLANCO, sin supresion. Es lo que lee keyJustPressed().
+//
+// Va junto a readDown() y no en otro lado a proposito: las dos son la misma
+// pregunta con distinta respuesta ("acabo de apretar" y "esta apretada"), y
+// Havinglas separadas en archivos distintos ya costo un bug —readDown cayo a esta
+// por un fallback mal hecho, y despues un edit borro la funcion sin borrar la
+// llamada, dejando keyJustPressed() tiranto 'readJustPressed is not defined' en
+// todos los hotkeys del mod.
 function readJustPressed(vk) {
     try {
         return Pad.IsKeyJustPressed(vk) === true;
@@ -474,14 +496,83 @@ function readJustPressed(vk) {
     }
 }
 
-// isKeyPressed es estado sostenido, no flanco, y no todos los builds lo tienen:
-// el fallback es IsKeyJustPressed, que si es flanco. Quien necesite deducir un
-// flanco sostenido tiene que carry su propio registro, como hace el WebInterface
-// con sus dos teclas.
-function readDown(vk) {
+// ------------------------------------------------------------ LECTURA DE TECLA --
+//
+// Estas dos son las unicas del mod que se leen SIN supresion, y por eso tienen que
+// ser las mas cuidadas del archivo: el WebInterface arma su propio flanco con ellas
+// (justI = keyI && !_prevKeyI), o sea que espera ESTADO SOSTENIDO.
+//
+// El fallback anterior caia a IsKeyJustPressed, que es un FLANCO. Y un flanco
+// alimentado a otro detector de flancos produce pulsos dobles: al frame siguiente
+// CLEO puede volver a reportar "recien pulsada" y el WebInterface lo toma como un
+// flanco nuevo. Con eso, una sola pulsacion de I abria y cerraba el inventario
+// dos veces —cuatro transiciones de pantalla en el log— y el primer efecto
+// visible era que el inventario se abria solo justo despues de cerrar un menu de
+// proximidad. Cuatro toggles de una tecla.
+//
+// Un fallback que cambia la semantica es peor que no tener fallback, asi que la
+// escalera es solo de fuentes SOSTENIDAS, en este orden:
+//
+//   1. isKeyPressed(vk)      global de CLEO
+//   2. Pad.IsKeyPressed(vk)  el mismo concepto en el objeto Pad
+//   3. Pad.IsKeyDown(vk)     "esta apretada ahora", tambien sostenido
+//
+// Si ninguna existe, se devuelve false y se avisa UNA vez. Perder la I es un
+// costo visible; un flanco disfrazado de sostenido es un bug invisible.
+var _downFuente = null;   // null = sin probar todavia
+var _warnedNoDown = false;
+
+function _probarFuenteSostenida() {
     try {
-        return isKeyPressed(vk) === true;
+        isKeyPressed(0);
+        _downFuente = "isKeyPressed";
     } catch (e) {
-        return readJustPressed(vk);
+        try {
+            Pad.IsKeyPressed(0);
+            _downFuente = "Pad.IsKeyPressed";
+        } catch (e2) {
+            try {
+                Pad.IsKeyDown(0);
+                _downFuente = "Pad.IsKeyDown";
+            } catch (e3) {
+                _downFuente = "ninguna";
+            }
+        }
     }
+    // Se loguea porque no se puede deducir leyendo: el global puede existir en un
+    // build y no en otro, y el sintoma (la I se dobro sola) no dice nada de eso.
+    log("[Input] lectura de tecla sostenida: " + _downFuente);
+}
+
+function readDown(vk) {
+    if (_downFuente === null) {
+        _probarFuenteSostenida();
+    }
+    if (_downFuente === "isKeyPressed") {
+        try {
+            return isKeyPressed(vk) === true;
+        } catch (e) {
+            _downFuente = "ninguna";
+        }
+    } else if (_downFuente === "Pad.IsKeyPressed") {
+        try {
+            return Pad.IsKeyPressed(vk) === true;
+        } catch (e) {
+            _downFuente = "ninguna";
+        }
+    } else if (_downFuente === "Pad.IsKeyDown") {
+        try {
+            return Pad.IsKeyDown(vk) === true;
+        } catch (e) {
+            _downFuente = "ninguna";
+        }
+    }
+    if (!_warnedNoDown) {
+        _warnedNoDown = true;
+        log("[Input] NO hay lectura de tecla sostenida en este build (ni isKeyPressed, " +
+            "ni Pad.IsKeyPressed, ni Pad.IsKeyDown). La I y el Escape dejan de responder: " +
+            "no se puede abrir el inventario a mano. Los menus de proximidad se siguen " +
+            "cerrando solos por distancia, asi que no es un soft-lock.");
+    }
+    return false;
 }
