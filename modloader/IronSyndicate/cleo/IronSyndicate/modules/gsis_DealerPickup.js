@@ -9,7 +9,7 @@
 //   mientras haya pedido en SaveManager "DealerOrders" Y la esfera no este apagada
 //   por la cooldown de un cierre reciente
 // Blip: existe solo mientras haya pedido (no depende de la cooldown, ver _syncBlips)
-// ESPACIO abre el menu del retiro parado dentro de la esfera; ESC lo cierra
+// ESPACIO abre y cierra el menu del retiro, parado dentro de la esfera
 // Las acciones de la pagina (recoger / recoger todo) viven mas abajo, en este
 // archivo y no en la pagina: el peso libre lo sabe el juego, no el snapshot.
 // Depende de: Config, ModuleRegistry, SaveManager, SpotRuntime, Items,
@@ -26,12 +26,15 @@ import { getItemName, getItemWeight } from "../data/gsis_item_data.js";
 import { getSpots } from "../data/gsis_spot_data.js";
 import { addItem, getTotalWeight } from "./gsis_Items.js";
 import {
-    createSpotGate, updateSpotSpheres, updateSpotSpace,
+    createSpotGate, updateSpotSpheres, closeSpotFlow, spotCanOpen,
     spotHas, beginSpotCooldown
 } from "../core/gsis_SpotRuntime.js";
 
 var _blips = [];   // 1 blip por spot pickup
 var _showPickupMenu = false;
+// Lo que este modulo publico en su ultimo update. Ver el update: es lo que hace
+// visible el cierre cuando lo hizo otro (la tecla, el Escape, la pagina).
+var _sawOpen = false;
 var _gate = createSpotGate(); // espera a exterior
 
 // ============================================================================
@@ -44,6 +47,21 @@ export function isPickupMenuVisible() {
 
 export function closePickupMenu() {
     _showPickupMenu = false;
+}
+
+// Abrir el menu, si se puede. La llave la pide el bridge (modules/gsis_WebInterface.js)
+// cuando el jugador aprieta ESPACIO.
+//
+// El retiro no necesita pedirle nada al pedido: spotCanOpen ya mira la esfera, y la
+// esfera del retiro no existe sin pedido (updateSpotSpheres con want = hay pedido).
+// O sea que un pedido vacio no abre ni con la tecla: no hay nada que recoger.
+export function openPickupMenu() {
+    if (_showPickupMenu) return false;
+    var c = null;
+    try { c = new Player(0).getChar(); } catch (e) { return false; }
+    if (!spotCanOpen("pickup", c)) return false;
+    _showPickupMenu = true;
+    return true;
 }
 
 // Pedido pendiente (items, total) o null
@@ -242,9 +260,10 @@ function _destroyBlips() {
 // Es la unica diferencia con los otros tres modulos, y es a proposito: el blip es
 // la flecha del radar que dice "hay algo para recoger", y sigue siendo verdad
 // mientras haya pedido. Si el blip dependiera de la esfera, cada vez que el
-// jugador cerrara el menu del retiro la flecha desapareceria del mapa 30 s, sin
-// que el pedido haya cambiado. La esfera es la puerta del menu; el blip es un
-// aviso, y un aviso no se apaga porque el jugador ya estuvo ahi.
+// jugador cerrara el menu del retiro la flecha desapareceria del mapa un rato
+// (TIMERS.SPHERE_COOLDOWN), sin que el pedido haya cambiado. La esfera es la
+// puerta del menu; el blip es un aviso, y un aviso no se apaga porque el jugador
+// ya estuvo ahi.
 //
 // O sea: pending && sin blips → crear, sin pedido && con blips → destruir. Nunca
 // al reves, y nunca por cooldown.
@@ -262,7 +281,7 @@ function _syncBlips(pending) {
 
 function initDealerPickup() {
     log("[GSIS] DealerPickup: spots=" + getSpots("pickup").length +
-        " (menu con esfera: ESPACIO para abrir, ESC para cerrar)");
+        " (menu con esfera: ESPACIO abre y cierra)");
     registerMenuSource("pickup", function () { return _showPickupMenu; });
 }
 
@@ -275,14 +294,23 @@ function updateDealerPickupModule(now) {
 
     try {
         var c = new Player(0).getChar();
-        var estaba = _showPickupMenu;
-        _showPickupMenu = updateSpotSpace(c, "pickup", estaba, spotHas("pickup")).visible;
-        // El menu se cerro → la esfera se apaga un rato. Solo si el pedido sigue:
-        // si se vacio, la esfera ya se apago por no hacer falta y volver a pedir la
-        // cooldown dejaria el punto de retiro sin esfera 30 s despues de comprar.
-        if (estaba && !_showPickupMenu && pending) {
+        _showPickupMenu = closeSpotFlow(c, "pickup", _showPickupMenu, spotHas("pickup"));
+        // El menu se cerro → la esfera se apaga un rato.
+        //
+        // Dos condiciones, y las dos importan:
+        //
+        //   - La transicion se mide contra lo que publico este modulo en su ultimo
+        //     update (_sawOpen), no contra el flag. El cierre puede venir de afuera
+        //     —ESPACIO, ESC, "ui:close"—, y en ese caso el flag ya esta en false
+        //     cuando este update corre. Con el flag, cerrar con la tecla no
+        //     apagaria la esfera.
+        //   - Solo si el pedido sigue. Si se vacio, la esfera ya se apago por no
+        //     hacer falta y volver a pedir la cooldown dejaria el punto de retiro
+        //     sin esfera hasta que se venciera, con el pedido ya pagado.
+        if (_sawOpen && !_showPickupMenu && pending) {
             beginSpotCooldown("pickup");
         }
+        _sawOpen = _showPickupMenu;
     } catch (e) { }
 }
 

@@ -26,13 +26,16 @@ import { getSellPrice, WEAPON_DATA } from "../data/gsis_weapon_data.js";
 import { getCharacter } from "../data/gsis_character_data.js";
 import { getItems, removeItem, isInstanced } from "./gsis_Items.js";
 import {
-    createSpotGate, updateSpotSpheres, updateSpotSpace,
+    createSpotGate, updateSpotSpheres, closeSpotFlow, spotCanOpen,
     spotHas, beginSpotCooldown
 } from "../core/gsis_SpotRuntime.js";
 
 var DEFAULT_CHAR = "seller_local";
 
 var _showSellMenu = false;
+// Lo que este modulo publico en su ultimo update. Ver _trasCerrar: es lo que
+// hace visible el cierre cuando lo hizo otro (la tecla, el Escape, la pagina).
+var _sawOpen = false;
 var _gate = createSpotGate(); // espera a exterior
 var _activeCharId = null;     // personaje de la esfera que abrió el menú
 
@@ -76,6 +79,26 @@ export function isSellMenuVisible() {
 
 export function closeSellMenu() {
     _showSellMenu = false;
+}
+
+// Abrir el menu, si se puede. La llave la pide el bridge (modules/gsis_WebInterface.js)
+// cuando el jugador aprieta ESPACIO, y el "si se puede" se responde aca.
+//
+// Acá además se genera el estado del NPC si hace falta. Va en la apertura y no en
+// el update porque el menu ya puede estar abierto cuando el update corre: si el
+// estado se generara ahi, el primer snapshot mostraria el presupuesto y los
+// intereses de un NPC que todavia no fue generado.
+export function openSellMenu() {
+    if (_showSellMenu) return false;
+    var c = null;
+    try { c = new Player(0).getChar(); } catch (e) { return false; }
+    var spot = spotCanOpen("seller", c);
+    if (!spot) return false;
+    _activeCharId = spot.characterId || DEFAULT_CHAR;
+    var st = _state(_activeCharId);
+    if (!st.generated || st.fulfilled) _generateState(_activeCharId);
+    _showSellMenu = true;
+    return true;
 }
 
 // characterId activo (esfera que abrió el menú) o default
@@ -394,37 +417,37 @@ function _checkFulfilled(st) {
 // ============================================================================
 
 function initWeaponSeller() {
-    log("[GSIS] WeaponSeller: menu con esfera (ESPACIO para abrir, ESC para cerrar)");
+    log("[GSIS] WeaponSeller: menu con esfera (ESPACIO abre y cierra)");
     registerMenuSource("seller", function () { return _showSellMenu; });
 }
 
-// El orden importa: primero la esfera (si no hay esfera no hay menu), despues el
-// menu, y al final la cooldown por cierre. Ver _trasCerrar.
+// El update solo CIERRA: la apertura la pide el bridge con la tecla
+// (openSellMenu), porque el dueno de la tecla es el. Ver gsis_SpotRuntime.js.
 function updateWeaponSellerModule(now) {
     updateSpotSpheres("seller", _gate, true);
     try {
         var c = new Player(0).getChar();
-        var estaba = _showSellMenu;
-        var r = updateSpotSpace(c, "seller", estaba, spotHas("seller"));
-        if (r.visible && !estaba) {
-            // Abre: fijar personaje de la esfera + generar estado si hace falta
-            _activeCharId = (r.spot && r.spot.characterId) || DEFAULT_CHAR;
-            var st = _state(_activeCharId);
-            if (!st.generated || st.fulfilled) _generateState(_activeCharId);
-        }
-        _showSellMenu = r.visible;
+        _showSellMenu = closeSpotFlow(c, "seller", _showSellMenu, spotHas("seller"));
         if (!_showSellMenu) _activeCharId = null;
-        _trasCerrar(estaba);
+        _trasCerrar();
     } catch (e) { }
 }
 
-// El menu se cerro → la esfera se apaga (TIMERS.SPHERE_COOLDOWN). Con la
-// TRANSICION, no con el estado: pedirla en cada frame sin menu la pediria al
-// abrirlo y no se podria volver a abrir nunca.
-function _trasCerrar(estaba) {
-    if (estaba && !_showSellMenu) {
+// El menu se cerro → la esfera se apaga (TIMERS.SPHERE_COOLDOWN).
+//
+// La transicion se mide contra lo que publico este modulo en su ultimo update, y
+// no contra el flag: el cierre puede venir de afuera —ESPACIO, ESC o el
+// "ui:close" de la pagina, que corren DESPUES que el update de los modulos— y en
+// ese caso el flag ya esta en false cuando este update corre. Con el flag, cerrar
+// con la tecla no apagaria la esfera.
+//
+// Y va con la TRANSICION, no con el estado: pedirla en cada frame sin menu la
+// pediria al abrirlo y no se podria volver a abrir nunca.
+function _trasCerrar() {
+    if (_sawOpen && !_showSellMenu) {
         beginSpotCooldown("seller");
     }
+    _sawOpen = _showSellMenu;
 }
 
 register({

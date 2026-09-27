@@ -14,34 +14,48 @@
 //
 // Uso en un modulo:
 //   var _gate = createSpotGate();
+//   var _sawOpen = false;                // lo que publico este modulo (ver abajo)
 //   function updateModulo(now) {
 //       updateSpotSpheres("dealer", _gate, true);   // want = la esfera hace falta
-//       var estaba = _showMenu;
-//       var r = updateSpotSpace(c, "dealer", estaba, spotHas("dealer"));
-//       if (r.visible && !estaba) _activeCharId = r.spot.characterId;
-//       _showMenu = r.visible;
-//       if (estaba && !_showMenu) beginSpotCooldown("dealer");   // se apago la esfera
+//       _showMenu = closeSpotFlow(c, "dealer", _showMenu, spotHas("dealer"));
+//       if (_sawOpen && !_showMenu) beginSpotCooldown("dealer");   // se apago la esfera
+//       _sawOpen = _showMenu;
 //   }
+//   export function openDealerMenu() {            // la llave la pide el bridge
+//       if (_showMenu) return false;
+//       var spot = spotCanOpen("dealer", new Player(0).getChar());
+//       if (!spot) return false;
+//       _activeCharId = spot.characterId || DEFAULT_CHAR;
+//       _showMenu = true;
+//       return true;
+//   }
+//
+// Lo de _sawOpen no es un detalle menor: la transicion que apaga la esfera se
+// mide contra lo que el modulo publico en su update ANTERIOR, no contra el flag.
+// El cierre puede venir de afuera —la tecla, el Escape, el comando de la pagina—
+// y esos corren en el update del bridge, que es el ULTIMO de la lista. Cuando el
+// update del modulo llega, el flag ya vale false: midiendo contra el flag, cerrar
+// con la tecla no apagaria la esfera.
 //
 // Las dos mitades tienen que ir juntas y por eso estan aca y no en cada modulo:
 //
 //   1. LA ESFERA decide si el menu puede abrir. Sin esfera no hay menu: no es una
 //      decoracion del mundo, es la condicion. Por eso apagarla (la cooldown)
-//      ALGO mas que un efeito visual.
+//      ALGO mas que un efecto visual.
 //   2. LA TECLA decide si el jugador la quiere. Se abre apretando ESPACIO parado
 //      adentro del radio de acceso, no al tocarla como antes: asi el menu se abre
-//      y se cierra como el inventario (una tecla, congelando, ESC para salir) en
-//      vez de ser un toggle invisible que aparece y desaparece solo.
+//      y se cierra como el inventario (una tecla, congelando, la misma para
+//      abrir y cerrar) en vez de ser un toggle invisible que aparece y desaparece
+//      solo. La tecla la lee el bridge; el radio y la esfera se preguntan aca.
 //
 // El baul (modules/gsis_Trunk.js) comparte la cooldown con este runtime pero no
 // las esferas: las suyas siguen al auto, asi que las crea y destruye el mismo.
 // Por eso la cooldown se puede pedir de afuera (beginSpotCooldown) en vez de
 // salir de una transicion.
-// Depende de: Config, Input, spot_data (data)
+// Depende de: Config, spot_data (data)
 // ============================================================================
 
-import { KEYS, DIST, TIMERS } from "./gsis_Config.js";
-import { keyEdge } from "./gsis_Input.js";
+import { DIST, TIMERS } from "./gsis_Config.js";
 import { getSpots } from "../data/gsis_spot_data.js";
 
 // ------------------------------------------------------------ LAS ESFERAS --
@@ -76,8 +90,15 @@ export function spotHas(type) {
 // siguiente daria true: el menu recien cerrado, el jugador inmovil, y la
 // condicion intacta. Con la cooldown apagada, la condicion se apaga con ella.
 //
-// 30 s es el tiempo de caminar un rato: da para cerrar el menu, hacer lo que haya
-// que hacer y volver a acercarse con la esfera ya encendida de nuevo.
+// 6 s (TIMERS.SPHERE_COOLDOWN) es el tiempo de una ida y vuelta corta: sale del
+// punto, se aleja un poco y vuelve. Es lo que separa "cerro el menu" de "el menu
+// se reabrio solo": con el menu congelando al jugador, la unica forma de que la
+// condicion de esfera siga dando true es que el mismo menu se reabra.
+//
+// Y es bastante mas que un frame, que es lo que haria falta para que la segunda
+// mitad de la pulsacion que abre el menu no lo cerrara. Por eso el debounce del
+// bridge (200 ms) y esta cooldown estan separados: el debounce cuida el mismo
+// frame, esta cuida el gesto del jugador.
 //
 // El valor es un timestamp y no un contador de frames porque los timers de CLEO
 // Redux no andan en los scripts JS (ver gsis_FlowSerialization.js): la cuenta
@@ -112,8 +133,9 @@ export function spotOffLeft(type) {
 //
 // No es un caso teorico: el retiro (pickup) pierde su esfera porque el pedido se
 // vacio, no porque el menu se cerro. Si la cooldown quedara armada, la compra
-// siguiente no tendria esfera para el menu y el punto de retiro seria invisible
-// durante 30 s. El que no hace falta la esfera (want === false) la cancela solo.
+// siguiente no tendria esfera para el menu y el punto de retiro se quedaria
+// apagado hasta que se venciera. El que no hace falta la esfera (want === false)
+// la cancela solo.
 export function endSpotCooldown(type) {
     if (!_off[type]) return false;
     _off[type] = 0;
@@ -173,7 +195,19 @@ export function updateSpotSpheres(type, gate, want) {
     return spotSpheres(type);
 }
 
-// --------------------------------------------------------- EL MENU --
+// ------------------------------------------------------ LA VISIBILIDAD --
+//
+// Aqui se parte la decision en dos, y la parte la hace el dueno de la tecla.
+//
+// ABRIR lo pide el bridge (modules/gsis_WebInterface.js) con spotCanOpen, porque
+// el que lee la tecla es el. Y tiene que ser el: la I abre y cierra el
+// inventario desde el mismo lugar, y si cada modulo leyera la suya, la tecla que
+// abre un menu podria cerrar el que estuviera abierto al mismo tiempo — dos
+// toggles en el mismo frame, que es el menu que no se abre o se cierra solo—.
+//
+// CERRAR lo resuelve cada modulo con closeSpotFlow, porque el cierre no es de una
+// tecla: es la esfera apagada, un vehiculo, o alejarse del punto. Son datos que
+// tiene el modulo, no el bridge.
 //
 // Gate interior: pending hasta getAreaVisible() === 0 (igual que Spawner/Actors).
 // El create de las esferas es de updateSpotSpheres, no del gate: ver la nota de
@@ -195,18 +229,43 @@ export function updateSpotGate(gate) {
     return false;  // Aun en interior, seguir esperando
 }
 
-// ------------------------------------------------------ LA VISIBILIDAD --
+// ------------------------------------------------------ LA APERTURA --
 //
-// Que menu se ve, con la apertura a mano. Devuelve { visible, spot }.
+// Se puede abrir el menu de este tipo? Devuelve el spot al que pertenece el menu
+// (el mas cercano, el que va a poner los precios), o null si no.
+//
+// Las tres condiciones, en el orden en que se descartan:
+//
+//   1. Sin esfera (gate de interior, cooldown, o sin pedido en el retiro) → no.
+//      La esfera ES la condicion: apagarla apaga el menu.
+//   2. En un vehiculo → no. El menu de un punto se abre desde la calle.
+//   3. Fuera del radio de acceso → no. Este es el "estar dentro de su esfera": el
+//      radio de acceso, no DIST.SPHERE (el radio del marcador). Ver KEYS.FLOW.
+//
+// Devuelve el spot y no un bool porque el modulo necesita el characterId de el
+// para saber a que NPC le esta comprando el jugador, y eso se decide al abrir.
+export function spotCanOpen(type, c) {
+    if (!spotHas(type)) return null;  // Sin esfera, no hay menu
+    if (!c || c.isInAnyCar()) return null;  // En auto, no
+    var n = nearestSpot(type, c);
+    if (n.dist >= DIST.DEALER_ACCESS) return null;  // Lejos del punto
+    return n.spot;
+}
+
+// ------------------------------------------------------ EL CIERRE --
+//
+// Lo unico que el modulo tiene que decidir por su cuenta: si el menu que esta
+// abierto todavia corresponde a donde esta el jugador. Devuelve la visibilidad
+// nueva.
 //
 //   sin esfera (gate, cooldown, sin pedido) → cierra
 //   en un vehiculo                          → cierra
-//   ESPACIO dentro de DEALER_ACCESS          → abre
-//   visible y fuera de DEALER_CLOSE          → cierra
+//   abierta y fuera de DEALER_CLOSE          → cierra
 //
-// El `spot` es el mas cercano SIEMPRE, no solo cuando esta en rango: el modulo lo
-// usa para saber a quien pertenece el menu (spot.characterId) y esa pregunta se
-// hace al abrir, no mientras esta abierto.
+// El ultimo caso es la red de seguridad. El menu congela al jugador, asi que no
+// se cierra por alejarse —para eso no hace falta estar parado: con la tecla se
+// cierra— y queda para cuando algo lo movio de lugar (un vehiculo, un script):
+// un menu congelando a un ped que ya no esta en el punto es un panel injerto.
 //
 // Lo que NO esta aca, y por que:
 //
@@ -214,38 +273,22 @@ export function updateSpotGate(gate) {
 //     aparecia por haber pasado por al lado y se cerraba por alejarse. Con el
 //     jugador congelado mientras esta abierto, un menu de ese tipo solo puede
 //     dejar al jugador parado adentro de la esfera sin poder salir, que es el
-//     soft-lock que el ancla existed para tapar. Abriendo con tecla, el menu es
-//     un menu de pausa y se cierra con la tecla de siempre.
-//   - La tecla F. Antes cada spot abria con F. Ahora hay una sola tecla para los
-//     cuatro menus con esfera (KEYS.FLOW), que es la misma logica que la del
-//     inventario: lo unico que cambia entre un menu y otro es donde esta.
-//
-// La tecla se lee SIEMPRE, antes de mirar la distancia, y no al reves. Si se
-// preguntara solo cuando ya se esta en rango, el estado del flanco se quedaria
-// viejo mientras el jugador camina hacia la esfera, y al entrar contaria como
-// pulsacion nueva la tecla que el jugador venia apretando desde antes de llegar.
-// Con el menu ya abierto, la supresion de keyEdge lo deja pasar: abrir es del
-// modulo que tiene la esfera, y cerrarlo es del bridge (ESC / ui:close).
-export function updateSpotSpace(c, type, visible, hasSpheres) {
-    if (!hasSpheres) return { visible: false, spot: null };  // Sin esfera, cierra
-    if (!c || c.isInAnyCar()) return { visible: false, spot: null };  // En auto, cierra
+//     soft-lock que el ancla existed para tapar. Con la tecla, el menu es un menu
+//     de pausa y se cierra con la tecla de siempre.
+//   - La tecla. Antes cada spot abria con F y el baul con B. Ahora hay una sola
+//     tecla para los cuatro menus con esfera (KEYS.FLOW), que es la misma logica
+//     que la del inventario: lo unico que cambia entre un menu y otro es donde
+//     esta.
+export function closeSpotFlow(c, type, visible, hasSpheres) {
+    if (!hasSpheres) return false;  // Sin esfera, cierra
+    if (!c || c.isInAnyCar()) return false;  // En auto, cierra
+    if (!visible) return false;  // Cerrado, sigue cerrado
 
-    var n = nearestSpot(type, c);  // Busca spot mas cercano
-    var open = visible;
-    var abrio = keyEdge(type, KEYS.FLOW);
-
-    if (n.dist < DIST.DEALER_ACCESS && abrio) {
-        open = true;
+    var n = nearestSpot(type, c);
+    if (n.dist > DIST.DEALER_CLOSE) {
+        return false;  // Se salio del radio
     }
-
-    // Auto-cierre al salir del radio. Con el jugador congelado solo se da si algo
-    // lo movio (un vehiculo, un script) — pero sin esta linea un menu congelando
-    // al jugador en un sitio del que ya no esta seria un panel injerto.
-    if (open && n.dist > DIST.DEALER_CLOSE) {
-        open = false;
-    }
-
-    return { visible: open, spot: n.spot };  // Retorna estado y spot
+    return true;
 }
 
 // Spot mas cercano del tipo → { spot, dist } (spot null si no hay / sin char)

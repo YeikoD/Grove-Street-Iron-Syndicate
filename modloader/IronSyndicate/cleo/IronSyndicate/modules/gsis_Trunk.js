@@ -6,8 +6,9 @@
 // GSIS Trunk - Sistema de baules (abrir/cerrar, spheres, menu)
 // ============================================================================
 // El menu del baul se abre con ESPACIO parado al lado de un baul abierto, igual
-// que el inventario (congelando, ESC para cerrar) pero con la condicion de la
-// esfera. Al cerrarlo la esfera se apaga TIMERS.SPHERE_COOLDOWN (core/gsis_SpotRuntime).
+// que el inventario (congelando, la misma tecla abre y cierra, ESC tambien
+// cierra) pero con la condicion de la esfera. Al cerrarlo la esfera se apaga
+// TIMERS.SPHERE_COOLDOWN (core/gsis_SpotRuntime).
 // Depende de: SaveManager, Config, ModuleRegistry, EventBus, Items, L10n, Notice,
 //             Input, SpotRuntime
 // Usa query("spawner:*") para handles (sin importar Spawner)
@@ -15,7 +16,7 @@
 
 import { getModuleData, setModuleData } from "../core/gsis_SaveManager.js";
 import { KEYS, DIST, TIMERS, MISC } from "../core/gsis_Config.js";
-import { keyJustPressed, keyEdge, registerMenuSource } from "../core/gsis_Input.js";
+import { keyJustPressed, registerMenuSource } from "../core/gsis_Input.js";
 import { register } from "../core/gsis_ModuleRegistry.js";
 import { on, query } from "../core/gsis_EventBus.js";
 import { t } from "../core/gsis_L10n.js";
@@ -41,6 +42,10 @@ var _openTrunkCount = 0;
 var _trunkOpen = false;
 var _trunkCar = null;
 var _showTrunkMenu = false;
+// Lo que este modulo publico en su ultimo update. Es lo que hace visible el
+// cierre cuando lo hizo otro (la ESPACIO, el Escape, la pagina): en ese caso el
+// flag ya valia false cuando este update corrio. Ver el final de updateTrunk.
+var _sawOpen = false;
 var _trunkVehicleId = -1;
 var _pendingTrunkStateSync = -1;
 
@@ -129,19 +134,13 @@ function handleTrunkKey(c) {
     } catch (e) { }
 }
 
-// Update por frame: tecla 3, pending sync, esferas, menu por tecla, cooldown
+// Update por frame: tecla 3, pending sync, esferas, cierre del menu, cooldown
 //
-// El menu del baul se abre como el del inventario (una tecla, congelando, ESC
-// para cerrar) con la condicion de que haya un baul abierto a DIST.TRUNK_ACCESS.
-// Antes se abria solo al tocar la esfera y se cerraba alejandose; ver el comentario
-// de la cooldown abajo para por que se dio vuelta.
+// El update solo CIERRA. Abrir lo pide el bridge (modules/gsis_WebInterface.js)
+// con la tecla ESPACIO, por openTrunkMenu(): el dueno de la tecla tiene que ser uno
+// solo, o la misma pulsacion abre un menu y cierra el que estuviera abierto.
 export function updateTrunk(c, now, spawning) {
     handleTrunkKey(c);
-
-    // El flanco de ESPACIO se lee TODOS los frames, aunque no se llegue a la parte
-    // que lo usa: si el estado queda viejo mientras el jugador camina hacia el auto,
-    // al entrar en rango contaria como pulsacion la tecla que ya venia apretada.
-    var abrio = keyEdge("trunk", KEYS.FLOW);
 
     // Sincronizar estado pendiente (diferido tras closeTrunk)
     if (_pendingTrunkStateSync !== -1) {
@@ -150,8 +149,6 @@ export function updateTrunk(c, now, spawning) {
     }
 
     if (spawning) return;
-
-    var estaba = _showTrunkMenu;
 
     // --- Esferas: seguir al auto + destruir si auto destruido ---
     //
@@ -189,26 +186,12 @@ export function updateTrunk(c, now, spawning) {
         }
     }
 
-    // --- Abrir el menu con ESPACIO, al lado de un baul abierto ---
+    // --- Cerrar el menu si el jugador no esta mas en el baul ---
     //
-    // La distancia es DIST.TRUNK_ACCESS y no DIST.SPHERE: el objeto esfera mide
-    // 0.75 m, que es el radio del marcador, no una zona donde se pueda apretar una
-    // tecla. Ver la nota de KEYS.FLOW en core/gsis_Config.js.
-    if (abrio && !_showTrunkMenu && !c.isInAnyCar() && !spotOff("trunk") && _openTrunkCount > 0) {
-        var cerca = _nearestTrunk(c, DIST.TRUNK_ACCESS);
-        if (cerca !== null) {
-            _trunkCar = _openTrunks[cerca].handle;
-            _trunkVehicleId = cerca;
-            _trunkOpen = true;
-            _showTrunkMenu = true;
-        }
-    }
-
-    // --- Auto-cerrar menu al salirse de la sphere ---
-    //
-    // Con el jugador congelado mientras el menu esta abierto, esto solo se da si
-    // algo lo movio (un vehiculo, un script). Queda igual: congelado no alcanza
-    // para un menu que se quedaria puesto en un sitio del que el ped ya no esta.
+    // Con el jugador congelado mientras el menu esta abierto esto solo se da si
+    // algo lo movio (un vehiculo, un script), porque cerrar con la tecla es lo de
+    // siempre. Queda igual: congelado no alcanza para un menu que se quedaria
+    // puesto en un sitio del que el ped ya no esta.
     if (_showTrunkMenu && _trunkCar) {
         var pPos2 = c.getCoordinates();
         var tPos = _getTrunkPos(_trunkCar);
@@ -222,18 +205,26 @@ export function updateTrunk(c, now, spawning) {
 
     // --- Cerrar el menu apaga la esfera ---
     //
-    // Con la TRANSICION, no con el estado: la cooldown es por cierre. Pedirla en
-    // cada frame sin menu la pediria en el frame en que se abre, y el menu no se
-    // podria volver a abrir nunca —la esfera no llega a existir—.
+    // Con la TRANSICION, y medida contra lo que este modulo publico en su ultimo
+    // update (_sawOpen) en vez de contra el flag. No es lo mismo: el cierre puede
+    // venir de afuera —ESPACIO, ESC, el "ui:close" de la pagina—, y esos corren en
+    // el update del bridge, DESPUES del de todos los modulos, asi que cuando este
+    // update llega el flag ya esta en false. Con el flag, cerrar con la tecla no
+    // apagaria la esfera.
     //
-    // Y el caso de verdad no es el de antes: el menu congela al jugador, asi que
-    // al cerrarlo sigue parado ADENTRO de la esfera, en el mismo lugar. Sin el
+    // Y la cooldown es por cierre, no por estado: pedirla en cada frame sin menu
+    // la pediria en el frame en que se abre, y el menu no se podria volver a abrir
+    // nunca —la esfera no llega a existir—.
+    //
+    // El caso de verdad no es el de antes: el menu congela al jugador, asi que al
+    // cerrarlo sigue parado ADENTRO de la esfera, en el mismo lugar. Sin el
     // apagado, cualquier cosa que vuelva a mirar "estoy en la esfera" en el frame
     // siguiente daria true (ver TIMERS.SPHERE_COOLDOWN).
-    if (estaba && !_showTrunkMenu) {
+    if (_sawOpen && !_showTrunkMenu) {
         beginSpotCooldown("trunk");
         _dropTrunkSpheres("menu cerrado");
     }
+    _sawOpen = _showTrunkMenu;
 }
 
 // El baul abierto mas cerca, o null si no hay ninguno dentro de maxDist.
@@ -293,6 +284,39 @@ export function closeTrunkMenu() {
     _trunkCar = null;
     _trunkOpen = false;
     _trunkVehicleId = -1;
+}
+
+// Abrir el menu, si se puede. La llave la pide el bridge (modules/gsis_WebInterface.js)
+// cuando el jugador aprieta ESPACIO.
+//
+// Las condiciones, en el orden en que se descartan:
+//
+//   1. El menu ya esta abierto → false (no hay nada que hacer).
+//   2. Con la cooldown armada → false. La esfera esta apagada, y la esfera es la
+//      condicion: es el mismo criterio que usan los otros tres modulos via
+//      spotCanOpen(), con el id "trunk" del runtime.
+//   3. En un vehiculo → false. El baul se maneja desde la calle.
+//   4. Ningun baul abierto a DIST.TRUNK_ACCESS → false.
+//
+// La distancia es DIST.TRUNK_ACCESS y no DIST.SPHERE: el objeto esfera mide
+// 0.75 m, que es el radio del marcador, no una zona donde se pueda apretar una
+// tecla. Ver la nota de KEYS.FLOW en core/gsis_Config.js.
+export function openTrunkMenu() {
+    if (_showTrunkMenu) return false;
+    if (spotOff("trunk")) return false;
+
+    var c = null;
+    try { c = new Player(0).getChar(); } catch (e) { return false; }
+    if (c.isInAnyCar()) return false;
+
+    var cerca = _nearestTrunk(c, DIST.TRUNK_ACCESS);
+    if (cerca === null) return false;
+
+    _trunkCar = _openTrunks[cerca].handle;
+    _trunkVehicleId = cerca;
+    _trunkOpen = true;
+    _showTrunkMenu = true;
+    return true;
 }
 
 export function closeTrunk() {
@@ -536,7 +560,7 @@ function _updateTrunkStateInDataById(vehicleId, trunkOpen) {
 // ============================================================================
 
 function initTrunk() {
-    log("[GSIS] Trunk inicializado (menu con esfera: ESPACIO para abrir, ESC para cerrar)");
+    log("[GSIS] Trunk inicializado (menu con esfera: ESPACIO abre y cierra)");
     // El menu del baul es un menu: mientras este abierto, el teclado es de la UI
     // y ningun hotkey del mod tiene que disparar. Antes no se registraba y el
     // interruptor de teclado solo miraba el menu principal, asi que la R del

@@ -246,12 +246,16 @@ export var STRINGS = {
     // panel aparece en el medio de la pantalla con el pointer capaz de haber quedado
     // encima — con el pointer encima las teclas son de la pagina.
     //
-    // Ya no dice "alejate": los menus se abren apretando ESPACIO parada la esfera
-    // y se cierran con ESC, como el inventario. Lo que queda del contrato de
-    // proximidad es lo de despues: cerrada la esfera, el punto queda apagado un
-    // rato (TIMERS.SPHERE_COOLDOWN), asi que conviene que el jugador sepa que el
-    // menu se cerro y la esfera se va a volver sola.
-    MENU_HNT: { es: "ESC para cerrar el menu", en: "ESC to close the menu" },
+    // Dice la tecla y no solo "cerralo": la ESPACIO abre y cierra, y con el pointer
+    // encima de la UI es la pagina la que la translate, asi que las dos salidas
+    // (la tecla y el boton de cerrar) tienen que estar a mano.
+    //
+    // Ya no dice "alejate": los menus se abren apretando ESPACIO parado en la
+    // esfera y se cierran con la misma tecla o con ESC, como el inventario. Lo que
+    // queda del contrato de proximidad es lo de despues: cerrada la esfera, el
+    // punto queda apagado un rato (TIMERS.SPHERE_COOLDOWN), asi que conviene que el
+    // jugador sepa que el menu se cerro y la esfera se va a volver sola.
+    MENU_HNT: { es: "ESPACIO o ESC para cerrar el menu", en: "SPACE or ESC to close the menu" },
 
     // --- UI Inventario ---
     GSIS_MENU: { es: "Grove Street Iron Syndicate", en: "Grove Street Iron Syndicate" },

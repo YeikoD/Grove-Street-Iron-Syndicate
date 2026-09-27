@@ -12,9 +12,9 @@
 //
 // "De proximidad" es el nombre que viene de antes, cuando se abrian al tocar la
 // esfera y se cerraban alejandose. Ahora se abren con ESPACIO parado adentro de la
-// esfera (core/gsis_SpotRuntime.js) y se cierran con ESC, como el inventario: lo
-// que queda de la proximidad es la condicion para abrir y la cooldown de la
-// esfera, no el cierre.
+// esfera (core/gsis_SpotRuntime.js) y la misma tecla los cierra —tambien el ESC—,
+// como el inventario: lo que queda de la proximidad es la condicion para abrir y
+// la cooldown de la esfera, no el cierre.
 //
 // Un archivo para los cuatro, y no uno por menu, por dos razones:
 //
@@ -65,34 +65,40 @@ import { itemRow } from "./gsis_ItemRow.js";
 import {
     getItems, getTotalWeight,
     getTrunkItems, getTrunkWeight, getTrunkMaxCapacity
-} from "./gsis_Items.js";
-import {
-    isTrunkMenuVisible, closeTrunkMenu, getTrunkVehicleId
+} from "./gsis_Items.js";import {
+    isTrunkMenuVisible, closeTrunkMenu, openTrunkMenu, getTrunkVehicleId
 } from "./gsis_Trunk.js";
 import {
-    isDealerMenuVisible, closeDealerMenu, getActiveCharacterId,
+    isDealerMenuVisible, closeDealerMenu, openDealerMenu, getActiveCharacterId,
     getDealerPrice, getCart, getCartTotal, getCJMoney
 } from "./gsis_WeaponDealer.js";
 import {
-    isSellMenuVisible, closeSellMenu, getSellState
+    isSellMenuVisible, closeSellMenu, openSellMenu, getSellState
 } from "./gsis_WeaponSeller.js";
 import {
-    isPickupMenuVisible, closePickupMenu, getOrder
+    isPickupMenuVisible, closePickupMenu, openPickupMenu, getOrder
 } from "./gsis_DealerPickup.js";
 
 // Los cuatro menus, en el orden en que se consultan. El orden importa: dos
-// menus pueden quedar visibles a la vez si el jugador esta entre dos esferas, y
+// menus pueden quedar visibles a los vez si el jugador esta entre dos esferas, y
 // en ese caso gana el primero de la lista. La lista es la unica fuente: el
 // bridge no mantiene su propia copia.
+//
+// Cada entrada tiene las tres puertas del menu: si esta visible (lo consulta
+// cualquierMenuVisible), como se abre y como se cierra. Abrir y cerrar estan
+// juntos en el mismo lugar por una razon que no es estetica: la Cool-DOWN se pide
+// en la transición de abierto a cerrado, y el que la ve es el modulo dueño (su
+// update). Si el "cerrar" viviera en el bridge, el bridge tendria que acordarse
+// de los cuatro.
 //
 // Los nombres son los mismos que usa registerMenuSource() en cada modulo, asi
 // que el id del payload, el nombre de la fuente y el prefijo del comando
 // ("trunk:put") dicen lo mismo sin traducciones.
 var FLUJOS = [
-    { id: "trunk", visible: isTrunkMenuVisible, close: closeTrunkMenu },
-    { id: "dealer", visible: isDealerMenuVisible, close: closeDealerMenu },
-    { id: "seller", visible: isSellMenuVisible, close: closeSellMenu },
-    { id: "pickup", visible: isPickupMenuVisible, close: closePickupMenu }
+    { id: "trunk", visible: isTrunkMenuVisible, close: closeTrunkMenu, open: openTrunkMenu },
+    { id: "dealer", visible: isDealerMenuVisible, close: closeDealerMenu, open: openDealerMenu },
+    { id: "seller", visible: isSellMenuVisible, close: closeSellMenu, open: openSellMenu },
+    { id: "pickup", visible: isPickupMenuVisible, close: closePickupMenu, open: openPickupMenu }
 ];
 
 // Que flujo esta abierto, o "" si ninguno. "" es lo que la pagina lee como "no hay
@@ -102,6 +108,31 @@ export function currentFlow() {
         try {
             if (FLUJOS[i].visible()) return FLUJOS[i].id;
         } catch (e) { }
+    }
+    return "";
+}
+
+// Abre el menu de esfera que corresponda. Devuelve el id del que abrio, o "" si
+// ninguno: el jugador esta lejos de todos, o el que tiene cerca no puede abrir
+// todavia (esfera apagada por la cooldown, o esta en un vehiculo).
+//
+// Se prueban los cuatro en el orden de FLUJOS, o sea que el primero que puede
+// abrir gana. No es una carrera entre ellos porque cada uno decide por su propia
+// esfera: solo uno puede estar a menos de DIST.DEALER_ACCESS del jugador, salvo
+// que dos puntos esten pegados, y en ese caso gana el de la lista.
+//
+// La razon de que la apertura pase por aca y no la haga el bridge con un
+// "cual esta cerca": cada modulo tiene su propia idea de "cerca" (el baul busca
+// entre los autos con el baul ABIERTO, el retiro exige que haya pedido) y su
+// propio estado para dejar listo al abrir (el NPC del carrito, el presupuesto del
+// trueque). Este archivo es el que ya conoce a los cuatro.
+export function openFlow() {
+    for (var i = 0; i < FLUJOS.length; i++) {
+        try {
+            if (FLUJOS[i].open()) return FLUJOS[i].id;
+        } catch (e) {
+            log("[FlowSerialization] no se pudo abrir " + FLUJOS[i].id + ": " + e.message);
+        }
     }
     return "";
 }

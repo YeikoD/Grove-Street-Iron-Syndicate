@@ -1,17 +1,27 @@
 /* SAWebUI РІР‚вЂќ EstР“В©tica Vanilla Pantalla Stats & GuР“В­a Interactiva para Modders.
    Proporciones medidas sobre captura real de GTA SA (1200x675) en vw/vh. */
 
+/* Las dos fuentes del encabezado, una por linea. Los archivos se llaman asi a
+   proposito —DIPLOMA_titulo y PRICEDOW_subtitulo— y aca se declaran en el mismo
+   orden: el TITULO va en Diploma y el SUBTITULO en PriceDown. El nombre del
+   archivo es el contrato; si se cambia una fuente hay que cambiar de fila el
+   @font-face y el token que la lee, no una regla cualquiera.
+
+   format("truetype") y no woff/woff2: los dos archivos son TTF pelados. Y
+   font-display: block por lo de siempre —el panel se dibuja una vez y no se
+   vuelve a pintar, asi que un texto que recien carga sale con la fuente del
+   sistema y aluego se corrige solo, que en el juego se ve como un parpadeo. */
 @font-face {
-  font-family: "SAWeb Diploma";
-  src: url("assets/webfonts_Diploma-Regular/Diploma-Regular.ttf.woff") format("woff");
+  font-family: "Diploma";
+  src: url("assets/fonts/DIPLOMA_titulo.ttf") format("truetype");
   font-weight: 400;
   font-style: normal;
   font-display: block;
 }
 
 @font-face {
-  font-family: "SAWeb Gothic";
-  src: url("assets/fonts/saweb-gothic.woff2") format("woff2");
+  font-family: "PriceDown";
+  src: url("assets/fonts/PRICEDOW_subtitulo.TTF") format("truetype");
   font-weight: 400;
   font-style: normal;
   font-display: block;
@@ -97,8 +107,19 @@
   /* Sombras. */
   --shadow-panel: 0 0.5vh 2vh rgba(0, 0, 0, 0.5);
 
-  /* Tipografia. Los stacks estaban repetidos 2 o 3 veces. */
-  --font-display: "SAWeb Diploma", "SAWeb Gothic", serif;
+  /* Tipografia. Los stacks estaban repetidos 2 o 3 veces.
+
+     Tres familias y cada una con un rol, uno por linea del encabezado:
+     --font-title      Diploma, la del titulo.
+     --font-subtitle   PriceDown, la del subtitulo.
+     --font-ui         la sans de todo el resto —tabla, botones, pie— que no es
+                        una fuente del encabezado: es la que lee el dato.
+
+     El subtitulo lleva la sans al final de su stack a proposito: es una fuente
+     de display, y si el archivo no llegara a cargar lo que sale es texto de
+     veras antes que texto en otra fuente de adorno. */
+  --font-title: "Diploma", serif;
+  --font-subtitle: "PriceDown", var(--font-ui);
   --font-ui: "Arial Narrow", "Liberation Sans Narrow", Arial, sans-serif;
   --font-mono: "Consolas", "Courier New", monospace;
 
@@ -217,9 +238,14 @@
   --label-w: 9.8vw;
   --row-h: 3.1vh;
 
-  /* Alto de la linea del titulo. El titulo vive DENTRO del box, como primer
-     hijo del encabezado: en flujo hereda el padding lateral del panel y queda
-     alineado con el subtitulo y con las pestanas por construccion. */
+  /* MEDIDA del titulo, no su aspecto. Aca vive el cuerpo porque es la medida de
+     casa —la misma para los cinco paneles— y la receta .panel__title es la que
+     decide familia, color, sombra y tracking. Un panel que quiera otro cuerpo lo
+     pisa con --title-size en su propia regla y no copia el bloque.
+
+     El titulo vive DENTRO del box, como primer hijo del encabezado: en flujo
+     hereda el padding lateral del panel y queda alineado con el subtitulo y con
+     las pestanas por construccion. */
   --title-size: 5.2vh;
 }
 
@@ -329,6 +355,34 @@ body {
   --table-cols: var(--table-icon-w) 1fr 3.2vw 3.8vw 3.2vw 3.8vw;
 }
 
+/* 7 columnas: icono | nombre | 5 datos. La usa el TRUEQUE, que es el
+   inventario entero menos valor —base sale de getSellPrice(id), que es el mismo
+   numero que pone valueCell() en la columna valor, y una cifra dos veces al lado
+   de la oferta es ruido— mas base y oferta.
+
+   El reparto no es uniforme a proposito y sigue la misma regla que --6 y --8:
+   el ancho lo mide el ENCABEZADO, no el dato. Cant y las dos propias van con
+   3.2vw porque son "17/17" y palabras de 4-6 letras; salud y peso se quedan en
+   2.9vw porque su dato mas largo es "100%" y "3.5". */
+.table--7 {
+  --table-cols: var(--table-icon-w) 1fr 3.2vw 2.9vw 2.9vw 3.2vw 3.2vw;
+}
+
+/* 8 columnas: icono | nombre | 6 datos. La usa la ARMERIA, que es el inventario
+   entero —munición, salud, peso, valor de reventa— mas precio de compra y
+   carrito: el jugador compara al comprar las mismas tres cosas que compara en
+   su mochila, y sacarlas para que entre el precio seria perder la mitad de la
+   fila.
+
+   Reparto por tipo de encabezado, no por igualdad: las cuatro del inventario
+   llevan un svg de 1.85vh y las dos propias llevan PALABRA, que es lo que
+   mide la columna (ver .table__headtext). Por eso esas dos salen con 3.0/3.2vw
+   y salud y peso, cuyo encabezado es un icono y cuyo dato es "100%" y "3.5",
+   con 2.9vw. */
+.table--8 {
+  --table-cols: var(--table-icon-w) 1fr 3.0vw 2.9vw 2.9vw 3.0vw 3.0vw 3.2vw;
+}
+
 .table__head,
 .table__row {
   display: grid;
@@ -359,6 +413,21 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Encabezado de TEXTO en una columna de datos. Hereda bold, muted, uppercase y
+   el overflow de .table__head; lo que saca es el tracking y baja un cuerpo.
+
+   El motivo es que una palabra no mide lo mismo que un icono: los encabezados
+   numericos del inventario son svgs de 1.85vh y entran en 2.9vw, pero "PRECIO"
+   o "CARRITO" con el letter-spacing de la cabecera no. Sin esto el texto se
+   comia el gap de la izquierda y las dos palabras quedaban pegadas, que es el
+   mismo modo de fallar que ya tenian las etiquetas cuando eran todas texto.
+
+   Solo la del nombre no la lleva: es 1fr y no tiene ese techo. */
+.table__headtext {
+  font-size: var(--fs-2xs);
+  letter-spacing: 0;
 }
 
 /* Los encabezados numericos son iconos, no texto. Van INLINE en el DOM, no
@@ -752,29 +821,170 @@ body {
   animation: fadeOut var(--dur-slow) ease-in forwards;
 }
 
-/* ------------------------------------------------------------------ TР“В­tulo & Encabezado -- */
+/* ------------------------------------------------------------------ TР“В­tulo & Encabezado --
+   El encabezado de TODOS los paneles: el del inventario y el de los cuatro menus
+   de proximidad. Son cinco ventanas distintas y antes cada una escribia su
+   titulo a mano —el inventario por id (#title), los flujos por clase
+   (.panel__title)— y por eso se veian distintos: la gótica del juego se la
+   ponia solo el inventario y los menus de proximidad caian en la sans del body.
+   Ahora los dos son la MISMA clase y hay una sola definicion de como se ve un
+   titulo y un subtitulo. Agregar un panel no escribe tipografia: escribe texto. */
 
+/* El aire entre el bloque del encabezado y lo que viene abajo (los filtros del
+   inventario, las listas de los menus de proximidad).
+
+   --sp-5 y no --sp-2 (que era lo que estaba) a proposito: tiene que ser MAS
+   grande que el gap titulo/subtitulo de la receta de abajo, o el subtitulo se
+   pega al contenido de abajo y el encabezado deja de leerse como una unidad. El
+   titulo pegado a su subtitulo y el subtitulo pegado a la lista de abajo se ve
+   como tres cosas sueltas en vez de un titulo con su pie. */
 .panel-header {
-  margin-bottom: var(--sp-2);
+  margin-bottom: var(--sp-5);
 }
 
-/* El titulo y el subtitulo de los paneles de flujo. El inventario los tiene por
-   id (#title) porque son uno solo y estan escritos en el HTML; aca son cuatro
-   paneles que se arman en JS, asi que van por clase.
-   Mismos valores que #title para que un panel se vea igual al otro. */
+/* El titulo: una linea de Diploma del ancho que mande --title-size, con su
+   sombra dura abajo a la derecha para despegarse de la escena.
+
+   Los tokens son la variante de una linea: un panel que necesite otra medida,
+   otro color o la sans en vez de la fuente del encabezado los pisa en su propia
+   regla y no copia el bloque.
+
+   --title-font    Diploma. Se puede pisar con var(--font-ui) para un panel que
+                   no quiera la fuente de display.
+   --title-track   0. El tracking cerrado es para sans; en una fuente de display
+                   la letra ya esta pegada por diseno y cualquier valor la separa.
+   --title-weight  400. La unica que el archivo trae: antes .panel__title pedia
+                   700 y el navegador le inventaba un bold sintetico a la sans,
+                   que es lo que hacia que el titulo de los menus se viera mas
+                   pesado que el del inventario con la misma familia.
+   --title-shadow  0.25vh 0.25vh 0, el mismo desplazamiento que usa el peso del
+                   pie pero en negro puro. Sin la sombra el negro del titulo se
+                   pierde contra el panel. */
 .panel__title {
+  --title-font: var(--font-title);
+  --title-track: 0;
+  --title-weight: 400;
+  --title-shadow: 0.25vh 0.25vh 0 var(--g-1000);
+
+  margin: 0;
+  font-family: var(--title-font);
   font-size: var(--title-size);
-  font-weight: 700;
+  line-height: 1.0;
+  font-weight: var(--title-weight);
+  letter-spacing: var(--title-track);
   color: var(--text-gold);
-  line-height: 1.1;
+  text-shadow: var(--title-shadow);
+  /* nowrap + ellipsis son la defensa de los titulos largos. El nowrap porque
+     un titulo de gótica partido en dos lineas se lee como dos titulos; el
+     ellipsis porque el texto lo manda el mod y nada garantiza que entre: con
+     "Trueque — Cliente local" el titulo ya ocupa el 88% del ancho del panel, y
+     tres palabras mas lo cortan. Sin el ellipsis el desborde no se ve como un
+     error de layout sino como parte de la caja, y el texto se sale por arriba
+     del borde. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-/* El subtitulo es la segunda linea: la pista de donde estas, el pedido, lo que
-   busca el cliente. Va en muted y mas chico, para que el titulo mande. */
+/* El subtitulo es la segunda linea del encabezado, la que nombra DONDE estas:
+   el auto en el baul ("Infernus"), el vendedor en la armeria, lo que busca el
+   cliente, el pedido del retiro. Es subtitulo de verdad y no una linea de hints:
+   la guia de cerrar que traia el baul se dejo de mostrar (el pie es donde se
+   anuncian las teclas de un menu) - ver renderFlujo() y partirTituloBaul().
+
+   Va en PriceDown, la fuente que
+   el archivo nombra para esto, y con la misma sombra y el mismo tracking que el
+   pie para que las dos lineas del encabezado se lean como un bloque.
+
+   Lo unico que no hace es lo que hace el pie: ponerse en acento. El pie puede,
+   porque el peso es lo que estas por cambiar; el subtitulo es contexto de una
+   pantalla que ya esta abierta, y si los dos fueran verdes el verde dejaria de
+   marcar "esto se mueve". Tampoco va en mayuscula: el mod escribe estas lineas
+   en su propia capitalizacion y pasarlas a mayuscula rompe los "$1.440" y los
+   "17/17" que trae adentro.
+
+   --subtitle-font   PriceDown, la fuente que el archivo nombra para esta linea.
+   --subtitle-fs     --fs-lg, y no el --fs-2xs que llevaba antes. Es la misma
+                     fuente con otro nombre, no un detalle de tamano: PriceDown
+                     es de adorno, con la letra llena de detalle, y a 1.25vh
+                     (13px) los glifos se juntan y la linea deja de leerse. Se
+                     midio rasterizando el mismo texto de 1.25vh a 2.2vh: a 13px
+                     ya no se lee, a 16px se vuelve a adivinar y desde 19px se
+                     lee. 2.2vh es el cuerpo del paso, el primero de la escala
+                     que se lee con comodidad, y deja el titulo (5.2vh) cuatro
+                     veces                      mas arriba: la linea de arriba manda. Es el piso: la
+                     pantalla del maletero lo pisa a 2.6vh y lo sube a la linea
+                     del titulo, ver .panel--centro .panel__subtitle mas abajo.
+   --subtitle-gap  el aire entre el titulo y esta linea. El titulo va con
+                   line-height 1.0, o sea que su caja de linea es JUSTO el
+                   cuerpo: los gajos se salen de la caja y el subtitulo era el
+                   primero que los pisaba. Con el gap el aire es explicito y los
+                   dos los controla el mismo lugar. */
 .panel__subtitle {
-  font-size: var(--fs-2xs);
-  color: var(--text-muted);
-  margin-top: var(--sp-1);
+  --subtitle-font: var(--font-subtitle);
+  --subtitle-fs: var(--fs-lg);
+  --subtitle-weight: 400;
+  --subtitle-color: var(--text-muted);
+  --subtitle-track: 0;
+  --subtitle-shadow: 1px 1px 2px var(--g-1000);
+  --subtitle-gap: var(--sp-3);
+
+  margin: var(--subtitle-gap) 0 0;
+  font-family: var(--subtitle-font);
+  font-size: var(--subtitle-fs);
+  line-height: 1.35;
+  font-weight: var(--subtitle-weight);
+  letter-spacing: var(--subtitle-track);
+  color: var(--subtitle-color);
+  text-shadow: var(--subtitle-shadow);
+}
+
+/* Sin texto no hay linea. El subtitulo se vacia cuando todavia no llego el
+   snapshot del flujo (ver renderFlujo en app.js) y con el gap declarado en la
+   receta un <p> vacio igual reserva el margen: el encabezado se encoge en vez
+   de dejar un hueco entre el titulo y las listas. */
+.panel__subtitle:empty {
+  display: none;
+}
+
+/* Solo la pantalla del maletero (.panel--centro, ver crearPanel() en app.js):
+   el nombre del auto va en la MISMA linea que el titulo, pegado al borde
+   derecho del encabezado.
+
+   En la misma linea y no debajo porque ahi la linea es UNA sola palabra: debajo
+   quedaria pegada al titulo y se leeria como una segunda linea del titulo
+   ("Maletero Vehiculo / Infernus"); al otro extremo de la misma linea se lee
+   como lo que es, el dato que identifica el vehiculo, y el encabezado queda con
+   sus dos extremos: menu a la izquierda, auto a la derecha.
+
+   A 2.6vh y no a los 2.2vh de la receta: con una sola palabra no compite con
+   el titulo (5.2vh) ni desplaza nada, y el cuerpo extra es lo que hace que el
+   nombre del auto se alcance a leer de lejos, que es como se usa este menu
+   (parado al lado del vehiculo).
+
+   Los otros tres menus no lo siguen: sus lineas son largas (el vendedor, lo que
+   busca el cliente, el pedido con sus importes) y en una linea propia con el
+   borde derecho lleno se leen cortadas y sin relacion con el titulo. El margen
+   de abajo es 0 porque el gap titulo/subtitulo solo apedia cuando eran dos
+   bloques. */
+.panel--centro .panel-header {
+  display: flex;
+  align-items: baseline;
+}
+
+/* min-width:0 porque el h1 viene con overflow:hidden y, como flex item, su
+   min-width por defecto es el contenido: sin esto un titulo largo empujaria al
+   subtitulo fuera del panel en vez de acortarse con elipsis. */
+.panel--centro .panel__title {
+  min-width: 0;
+}
+
+.panel--centro .panel__subtitle {
+  --subtitle-fs: 2.6vh;
+
+  margin: 0 0 0 auto;
+  padding-left: var(--sp-3);
+  white-space: nowrap;
 }
 
 /* El pie de un panel de flujo. Cuatro cosas en una linea: el dato de la izquierda,
@@ -783,11 +993,23 @@ body {
 .panel-foot {
   display: flex;
   align-items: center;
+  /* wrap y no nowrap: en un panel angosto (27vw) el pie de la armeria es texto
+     del carrito + dos botones + cuatro guias de tecla, y en una sola linea las
+     guias se salian por el borde derecho y quedaban pintadas sobre la escena.
+     Con wrap las guias se van a su propia linea (ver .keyhints abajo). */
+  flex-wrap: wrap;
   gap: var(--spw-3);
   padding-top: var(--sp-2);
   margin-top: var(--sp-2);
   border-top: 1px solid var(--divider);
 }
+
+/* En los menus de flujo el pie NO lleva margin-top:auto mas: el que absorbe el
+   sobrante del panel es la barra de accion (ver .panel--flujo .accionbar), y el
+   pie va pegado justo debajo. Antes el auto vivia aca y la barra quedaba arriba
+   pegada a las listas: con tres filas el 60% del panel era un vacio entre la
+   barra y el pie, que se leia como pantalla sin usar. El margen base de arriba
+   (.panel-foot) es el que separa el pie de la barra. */
 
 .panel-foot__txt {
   font-size: var(--fs-2xs);
@@ -818,10 +1040,35 @@ body {
   gap: var(--spw-2);
 }
 
+/* Las guias de tecla de los menus de flujo ocupan una linea entera del pie.
+   basis 100% las saca de la primera linea (donde estan el texto y los botones)
+   y ahi miden todo el ancho util: cuatro guias no entran en 27vw y, sin esto,
+   el flex las apretaba hasta el minimo - el ancho de la mas larga - y el resto
+   seguia pintado FUERA del panel. En una segunda linea el wrap las parte en dos
+   adentro del panel. El baul no pierde nada con esto: su pie no tiene ni texto
+   ni botones, asi que las guias ya estaban solas.
+
+   flex-end las deja pegadas a la derecha, que es donde estaban antes de la
+   segunda linea. */
+.panel--flujo .keyhints {
+  flex-basis: 100%;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .keyhint {
   font-size: var(--fs-2xs);
   color: var(--text-muted);
   white-space: nowrap;
+}
+
+/* La tecla y el verbo del pie de los menus de flujo. La tecla va en acento y en
+   bold: es la parte que se aprieta, y hasta ahora no se dibujaba - el pie decia
+   "Cambiar de lista" sin decir con que. El verbo sigue en muted, que es el color
+   que ya tenia todo el pie. */
+.panel-foot .keyhint__k {
+  color: var(--text-accent);
+  font-weight: 700;
 }
 
 /* --------------------------------------------------- PANELES DE FLUJO --
@@ -840,6 +1087,11 @@ body {
   --panel-y: 0;
   --panel-h: 100vh;
   --panel-pt: var(--sp-5);
+  /* Alto tope de cada lista. Con menos filas la caja mide lo que hay (ver
+     .flow__panes, que no estira), y con mas llega aca y scrollea: es lo que
+     deja que las listas y la barra queden juntas arriba sin perder el scroll
+     cuando el baul esta lleno. */
+  --flow-list-max: 52vh;
   animation: fadeIn var(--dur-slow) ease-out;
 }
 
@@ -854,19 +1106,71 @@ body {
 }
 
 /* Los panes. Con uno, la caja ocupa todo el ancho; con dos, se parte en dos
-   columnas iguales. El grid y no el flex para que las dos tengan EXACTAMENTE el
-   mismo ancho: con flex, la mas larga de las dos se lleva elSlack y las tablas
-   quedan de distinto tamano. */
+   columnas iguales con el canal de traslado en el medio. El grid y no el flex
+   para que las dos listas tengan EXACTAMENTE el mismo ancho: con flex, la mas
+   larga de las dos se lleva el slack y las tablas quedan de distinto tamano.
+
+   flex: 0 1 auto y NO 1 1 auto: las listas miden lo que traen. Antes estiraban
+   hasta el pie y el vacio del panel se abria ENTRE la ultima fila y la barra de
+   accion - que es justo donde estan los controles con los que se mueven los
+   items- con lo que el jugador tenia que buscar abajo lo que acababa de elegir
+   arriba. Con las listas a tamano de contenido, la barra queda pegada a ellas y
+   el sobrante va abajo, al costado del pie. El tope (--flow-list-max) es el que
+   hace que esto no se coma el scroll cuando hay mas filas de las que entran. */
 .flow__panes {
   display: grid;
   grid-template-columns: 1fr;
   gap: var(--spw-5);
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-height: 0;
 }
 
+/* Dos listas con el canal en el medio. "auto" hace que la columna del canal
+   mida lo que miden sus botones, y el 1fr de los costados reparte lo que queda,
+   igual que antes. */
 .flow__panes--2 {
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr auto 1fr;
+}
+
+/* El canal entre las dos listas del baul: los dos botones de traslado, centrados
+   verticalmente contra las filas. Ver crearCanal() en app.js: el habilitado es el
+   del sentido de la lista que se esta mirando. */
+.flow__xfer {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.flow__xfer-btn {
+  width: 3.6vh;
+  height: 3.6vh;
+  line-height: 1;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-raised);
+  color: var(--text-body);
+  cursor: pointer;
+  font-size: var(--fs-sm);
+}
+
+/* El sentido disponible va en acento: es la misma marca que el titulo de la lista
+   activa, o sea que las dos formas de ver "hacia donde se mueve" dicen lo mismo.
+   El otro esta apagado y sin puntero - el sentido lo decide la lista, no el
+   boton, y dos botones vivos en los dos sentidos pedirian adivinar sobre que fila
+   caeria cada uno. */
+.flow__xfer-btn:not(:disabled) {
+  border-color: var(--text-accent);
+  color: var(--text-accent);
+}
+
+.flow__xfer-btn:not(:disabled):hover {
+  background: var(--surface-hover);
+}
+
+.flow__xfer-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
 }
 
 .pane {
@@ -902,11 +1206,26 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* La proyeccion: lo que va a quedar en ESTA lista si se hace la transferencia
+   que esta elegida. En acento cuando entra (mismo color que el titulo de la lista
+   activa: la marca de "esto es lo que pasa"), y en rojo cuando el lado que
+   recibe se pasa del maximo, con cuanto se pasa. Es un aviso previo, no un
+   chequeo: el que valida el peso es el mod, ver renderPeso() en app.js. */
+.pane__sig {
+  color: var(--text-accent);
+  font-weight: 700;
+}
+
+.pane__peso--bad .pane__sig {
+  color: var(--state-bad);
+}
+
 /* La caja con scroll de un pane. min-height:0 sin el cual el flex no la deja
    encoger y la tabla de largo empuja al panel en vez de scrollear. */
 .pane__rows {
   flex: 1 1 auto;
   min-height: 0;
+  max-height: var(--flow-list-max);
   overflow-y: auto;
   overscroll-behavior: contain;
 }
@@ -960,6 +1279,30 @@ body {
   background: var(--surface-sunken);
 }
 
+/* La barra anclada al fondo del panel, con el pie justo debajo, y el sobrante
+   ENTRE las listas y lo que es pie de verdad. Es lo contrario de lo que hacia
+   el auto del pie: con la barra pegada a las listas, un baul con tres filas
+   dejaba media pantalla de vacio abajo de la barra y el panel se leia a medio
+   llenar.
+
+   El que absorbe el sobrante es el AVISO si se esta mostrando, y la barra si
+   esta oculto. Los dos casos dejan el aviso (cuando hay) + la barra + el pie
+   pegados abajo, y la barra no se mueve ni un pixel cuando el aviso aparece o
+   se va - mostrarAviso() lo apaga a los segundos, y un pie que saltaria cada
+   vez que el baul se llena seria peor que el vacio.
+
+   Sin el segundo selector no hay forma de cubrir el oculto: .aviso con
+   display:none no genera caja, no absorbe nada, y la barra volaria hacia arriba
+   cada vez que no hay aviso. El ~ apunta al hermano que viene despues, que es
+   siempre la barra (crearPanel los arma en ese orden). */
+.panel--flujo .aviso:not(.hidden) {
+  margin-top: auto;
+}
+
+.panel--flujo .aviso.hidden ~ .accionbar {
+  margin-top: auto;
+}
+
 .accionbar__item {
   display: inline-flex;
   align-items: center;
@@ -979,13 +1322,27 @@ body {
   white-space: nowrap;
 }
 
+/* A donde se va la fila: el destino de la transferencia, pegado al nombre.
+   Con dos listas el sentido del boton dependia de cual esta mirando el jugador y
+   eso solo estaba escrito en el texto del boton, abajo a la derecha; aca se lee
+   junto al item ("AK-47 → BAUL"), que es donde esta la decision. En acento, la
+   misma marca que el titulo de la lista activa. Solo existe en las pantallas con
+   dos listas (ver renderAccionBar). */
+.accionbar__dir {
+  font-size: var(--fs-2xs);
+  font-weight: 700;
+  letter-spacing: var(--spw-1);
+  text-transform: uppercase;
+  color: var(--text-accent);
+  white-space: nowrap;
+}
+
 /* El campo activo se marca con el fondo de la pastilla. Con dos campos (cantidad
    y oferta) el jugador tiene que saber a cual responde el "+", y sin esto no hay
    forma de saberlo. */
 .accionbar__item--activo .accionbar__label {
   color: var(--text-accent);
 }
-
 .accionbar__label {
   text-transform: uppercase;
   letter-spacing: var(--spw-1);
@@ -1014,26 +1371,54 @@ body {
   background: var(--surface-hover);
 }
 
+/* Sin rango no hay nada que mover: en un arma o un cargador la cantidad es
+   siempre 1 (son instanciales), y los dos botones quedan apagados en vez de
+   permitir un "+" que no cambia nada y un "−" que mandaria 0. */
+.accionbar__paso:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.accionbar__paso:disabled:hover {
+  border-color: var(--border-subtle);
+  background: var(--surface-raised);
+}
+
+/* El chip "Todo" al lado del stepper: la cantidad completa del stack en un solo
+   click. Mismo corte que los +/- (borde, fondo, alto) para que los tres se leyan
+   como un mismo control, con la palabra adentro. Solo se dibuja cuando el tope
+   es mas de 1, ver crearCampo() en app.js. */
+.accionbar__todo {
+  height: 2.6vh;
+  padding: 0 var(--spw-2);
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-raised);
+  color: var(--text-body);
+  font-size: var(--fs-2xs);
+  letter-spacing: var(--spw-1);
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.accionbar__todo:hover {
+  border-color: var(--border-hover);
+  background: var(--surface-hover);
+}
+
 .accionbar__btn {
   margin-left: auto;
 }
 
-/* El titulo va en flujo, arriba del subtitulo, dentro del box. Antes se
-   anclaba al borde superior con bottom:100% y un margen negativo para asomar
-   3.4vh por fuera: con el box de alto completo eso se caia de pantalla, y en
-   cualquier caso el desborde quedaba colgando sobre la escena. En flujo el
-   titulo hereda el padding lateral del panel, con lo que queda alineado con el
-   subtitulo y con las pestanas sin ningun token de desplazamiento. */
-#title {
-  margin: 0;
-  font-family: var(--font-display);
-  font-size: var(--title-size);
-  line-height: 1.0;
-  color: var(--text-gold);
-  text-shadow: 0.25vh 0.25vh 0 var(--g-1000);
-  font-weight: 400;
-  white-space: nowrap;
-}
+/* El titulo del inventario: un <h1 class="panel__title" id="title"> y nada mas.
+   Antes esta regla era la que traia la gótica, el cuerpo y la sombra, y los
+   menus de proximidad tenian su propia copia con otros valores —por eso se
+   veian distintos. Ahora el id queda solo como el ancla que escribe
+   titleEl.textContent (app.js) y el aspecto sale de la receta del encabezado,
+   que es la misma que leen los cuatro .panel__title.
+
+   El id sigue en el HTML a proposito: no es un selector de estilo, es el nodo
+   que el render actualiza. Si se escribiera el titulo con querySelector en vez
+   de getElementById, esta regla se podria borrar entera. */
 
 /* El peso vive en el pie (#foot), no arriba con el titulo: la guia de teclas
    tiene el ancho util completo y el peso se le alinea al lado. Sin

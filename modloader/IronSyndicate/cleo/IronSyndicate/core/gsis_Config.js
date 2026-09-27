@@ -19,11 +19,15 @@ export var KEYS = {
     RELOAD: 82,         // R — swap de cargador (Ballistic)
     ESC: 27,            // ESC — cierra la UI web (modules/gsis_WebInterface.js)
 
-    // SPACE — abre los menus que viven en una esfera (baul, armeria, retiro,
-    // trueque). Es la I de esos menus, con la condicion de que el jugador este
-    // parado adentro de la esfera. Se lee con keyEdge() de core/gsis_Input.js, no
-    // con keyJustPressed(): el flanco del juego (Pad.IsKeyJustPressed) puede
-    // repetirse dos frames seguidos y abriria dos veces el mismo menu.
+    // SPACE — abre y cierra los menus que viven en una esfera (baul, armeria,
+    // retiro, trueque). Es la I de esos menus, con la condicion de que el jugador
+    // este parado adentro de la esfera.
+    //
+    // La misma tecla para abrir y cerrar, y el dueno de la tecla es el bridge
+    // (modules/gsis_WebInterface.js, toggleFlow), no cada modulo. Con un dueno
+    // solo, una pulsacion se gasta en UNA decision —cerrar lo que esta abierto, o
+    // abrir lo que el jugador tiene adelante— en vez de que la abran y la cierren
+    // cuatro modulos a la vez en el mismo frame.
     //
     // Antes cada menu tenia su tecla (B para el baul, F para los de esfera) y se
     // abria al TOCAR la esfera. Ahora es una sola tecla para los cuatro, porque lo
@@ -43,9 +47,10 @@ export var KEYS = {
 // Hoy ningun menu se cierra alejandose — todos congelan al jugador como el
 // inventario — asi que la lista ya no se pasa. Queda porque el runtime la
 // necesita igual: son las teclas cuyo estado se lee del teclado real
-// (GetAsyncKeyState) y no del estado del juego, que es lo que las hacia
-// utiles para detectar una pulsacion de verdad (ver updateProximityMove y
-// keyEdge de core/gsis_Input.js).
+// (GetAsyncKeyState) y no del estado del juego, que es lo que las hacia utiles
+// para detectar una pulsacion de verdad (ver updateProximityMove, y la escalera
+// de lectura de readDown en core/gsis_Input.js, que es la que usa el dueno de
+// los menus para armar el flanco de la I, la ESPACIO y el ESC).
 //
 // Son codigos de teclado virtual, como los de KEYS. NO son los codigos de tecla de
 // GTA: los dos sistemas numeran distinto (VK_W es 87, y el codigo de tecla de GTA
@@ -105,8 +110,14 @@ export var TIMERS = {
     // jugador sigue parado adentro, el juego no lo movio, y sin este tiempo la
     // condicion "estoy en la esfera" seguiria dando true al frame siguiente. Con
     // el menu congelando al jugador, el caso de verdad es el cierre por comando
-    // (Escape) o por una accion que vacia el menu, no el alejarse.
-    SPHERE_COOLDOWN: 30000
+    // (Escape, ESPACIO) o por una accion que vacia el menu, no el alejarse.
+    //
+    // 6 s es el tiempo de una ida y vuelta corta: sale, se aleja un poco, y
+    // vuelve. Alcanza para que el cierre no se sienta como un menu trabado —si
+    // fuera 1 o 2 s, el mismo gesto de abrir-cerrar lo haria desaparecer y
+    // reaparecer— y no tanto que el jugador tenga que esperar para poder volver a
+    // usar el baul o el vendedor.
+    SPHERE_COOLDOWN: 6000
 };
 
 // Otros

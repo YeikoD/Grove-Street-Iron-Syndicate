@@ -521,7 +521,7 @@ export function setMenuAnchor(on) {
         return false;
     }
 
-    // En un auto el menu ya se cerro (updateSpotSpace), asi que
+    // En un auto el menu ya se cerro (closeSpotFlow), asi que
     // esto es el caso raro de un script que mete al player en un vehiculo con el
     // menu abierto. Tirarlo del ancla: el ancla existe para que no camine, y en un
     // auto no hay nada que frenar.
@@ -882,55 +882,22 @@ function readJustPressed(vk) {
 
 // ------------------------------------------------------- FLANCO DE TECLA REAL --
 //
-// La puerta de entrada de los menus de esfera (ESPACIO). Es un flanco, asi que
-// tiene que ser de una pulsacion y no de un nivel, y sale del TECLADO REAL
-// (readDown → GetAsyncKeyState), no del estado del juego.
+// La lectura de tecla del dueno de los menus. La usan el WebInterface para la I,
+// la ESPACIO y el ESC, y arma el flanco el mismo (down && !_prev): ninguna de las
+// tres pasa por aca. Ver el comentario de pollKeys() en modules/gsis_WebInterface.js
+// para por que el flanco tiene que armarse con esta lectura y no con
+// Pad.IsKeyJustPressed.
 //
-// Por que no keyJustPressed(): keyJustPressed() suprime con "hay menu abierto" y
-// por lo tanto no sirve para ABRIR un menu —para cuando se abre todavia no hay
-// ninguno. Y el otro que queda, Pad.IsKeyJustPressed, lee el estado del juego, que
-// con la pagina tomando el teclado puede reportar el mismo flanco dos frames
-// seguidos: el sintoma es el menu abriendo y cerrando solo, cuatro transiciones de
-// pantalla de una pulsacion (el mismo bug que se documento en readJustPressed).
-// El teclado real no tiene ese problema: en cuanto el dedo suelta, GetAsyncKeyState
-// da false, haya pasado por el WndProc o no.
-//
-// "id" identifica al que pregunta, y no es decorativo: los cuatro menus de esfera
-// preguntan por la MISMA tecla en el MISMO frame (todos quieren abrirse con
-// ESPACIO). Si compartieran el estado del flanco, el primero que pregunta se lo
-// comeria del resto y, si el primero no tenia esfera cerca, los demas abririan con
-// la tecla que ya estaba apretada. El id le da a cada uno su propio flanco, y el
-// que decide es el que tiene la esfera cerca —o sea, el unico para el que la
-// pulsacion tenia sentido.
-//
-// El estado se actualiza SIEMPRE, incluso con un menu abierto, y el false sale
-// solo del final. Si se volviera temprano sin guardar el estado, una tecla
-// apretada mientras hay un menu en pantalla quedaria pegada como "ya apretada" y
-// la siguiente pulsacion no contaria como flanco: la puerta se trababa para
-// siempre.
-var _edge = {};
-
-export function keyEdge(id, vk) {
-    var k = id + ":" + vk;
-    var down = readDown(vk);
-    var prev = _edge[k] === true;
-    _edge[k] = down;
-
-    // Con un menu abierto no se abre otro. Es la REGLA 1 de una sola pantalla, y
-    // tambien evita que la tecla que abrio el menu lo reabra en el mismo instante
-    // en que la pagina empieza a tomar el teclado.
-    if (anyMenuVisible()) return false;
-
-    return down && !prev;
-}
-
+// Lo que si es de aca: la escalera de fuentes para el estado sostenido, que es lo
+// que hace que la lectura no cambie de semantica segun el build. Un flanco
+// disfrazado de sostenido es peor que no tener lectura: por eso aca solo hay
+// fuentes SOSTENIDAS.
 // ------------------------------------------------------------ LECTURA DE TECLA --
 //
 // Estas dos son las unicas del mod que se leen SIN supresion, y por eso tienen que
 // ser las mas cuidadas del archivo: el WebInterface arma su propio flanco con ellas
-// (justI = keyI && !_prevKeyI), o sea que espera ESTADO SOSTENIDO. La tercera
-// tambien las usa —keyEdge(), la puerta de los menus de esfera— pero esa si
-// suprime: sin menu abierto no se abre ninguno, y con uno abierto no se abre otro.
+// (justI = keyI && !_prevKeyI, y lo mismo con la ESPACIO y el ESC), o sea que espera
+// ESTADO SOSTENIDO.
 //
 // El fallback anterior caia a IsKeyJustPressed, que es un FLANCO. Y un flanco
 // alimentado a otro detector de flancos produce pulsos dobles: al frame siguiente
@@ -938,7 +905,7 @@ export function keyEdge(id, vk) {
 // flanco nuevo. Con eso, una sola pulsacion de I abria y cerraba el inventario
 // dos veces —cuatro transiciones de pantalla en el log— y el primer efecto
 // visible era que el inventario se abria solo justo despues de cerrar un menu de
-// proximidad. Cuatro toggles de una tecla.
+// esfera. Cuatro toggles de una tecla.
 //
 // Un fallback que cambia la semantica es peor que no tener fallback, asi que la
 // escalera es solo de fuentes SOSTENIDAS, en este orden:
