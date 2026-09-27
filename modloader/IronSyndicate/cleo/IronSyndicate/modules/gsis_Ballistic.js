@@ -55,6 +55,7 @@ import { register } from "../core/gsis_ModuleRegistry.js";
 import { query } from "../core/gsis_EventBus.js";
 import { registerModule, getModuleData, setModuleData } from "../core/gsis_SaveManager.js";
 import { KEYS, TIMERS } from "../core/gsis_Config.js";
+import { keyJustPressed } from "../core/gsis_Input.js";
 import { t } from "../core/gsis_L10n.js";
 import { WEAPON_DATA, getMagIdByWeaponId, getClipSizeByItemId } from "../data/gsis_weapon_data.js";
 
@@ -116,6 +117,37 @@ function setMagazine(w, ammo) {
 export function getEquipped() {
     var data = getModuleData("Ballistic");
     return (data && data.equipped) ? data.equipped : {};
+}
+
+// getEquippedAmmo — munición VIVA del arma de ese slot, leída del ped.
+//
+// El registro no la guarda: data.equipped es { id, hasMag } y nada mas. Por eso
+// la fila del arma equipada en el inventario salia con guion en vez de sus
+// balas, y por eso esto se lee del juego y no del save.
+//
+// Se usa el mismo native que unequipWeapon (GET_AMMO_IN_CHAR_WEAPON), que
+// responde por tipo de arma y no por el arma en la mano: asi anda para cualquier
+// slot que el jugador tenga encima.
+//
+// Devuelve:
+//   0    el arma no tiene cargador. No es un "no se": _reconcileLoadout le pone
+//        0 al arma en ese caso, asi que 0 es lo que de verdad tiene.
+//   null  no se pudo leer. La pagina lo dibuja como guion, y es la respuesta
+//        honesta: un 0 seria mentira, diria que el cargador esta vacio cuando en
+//        realidad no lo sabemos.
+export function getEquippedAmmo(slot) {
+    var entry = getEquipped()[slot];
+    if (!entry) return null;
+    if (entry.hasMag === false) return 0;
+    var wd = _weaponDefByItemId(entry.id);
+    if (!wd) return null;
+    var c = _playerChar();
+    if (!c) return null;
+    try {
+        return native("GET_AMMO_IN_CHAR_WEAPON", c, wd.weaponId) || 0;
+    } catch (e) {
+        return null;
+    }
 }
 
 // Direccion de trabajo del modulo (copia de lectura de SaveManager)
@@ -570,7 +602,7 @@ register({
         _reconcileLoadout();
         _watchdogReload();
         var cur = _readSlotAndType();
-        if (Pad.IsKeyJustPressed(KEYS.RELOAD)) tryReload(cur);
+        if (keyJustPressed(KEYS.RELOAD)) tryReload(cur);
         if (!cur) return;
         // Solo actúa al cambiar de slot de arma
         if (_lastSlot !== null && cur.slot === _lastSlot) return;

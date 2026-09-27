@@ -12,49 +12,66 @@
   <section id="panel" class="panel">
     <div class="panel-header">
       <h1 id="title">Inventario</h1>
-      <div id="subtitle">Peso: 0kg/12kg</div>
     </div>
 
-    <!-- Pestañas de Secciones: los 7 paneles del mod -->
-    <!-- Pestañas del menú principal. Baúl / Armería / Retiro / Trueque son
-         ventanas flotantes por proximidad, no pestañas: no van acá. -->
-    <div id="tabs" role="tablist">
-      <button class="btn btn--tab active" data-tab="inventory" role="tab">Inventario</button>
-      <button class="btn btn--tab" data-tab="properties" role="tab">Propiedades</button>
-      <button class="btn btn--tab" data-tab="vehicles" role="tab">Vehículos</button>
+    <!-- Filtros de categoría del inventario. Antes eran pestañas de tres
+         paneles (Inventario / Propiedades / Vehículos); ahora son cinco
+         botones que filtran el mismo listado. El nombre de la categoría lo
+         sigue diciendo la banda de grupo de la tabla, así que el botón no lo
+         repite: lleva alt y title para el lector de pantalla y el hover.
+
+         "otros" no es una categoría del mod: es todo lo que no sea arma,
+         cargador ni material. El mod hoy solo tiene esos tres tipos, así que
+         sale vacío, pero un tipo nuevo caería acá en vez de desaparecer. -->
+    <div id="tabs" role="tablist" aria-label="Filtros de categoría">
+      <button class="btn btn--tab active" data-filter="all" role="tab">
+        <img class="btn--tab-icon" src="assets/iconos/categorias/todos.png" alt="Todos">
+      </button>
+      <button class="btn btn--tab" data-filter="weapon" role="tab">
+        <img class="btn--tab-icon" src="assets/iconos/categorias/9mm.png" alt="Armas">
+      </button>
+      <button class="btn btn--tab" data-filter="magazine" role="tab">
+        <img class="btn--tab-icon" src="assets/iconos/categorias/cargador.png" alt="Cargadores">
+      </button>
+      <button class="btn btn--tab" data-filter="material" role="tab">
+        <img class="btn--tab-icon" src="assets/iconos/categorias/materiales.png" alt="Materiales">
+      </button>
+      <button class="btn btn--tab" data-filter="otros" role="tab">
+        <img class="btn--tab-icon" src="assets/iconos/categorias/otros.png" alt="Otros">
+      </button>
     </div>
 
     <!-- Filas Interactivas -->
     <div id="rows" role="listbox" aria-label="Navegación IronSyndicate"></div>
 
-    <!-- Botones de Navegación -->
-    <div id="nav" aria-label="Controles de navegación">
-      <span id="nav-prev" class="btn btn--nav" title="Sección Anterior (Flecha Izq / Q)">&#9664;</span>
-      <span id="nav-next" class="btn btn--nav" title="Sección Siguiente (Flecha Der / E)">&#9654;</span>
-    </div>
+    <!-- Pie: peso a la izquierda, guía de teclas a la derecha. Las dos keycaps
+         son la misma tecla X en sus dos estados: el de apretar y el de
+         mantener apretado. El texto al lado dice qué hace cada uno, porque la
+         diferencia se ve pero no se lee. -->
+    <div id="foot">
+      <div id="weight" aria-live="polite">Peso: 0kg/12kg</div>
 
-    <!-- Feedback de las acciones. El mod avisa con showTextBox, que sale abajo
-         a la izquierda — justo detrás del panel, que lo tapa. -->
-    <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
-
-  </section>
-
-  <!-- Ventana Secundaria: detalle del panel / ayuda -->
-  <section id="tutorial-box" class="panel hidden">
-    <div class="tutorial-header">
-      <h2 id="tut-title">Título</h2>
-      <div class="tutorial-header-right">
-        <button id="tut-close" class="btn btn--ghost" title="Cerrar (ESC)">&#10005;</button>
+      <div id="keyhints" class="keyhints" aria-label="Guía de teclas">
+        <button class="keyhint" data-action="equip" type="button"
+          title="X — apretar una vez: equipa el item">
+          <img class="keyhint__cap" src="assets/keys_info/KEY_X.png" alt="">
+          <span class="keyhint__act">Equipar</span>
+        </button>
+        <button class="keyhint" data-action="drop" type="button"
+          title="X — mantener apretado: tira el item">
+          <img class="keyhint__cap" src="assets/keys_info/KEY_X_PRESSED.png" alt="">
+          <span class="keyhint__act">Tirar (Mantener)</span>
+        </button>
       </div>
     </div>
-    <div id="tut-content" class="tutorial-body">
-      <!-- El contenido interactivo y código se inyecta dinámicamente -->
-    </div>
-    <div class="tutorial-footer">
-      <button id="tut-action" class="btn btn--primary">Ejecutar Prueba</button>
-      <span class="tut-tip">Pulsa <b>ENTER</b> o haz click para ver los detalles del tutorial</span>
-    </div>
+
   </section>
+
+  <!-- Menú contextual de la fila. Va en body y no adentro de #panel a propósito:
+       sale pegado al cursor en coordenadas de pantalla, así que tiene que poder
+       salirse del box; y #rows es el contenedor de scroll, un menú dentro se
+       movería con la lista. El contenido lo arma app.js desde ACCIONES. -->
+  <div id="ctxmenu" class="ctxmenu" role="menu" hidden></div>
 
   <script src="app.js"></script>
 </body>

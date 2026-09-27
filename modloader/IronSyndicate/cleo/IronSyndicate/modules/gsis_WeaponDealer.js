@@ -15,6 +15,7 @@
 // ============================================================================
 
 import { register } from "../core/gsis_ModuleRegistry.js";
+import { registerMenuSource } from "../core/gsis_Input.js";
 import { registerModule, getModuleData, setModuleData } from "../core/gsis_SaveManager.js";
 import { emit } from "../core/gsis_EventBus.js";
 import { t } from "../core/gsis_L10n.js";
@@ -171,6 +172,7 @@ export function checkout() {
 function initWeaponDealer() {
     registerModule("DealerOrders", { items: [], total: 0, purchasedAt: 0 });
     log("[GSIS] WeaponDealer: esferas pendientes (esperar exterior)");
+    registerMenuSource("dealer", function () { return _showDealerMenu; });
 }
 
 function updateWeaponDealerModule(now) {

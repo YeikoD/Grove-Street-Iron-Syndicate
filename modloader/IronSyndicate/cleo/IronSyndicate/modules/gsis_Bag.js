@@ -11,6 +11,7 @@
 // ============================================================================
 
 import { KEYS, BAG } from "../core/gsis_Config.js";
+import { keyJustPressed } from "../core/gsis_Input.js";
 import { getModuleData } from "../core/gsis_SaveManager.js";
 import { register } from "../core/gsis_ModuleRegistry.js";
 import { hasLongWeapon } from "../data/gsis_weapon_data.js";
@@ -99,7 +100,7 @@ function updateBag(now) {
     _hadLongWeapon = hasLong;
 
     // Toggle manual solo si hay arma larga
-    if (Pad.IsKeyJustPressed(KEYS.BAG)) {
+    if (keyJustPressed(KEYS.BAG)) {
         if (!hasLong) return;
         try {
             var c = new Player(0).getChar();

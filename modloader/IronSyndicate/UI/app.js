@@ -6,124 +6,122 @@
 // IronSyndicate Web UI - Cliente del panel
 //
 // Estructura calcada de modloader\SAWebUI\web\app.js para que el panel se vea
-// igual que el ejemplo. Lo que cambia es el contenido (las 7 pestañas son los
+// igual que el ejemplo. Lo que cambia es el contenido (las 3 pestañas son los
 // paneles del mod) y el final del archivo, donde vive el puente con CLEO.
 //
-// Contrato con cleo\IronSyndicate\ui\gsis_WebBridge.js:
+// Contrato con modloader\IronSyndicate\cleo\IronSyndicate\modules\gsis_WebInterface.js:
 //
-//   LA PAGINA NO MANDA NADA. En CLEO Redux 1.5.0 los scripts JS no reciben
+//   LA PAGINA NO MANDA EVENTOS. En CLEO Redux 1.5.0 los scripts JS no reciben
 //   eventos: asyncWait no reanuda, setTimeout/setInterval no disparan y
-//   addEventListener nunca entrega (probado el 26/09 con cleo\zz_sonda.js). O
-//   sea que la pagina -> CLEO esta muerta y no hay nada que عليها inventar.
+//   addEventListener nunca entrega (probado el 26/09 con cleo\zz_sonda.js).
 //
-//   CLEO -> pagina   receive("input",  { enabled: bool })     cursor + teclado
-//                    receive("panels", { menu: bool })       que seccion mostrar
-//                    receive("inv",    { i, n, d })          inventario troceado
-//                    receive("toast",  { text, tone })
-//                    receive("ping",   {})                    una vez por segundo
+//   Lo que si funciona es el otro extremo del mismo transporte: la pagina
+//   escribe en la cola de la ASI con emit() y el mod la lee con
+//   SAWeb_PollCommand. Eso es el canal de las acciones, y tambien de
+//   ui:close / ui:toggle — que existen porque el teclado, cuando lo tiene la
+//   pagina, ya no lo tiene el juego.
 //
-//   El "inv" llega partido porque el dataJson de SAWEB_SEND_EVENT tiene ~255
-//   caracteres utiles y el snapshot ronda los 1700. La pagina lo arma sola en
-//   armarInventario().
+//   CLEO -> pagina   receive("uistate",  { read, menu, anyMenu, keys, mode,
+//                                        focus, openUis })  estado del input
+//                    receive("inv",      { i, n, d })       inventario troceado
+//                    receive("catalog",  { ... })           datos estaticos
+//
+//   El "inv" llega partido porque el dataJson de SAWEB_SEND_EVENT tiene 255
+//   caracteres de tope duro (GetStringParam con maxlen unsigned char) y el
+//   snapshot ronda los 800. La pagina lo arma sola en armarInventario().
+//
+//   "catalog" no se trocea: son datos estaticos que se mandan una sola vez al
+//   abrir el menu (iconos, bandas de grupo, peso maximo). Ver gsis_WEBUI.md.
 //
 // ARRANQUE. Sin puente (abierto en un navegador normal) la pagina arranca
 // VISIBLE y con el mock de diseño, para poder revisarla a ojo. Con puente
 // arranca CERRADA y vacía, esperando que el mod le empuje el inventario.
 // ============================================================================
 
-const INBOUND = ["input", "panels", "inv", "toast", "ping"];
-const EMIT_THROTTLE_MS = 100;
+// Canales que el bridge manda de verdad. Si se agrega uno aca, tiene que
+// existir como send() en modules/gsis_WebInterface.js: al reves se declara un
+// listener que nunca se dispara.
+//
+// "uistate" reemplaza a los dos que estaban antes ("input" y "panels"). Antes la
+// pagina recibia "el menu esta visible" y armaba sola las otras dos banderas —
+// si el teclado estaba prendido, y si tenia el foco — y las dos veces se
+// equivocaba: no hay forma de que la pagina sepa si el WndProc le esta
+// mandando las teclas. Ese dato llega, con la fuente etiquetada.
+const INBOUND = ["uistate", "inv", "catalog", "screen"];
 
 const bridgeReady = !!(window.SAWeb && window.SAWeb.hasBridge);
 
 const panelEl = document.getElementById("panel");
 const rowsBox = document.getElementById("rows");
 const tabsBox = document.getElementById("tabs");
-const tutBox = document.getElementById("tutorial-box");
-const tutTitle = document.getElementById("tut-title");
-const tutContent = document.getElementById("tut-content");
-const tutClose = document.getElementById("tut-close");
-const tutAction = document.getElementById("tut-action");
-const navPrev = document.getElementById("nav-prev");
-const navNext = document.getElementById("nav-next");
+const titleEl = document.getElementById("title");
+// No hay botones de navegacion: el pie es del peso y de la guia de teclas. El
+// cambio de pestana sigue vivo por teclado — flechas y Q/E (abajo) — y por las
+// pestañas de arriba, que son botones de verdad.
 
-let currentTab = "inventory";
 let selectedIndex = 0;
-let lastEmitAt = 0;
-let focused = false;
 
-// La pagina NO puede saber si el teclado le llega. En la ASI el teclado cuelga
-// del mismo modo que el cursor (SAWEB_SET_CURSOR) y ese comando no se puede
-// llamar desde aca: solo el script lo maneja. Por eso arranca en false, que es
-// el default de la ASI, y el bridge le manda el estado con el evento "input".
-let inputOn = false;
+// El estado del input lo declara el mod y llega con "uistate". No se deduce aca.
+//
+// Antes esta paginaellia con `focused`, que se ponia true en un mousedown y no
+// se revertia nunca, y con un aviso que le pedia al jugador apretar F12 para
+// prender el teclado. F12 no existia en ningun handler del proyecto: el aviso
+// describia una tecla que nadie habia implementado. Y `focused` era peor, porque
+// la condicion real —que el WndProc este mandando las teclas a la pagina— no la
+// conoce el navegador: la tiene el plugin, ahora consultable.
+//
+// `read` distingue "no se pudo leer" de "teclado apagado". Con una ASI vieja
+// read es false y no se afirma nada: antes eso no se podia expresar, y por eso
+// aparecian los avisos inventados.
+let uiState = {
+  read: false,
+  menu: false,
+  anyMenu: false,
+  keys: false,
+  mode: 0,
+  focus: "",
+  openUis: 0,
+  // Que menu de proximidad esta abierto: "", "trunk", "dealer", "seller",
+  // "pickup". Lo declara el mod, igual que el resto del estado de aca: la
+  // pagina no puede deducirlo (no sabe donde esta el jugador) y no debe.
+  flow: ""
+};
 
 // ---------------------------------------------------------------- TAB DATA --
 //
-// Cada fila es un item pendiente de la v2: "que lee" y "que hace". Sirven de
-// checklist del port y de placeholder con la misma caja que usaran los datos.
-
-function row(id, label, info) {
-  return {
-    id,
-    label,
-    kind: "fixed",
-    value: 1,
-    readonly: true,
-    text: () => info,
-    tutorial: {
-      title: label,
-      html: `<p><span class="badge badge--warn">Fase 2</span> Esta fila todavia no lee nada del juego. Es el placeholder con la caja definitiva.</p>
-             <p>El texto de la derecha dice que tiene que mostrar cuando la fila este viva.</p>`
-    }
-  };
-}
-
-// Solo las 3 pestañas del menu principal. Baul / Armeria / Retiro / Trueque no
-// entran aca: son ventanas flotantes que se abren por proximidad (esfera del
-// baul, tecla F en el dealer), no pestanas. Por eso no tienen boton. Si
-// estuvieran aca, switchTab() las recorreria con las flechas y aterrizaria en
-// una pestana inexistente.
+// Los cuatro menus de proximidad (Baul, Armeria, Retiro, Trueque) NO van como
+// filtro ni como pestana del inventario: son ventanas propias que se abren por
+// proximidad (la esfera, el baul abierto). Si entraran en FILTROS, cambiarFiltro()
+// las recorreria con las flechas y aterrizaria en una ventana que no existe.
 //
-// Lo que va a necesitar cada overlay, para cuando se armen:
-//   Baul    getTrunkItems / getTrunkWeight / getTrunkMaxCapacity
-//           addToTrunk / removeFromTrunk, Transferencia en dos pasos
+// Van por su propio camino: un panel por menu (crearPanel), con su entrada en
+// PANTALLAS. La razon de que sean paneles y no pestanas del inventario es que no
+// se abren con una tecla del panel: el inventario se abre con I y se apaga
+// mientras hay un flujo abierto. Ver la seccion "PANTALLAS DE FLUJO".
+//
+// Lo que se gasto de cada uno, para que quede anotado donde buscar:
+//
+//   Baul    getTrunkItems / getTrunkWeight / getTrunkMaxCapacity  (mod)
+//           addToTrunk / removeFromTrunk  + el prechequeo de peso
 //   Armeria getDealerPrice(id, charId) / getCart() / getCartTotal()
 //           addToCart / checkout() -> emit dealer:orderReady
 //   Retiro  getOrder() / removeFromOrder() + addItem() del modulo
 //           "recoger todo" valida el peso ANTES de mutar
 //   Trueque getSellState() / offerWeapon() + removeItem() + addScore()
 //           el presupuesto del comprador se oculta hasta la 1ra oferta
-const TABS = {
-  inventory: {
-    label: "Inventario",
-    // Vacio por ahora. Lo que va a mostrar, cuando se arme:
-    //   getDirtyMoney() / getTotalWeight() contra MISC.MAX_INVENTORY_WEIGHT
-    //   getItems() con ITEMS[id] para nombre, peso y tipo
-    //   master-detail con la lista a la izquierda y el inspector a la derecha
-    //   getEquipped() y getBelt() como tira de equipo arriba
-    // Ojo: los items instanciados (cargadores, armas con cargador) son un
-    // elemento del array por unidad, con {id, qty:1, ammo, quality}. Los
-    // materiales si se apilan como {id, qty:N}.
-    rows: []
-  },
-  properties: {
-    label: "Propiedades",
-    rows: [
-      row("prp_money", "Dinero sucio", "$0 — getDirtyMoney()"),
-      row("prp_list", "Catalogo", "listProperties()"),
-      row("prp_buy", "Comprar", "buyProperty(id) — cleanMoney")
-    ]
-  },
-  vehicles: {
-    label: "Vehiculos",
-    rows: [
-      row("veh_list", "Flota registrada", "getModuleData('VehicleModule')"),
-      row("veh_detail", "Detalle", "modelo, salud, motor, lock, color"),
-      row("veh_gps", "Ubicar en mapa", "SIN IMPLEMENTAR en el ImGui viejo")
-    ]
-  }
-};
+//
+// Esa coreografia vivia en los ui/gsis_*Menu.js que se borraron, y ahora esta en
+// los modulos duenos: putInTrunk, collectItem, doOffer. Es su casa porque el peso
+// y el precio los sabe el juego, no un snapshot de la pagina.
+//
+// Lo que necesitan las dos pestanas que se fueron, cuando les toque:
+//   Propiedades  snapProperties() en gsis_InventorySerialization.js, con getDirtyMoney() y
+//                listProperties() de gsis_PropertyModule.js
+//   Vehiculos     snapVehicles() con getModuleData("VehicleModule")
+//
+// Los placeholders que las mostraban se fueron con el cambio a filtros
+// (ver FILTROS). Cuando PropertyModule tenga datos, vuelven como fila del
+// inventario o como overlay de proximidad, no como pestaña.
 
 // ------------------------------------------------------------------ MOCK --
 //
@@ -131,41 +129,74 @@ const TABS = {
 // no se mandan nunca por el puente: en el juego lo que dibuja las filas son
 // los datos que mande el mod. Se cae solo apenas el puente se conecta
 // (ver dropMock).
+//
+// El mock trae su propio catalogo chico —bandas, iconos y capacidad— en vez de
+// usar el de la pagina a proposito: antes el mapa de iconos vivia en app.js y
+// era la fuente, o sea que el catalogo real y el de la pagina podian divergir
+// sin que nada lo dijera. Ahora el unico mapa es data\gsis_web_data.js, y lo de
+// abajo es una copia de diseño que existe solo sin puente y se borra con el
+// resto del mock. Cuando el puente esta, esto no se lee.
 
-const MOCK_MAX_WEIGHT = 12; // MISC.MAX_INVENTORY_WEIGHT del mod
-
-// Orden de las bandas de grupo. Es el mismo orden que usaba el menu de baul
-// del ImGui viejo, y el que corresponde a weapon > magazine > material.
-const CATS = [
-  { key: "weapon", label: "Armas" },
-  { key: "magazine", label: "Cargadores" },
-  { key: "material", label: "Materiales" }
-];
-
-// Imagenes de modloader\IronSyndicate\image\. Son 18 PNG y TODAS de armas:
-// materiales y cargadores no tienen. WEAPON_DATA no tiene campo "icon", asi
-// que el mapa es a mano y hay que mantenerlo en sync con el catalogo.
-const ICONS = {
-  "9mm": "9mm.png",
-  "pistol_assembled": "9mm.png",
-  "silenced_9mm": "silenced9mm.png",
-  "desert_eagle": "desertEagle.png",
-  "shotgun": "shotgun.png",
-  "sawed_off": "sawnoffShotgun.png",
-  "combat_shotgun": "combatShotgun.png",
-  "micro_uzi": "microSMG-Uzi.png",
-  "mp5": "mp5.png",
-  "tec9": "tec9.png",
-  "ak47": "ak47.png",
-  "m4_assembled": "m4.png",
-  "country_rifle": "countryRifle.png",
-  "sniper_rifle": "sniperRifle.png",
-  "rpg": "rpg.png",
-  "heat_seeker": "hsRocket.png",
-  "flamethrower": "flame-Thrower.png",
-  "minigun": "minigun.png"
-  // body_armor no tiene icono, y satchelCharge.png no corresponde a ningun
-  // item del catalogo: son los dos huecosknown del set.
+const MOCK_CATALOG = {
+  maxWeight: 12, // = MISC.MAX_INVENTORY_WEIGHT del mod
+  cats: [
+    { key: "weapon", label: "Armas" },
+    { key: "magazine", label: "Cargadores" },
+    { key: "material", label: "Materiales" }
+  ],
+  icons: {
+    "9mm": "9mm.png",
+    "pistol_assembled": "9mm.png",
+    "silenced_9mm": "silenced9mm.png",
+    "desert_eagle": "desertEagle.png",
+    "shotgun": "shotgun.png",
+    "sawed_off": "sawnoffShotgun.png",
+    "combat_shotgun": "combatShotgun.png",
+    "micro_uzi": "microSMG-Uzi.png",
+    "mp5": "mp5.png",
+    "tec9": "tec9.png",
+    "ak47": "ak47.png",
+    "m4_assembled": "m4.png",
+    "country_rifle": "countryRifle.png",
+    "sniper_rifle": "sniperRifle.png",
+    "rpg": "rpg.png",
+    "heat_seeker": "hsRocket.png",
+    "flamethrower": "flame-Thrower.png",
+    "minigun": "minigun.png",
+    // Cargadores: los 17 de data\gsis_web_data.js. Pistolas con el cargador
+    // recto (mag_9mm.png), subfusiles con el largo (mag_SMG.png) y el resto con
+    // el curvo (mag_fusil.png). Es una copia del mapa real, no una seleccion: si
+    // divergiera, el preview mostraria una columna distinta de la del juego.
+    "mag_9mm": "mag_9mm.png",
+    "mag_silenced_9mm": "mag_9mm.png",
+    "mag_desert_eagle": "mag_9mm.png",
+    "mag_shotgun": "mag_fusil.png",
+    "mag_sawed_off": "mag_fusil.png",
+    "mag_combat_shotgun": "mag_fusil.png",
+    "mag_micro_uzi": "mag_SMG.png",
+    "mag_mp5": "mag_SMG.png",
+    "mag_tec9": "mag_SMG.png",
+    "mag_ak47": "mag_fusil.png",
+    "mag_m4_assembled": "mag_fusil.png",
+    "mag_country_rifle": "mag_fusil.png",
+    "mag_sniper_rifle": "mag_fusil.png",
+    "mag_rpg": "mag_fusil.png",
+    "mag_heat_seeker": "mag_fusil.png",
+    "mag_flamethrower": "mag_fusil.png",
+    "mag_minigun": "mag_fusil.png",
+    // Materiales: los 10 de data\gsis_web_data.js (chatarra incluida). Todos al
+    // mismo PNG salvo muelle y mira, que tienen el suyo de piezas de arma.
+    "scrap_metal": "material.png",
+    "gunpowder": "material.png",
+    "spring": "weapons_report.png",
+    "barrel_small": "material.png",
+    "scope": "weapons_report.png",
+    "armor_plate": "material.png",
+    "pistol_frame": "material.png",
+    "pistol_barrel": "material.png",
+    "rifle_receiver": "material.png",
+    "rifle_barrel": "material.png"
+  }
 };
 
 const ICON_DIR = "../image/";
@@ -183,14 +214,8 @@ function itemRow(o) {
     ammo: o.ammo || null,
     weight: o.weight,
     value: o.value || null,
-    icon: ICONS[o.id] || null,
-    tip: o.tipExtra || "",
-    tutorial: {
-      title: o.name,
-      html: `<p><span class="badge badge-warn">Mock</span> Fila de ejemplo, no viene del juego.</p>
-             <p>Peso: <b>${o.weight.toFixed(1)} kg</b> de ${MOCK_MAX_WEIGHT} kg de capacidad.</p>
-             <p>${o.qty > 1 ? "Apilado: " + o.qty + " unidades en una fila." : "Instanciado: una fila por unidad."}</p>`
-    }
+    icon: MOCK_CATALOG.icons[o.id] || null,
+    tip: o.tipExtra || ""
   };
 }
 
@@ -212,14 +237,146 @@ const MOCK = {
   ]
 };
 
+// Los cuatro menus de proximidad, de ejemplo. Misma forma que los que manda
+// gsis_FlowSerialization.js, incluido el id: la pagina dibuja la pantalla segun
+// el id del snapshot, asi que un mock sin id dibuja el esqueleto y no sirve.
+//
+// Se cambian con ?flujo=trunk en la barra de direcciones para mirar uno por vez:
+// en el navegador no hay proximidad que abra nada, asi que sin esto solo se ve
+// el primero.
+const MOCK_FLUJOS = {
+  trunk: {
+    titulo: "Baul - Infernus (411)",
+    subtitulo: "B: menu | 3: cerrar baul | Alejarse cierra el menu",
+    panes: [
+      {
+        key: "mochila",
+        titulo: "MOCHILA",
+        vacio: "(inventario vacio)",
+        weight: 6.2,
+        max: 12,
+        // Las filas se arman en applyMock(), no aca: snapRow() lee catalog.icons
+        // y el catalogo se aplica despues, en el mismo applyMock. Escribirlo
+        // aca seria ejecutar snapRow antes de que exista catalog.
+        rows: []
+      },
+      {
+        key: "baul",
+        titulo: "BAUL",
+        vacio: "(baul vacio)",
+        weight: 3.5,
+        max: 150,
+        rows: []
+      }
+    ],
+    pie: null
+  },
+  dealer: {
+    titulo: "Armeria Mayorista",
+    subtitulo: "Vendedor local",
+    panes: [
+      {
+        key: "catalogo",
+        titulo: "Catalogo",
+        vacio: "Este vendedor no tiene nada en el catalogo",
+        weight: 0,
+        max: 0,
+        rows: [
+          { id: "9mm", cat: "Pistolas", name: "9mm", qty: 1, ammo: "17/17", weight: 1.5, value: 400, precio: 480, enCarrito: 2, tip: "" },
+          { id: "desert_eagle", cat: "Pistolas", name: "Desert Eagle", qty: 1, ammo: "7/7", weight: 1.8, value: 540, precio: 900, enCarrito: 0, tip: "" },
+          { id: "shotgun", cat: "Escopetas", name: "Escopeta", qty: 1, ammo: "1/1", weight: 3.5, value: 700, precio: 1050, enCarrito: 0, tip: "" },
+          { id: "ak47", cat: "Fusiles de asalto", name: "AK-47", qty: 1, ammo: "30/30", weight: 3.5, value: 1500, precio: 1800, enCarrito: 1, tip: "" }
+        ]
+      }
+    ],
+    pie: { izq: "Tu dinero: $4.200", der: "Total carrito: $1.440" }
+  },
+  seller: {
+    titulo: "Trueque — Cliente local",
+    subtitulo: "Busca hoy: Fusiles de asalto, Escopetas",
+    panes: [
+      {
+        key: "venta",
+        titulo: "Tus armas",
+        vacio: "(no tienes armas para vender)",
+        weight: 0,
+        max: 0,
+        rows: [
+          { id: "ak47", cat: "weapon", name: "AK-47", qty: 1, ammo: "30/30", weight: 3.5, value: 900, base: 900, oferta: 900, tip: "" },
+          { id: "9mm", cat: "weapon", name: "9mm", qty: 1, ammo: "9/17", weight: 1.5, value: 240, base: 240, oferta: 240, tip: "" }
+        ]
+      }
+    ],
+    pie: { izq: "Presupuesto: (no te lo dijo)", der: "" }
+  },
+  pickup: {
+    titulo: "Retiro de pedido",
+    subtitulo: "Pedido: $1.440  |  Peso: 5.0 kg",
+    panes: [
+      {
+        key: "pedido",
+        titulo: "Lineas del pedido",
+        vacio: "No hay pedido para recoger",
+        weight: 0,
+        max: 0,
+        rows: [
+          { id: "ak47", cat: "weapon", name: "AK-47", qty: 1, ammo: "30/30", weight: 3.5, value: 1500, disponible: 1, tip: "" },
+          { id: "9mm", cat: "weapon", name: "9mm", qty: 1, ammo: "17/17", weight: 1.5, value: 400, disponible: 1, tip: "" }
+        ]
+      }
+    ],
+    pie: { izq: "Libre en mochila: 5.8 kg", der: "" }
+  }
+};
+
 let mockActive = false;
+
+// Que menu de proximidad simula el preview. Sin parametro, el primero de la
+// lista: es el que se abre con la tecla B y conviene ver de entrada.
+function mockFlowId() {
+  const q = new URLSearchParams(window.location.search).get("flujo");
+  return q && MOCK_FLUJOS[q] ? q : Object.keys(MOCK_FLUJOS)[0];
+}
+
+// Lo que manda el mod en "catalog": peso maximo, bandas de grupo e iconos. Sin
+// esto la pagina no puede dibujar la tabla completa, asi que arranca vacio y se
+// llena al abrir el menu. El mock siembra esta misma variable, por eso el
+// preview en navegador funciona sin puente.
+let catalog = { maxWeight: 0, cats: [], icons: {} };
+
+function applyCatalog(c) {
+  if (!c) return;
+  if (c.maxWeight !== undefined) maxWeight = Number(c.maxWeight) || 0;
+  if (Array.isArray(c.cats)) catalog.cats = c.cats;
+  if (c.icons) catalog.icons = c.icons;
+}
+
+// El id de la UI que la pagina usa para los mensajes del log. En el juego lo
+// decide el mod; en el preview no hay ninguno, asi que se pone uno cualquiera
+// para que los textos se lean igual.
+const UI_ID_PREVIEW = "preview";
 
 function applyMock() {
   mockActive = true;
-  for (const tab of Object.keys(MOCK)) {
-    TABS[tab].rows = MOCK[tab];
-  }
-  stateMap = buildStateMap();
+  applyCatalog(MOCK_CATALOG);
+  stateMap = buildStateMap(MOCK.inventory);
+  // Las filas del baul se arman aca y no en la constante, porque snapRow() lee
+  // catalog.icons y el catalogo recien se aplico. Ver MOCK_FLUJOS.trunk.
+  MOCK_FLUJOS.trunk.panes[0].rows = MOCK.inventory.filter((r) => r.cat !== "material").map(snapRow);
+  MOCK_FLUJOS.trunk.panes[1].rows = [
+    snapRow(itemRow({ id: "scrap_metal", name: "Chatarra", cat: "material", qty: 5, weight: 2.5, value: 2 }))
+  ];
+  // El preview tambien muestra un menu de proximidad. Sin esto habria que
+  //_DISEÑAR el baul sin la pantalla: en el juego el baul se abre solo, y la
+  // unica forma de ver como queda aca es fingir que hay uno abierto.
+  const id = mockFlowId();
+  const payload = MOCK_FLUJOS[id];
+  payload.id = id;
+  // Con un aviso, para que se vea como se ven los errores de peso. Es el estado
+  // que mas se repite en el juego y el que hay que mirar que se lea.
+  payload.notice = id === "trunk" ? "~r~Baul lleno (libre 1.3 kg, necesitas 2.5 kg)" : null;
+  uiState = { read: true, menu: true, anyMenu: true, keys: true, mode: 1, focus: UI_ID_PREVIEW, openUis: 1, flow: id };
+  flowData = payload;
 }
 
 // En el juego el mock no debe aparecer ni un frame. Se cae en cuanto el puente
@@ -228,29 +385,101 @@ function applyMock() {
 function dropMock() {
   if (!mockActive) return false;
   mockActive = false;
-  for (const tab of Object.keys(MOCK)) {
-    TABS[tab].rows = [];
-  }
-  stateMap = buildStateMap();
+  // El catalogo tambien es del mock. Si no se limpia, las filas reales que
+  // llegan despues se dibujan con los iconos de ejemplo hasta que llegue el
+  // "catalog" de verdad.
+  catalog = { maxWeight: 0, cats: [], icons: {} };
+  stateMap = buildStateMap([]);
+  // El menu simulado tambien se cae. Si no, el preview se queda con el panel de
+  // flujo en pantalla mientras el inventario se dibuja abajo, que es el estado
+  // que nunca existe en el juego.
+  flowData = null;
   console.log("[GSIS] mock de diseño eliminado — ahora las filas vienen del mod");
   return true;
 }
 
-// State Map para renderizado
-function buildStateMap() {
-  const m = {};
-  for (const tabKey in TABS) {
-    m[tabKey] = TABS[tabKey].rows.map((r) => ({ ...r, el: null, fill: null, meter: null }));
-  }
-  return m;
+// -------------------------------------------------- FILTROS DE CATEGORIA --
+//
+// Los botones de arriba ya no son pestañas de tres paneles: son cinco filtros
+// del MISMO listado, el inventario. Las dos pestañas que no eran inventario
+// (Propiedades y Vehiculos) eran placeholders —decían "Este panel todavia no
+// esta implementado"— y se fueron con el cambio.
+//
+//   key    el cat de la fila. null = sin filtro (todos). "otros" no es un cat:
+//          es la negation de los tres conocidos, para que un tipo de item nuevo
+//          caiga en algun lado y no desaparezca.
+//   icon   el archivo dentro de assets/iconos/categorias. Los botones son
+//          imagenes, no texto: el nombre de la categoria lo sigue diciendo la
+//          banda de grupo de la tabla, asi que el boton no lo repite.
+//
+// La lista es estatica a proposito: los iconos son archivos fijos. Si el mod
+// agrega un cat, se agrega una linea aca con su icono.
+const FILTROS = [
+  { key: null, icon: "todos", label: "Todos", empty: "No tenes nada encima." },
+  { key: "weapon", icon: "9mm", label: "Armas", empty: "No tenes armas." },
+  { key: "magazine", icon: "cargador", label: "Cargadores", empty: "No tenes cargadores." },
+  { key: "material", icon: "materiales", label: "Materiales", empty: "No tenes materiales." },
+  { key: "otros", icon: "otros", label: "Otros", empty: "Nada en otras categorias." }
+];
+
+// Los cats que tienen boton propio, derivado de FILTROS y no escrito aparte:
+// si las dos listas vivieran separadas, agregar un filtro sin tocar este Set
+// dejaria el item en "todos" y en "otros" a la vez.
+//
+// "otros" se define como la negation de este set, asi que agregar una linea a
+// FILTROS alcanza para que el filtro "otros" se adjusts solo.
+const CATS_CON_BOTON = new Set(
+  FILTROS.map((f) => f.key).filter((k) => k && k !== "otros")
+);
+
+// data-filter del boton activo. "all" es el sin filtro: null en FILTROS no
+// serviria como atributo HTML.
+//
+// Este let va ACA y no arriba con el resto del estado: usa FILTRO_INICIAL, que
+// se declara mas abajo. Declarado antes, el script entero moria con
+// "Cannot access 'FILTRO_INICIAL' before initialization" y no se dibujaba
+// nada — la tabla, el titulo y el pie. El vocabulario del filtro vive junto,
+// en una sola parte.
+const FILTRO_INICIAL = "all";
+let filtroActualKey = FILTRO_INICIAL;
+
+function filtroActual() {
+  return FILTROS.find((f) => filtroKeyDe(f) === filtroActualKey) || FILTROS[0];
 }
 
-let stateMap = buildStateMap();
+// El key del boton es la cadena del atributo; el de la fila es el cat. El
+// "todos" no tiene cat asi que se traduce a null.
+function filtroKeyDe(f) {
+  return f.key === null ? "all" : f.key;
+}
+
+// Un filtro mas o menos el cat de la fila.
+function pasaFiltro(r, f) {
+  if (f.key === null) return true;
+  if (f.key === "otros") return !CATS_CON_BOTON.has(r.cat);
+  return r.cat === f.key;
+}
+
+// Un solo listado. Antes stateMap tenia una entrada por pestana; con filtros
+// no hay varias vistas almacenadas: el inventario entero es la fuente y el
+// filtro es una proyeccion que se arma en cada render.
+function buildStateMap(rows) {
+  return rows.map((r) => ({ ...r, el: null }));
+}
+
+let stateMap = buildStateMap([]);
+
+// Lo que se ve con el filtro activo: la proyeccion de stateMap. La guarda
+// renderFiltro y la recorre selectRow, asi que el teclado navega dentro de lo
+// visible y no por filas que el filtro escondio. Es un alias del subarray que
+// filter devuelve, no una copia: las filas son los mismos objetos de stateMap
+// y el .el se escribe una sola vez.
+let viewFiltrada = [];
 
 // -------------------------------------------------- INVENTARIO REAL DEL MOD --
 //
 // El mock de arriba es solo de diseño. Cuando hay puente, las filas son las que
-// manda gsis_WebData.js con snapInventory(), empujadas por el mod en "inv" y
+// manda gsis_InventorySerialization.js con snapInventory(), empujadas por el mod en "inv" y
 // armadas aca. snapRow() convierte la fila del snapshot a la misma forma que
 // produce itemRow(), asi el render es uno solo para las dos fuentes.
 //
@@ -258,7 +487,6 @@ let stateMap = buildStateMap();
 // consulta ITEMS ni WEAPON_DATA, no los tiene.
 
 function snapRow(o) {
-  const instanciado = o.qty <= 1;
   return {
     id: o.id,
     kind: "table",
@@ -268,56 +496,60 @@ function snapRow(o) {
     ammo: o.ammo === undefined ? null : o.ammo,
     weight: o.weight,
     value: o.value === undefined ? null : o.value,
-    icon: ICONS[o.id] || null,
+    icon: catalog.icons[o.id] || null,
     tip: o.tip || "",
-    tutorial: {
-      title: o.name,
-      html:
-        `<p>${o.tip || "Sin detalle."}</p>` +
-        `<p>Peso: <b>${Number(o.weight).toFixed(1)} kg</b> — ${instanciado ? "una fila por unidad." : "apilado: " + o.qty + " unidades."}</p>` +
-        (o.ammo !== null && o.ammo !== undefined ? `<p>Municion: <b>${o.ammo}</b></p>` : "") +
-        (o.value ? `<p>Valor: <b>$${o.value}</b></p>` : ""),
-      actionLabel: instanciado && o.cat === "weapon" ? "Equipar" : null,
-      action: instanciado && o.cat === "weapon" ? () => emit("cmd", { cmd: "inv:equip", id: o.id }) : null
-    }
+    // equipado / ranura / slot vienen del mod SOLO en las filas de lo que esta
+    // en un slot del ped o en el cinturon. En una fila normal valen false /
+    // null / undefined y no se usan. Ver equipadasSnap() en gsis_InventorySerialization.js.
+    equipado: o.equipado === true,
+    ranura: o.ranura || null,
+    slot: o.slot === undefined ? null : o.slot
   };
 }
 
-const subtitleEl = document.getElementById("subtitle");
-const toastEl = document.getElementById("toast");
-let toastTimer = null;
+const weightEl = document.getElementById("weight");
 
-// El peso del subtitulo lo escribe el mod, no la pagina: es el unico que sabe
-// cuanto entra y cuanto pesa.
+// Peso y capacidad viven aca, fuera del estado de la pestana: el pie los dibuja
+// sin importar que pestana este abierta.
+let invWeight = 0;
+let maxWeight = 0;
+
+// El peso lo escribe el mod, no la pagina: es el unico que sabe cuanto entra y
+// cuanto pesa. El snapshot ya no trae maxWeight - es estatico y viene en el
+// catalogo, que se manda una sola vez al abrir el menu.
+// El peso lo escribe el mod, no la pagina: es el unico que sabe cuanto entra y
+// cuanto pesa. El snapshot ya no trae maxWeight — es estatico y viene en el
+// catalogo, que se manda una sola vez al abrir el menu.
 function setInventory(inv) {
   if (!inv) return;
-  TABS.inventory.rows = (inv.rows || []).map(snapRow);
-  if (subtitleEl) {
-    subtitleEl.textContent =
-      "Peso: " + Number(inv.weight || 0).toFixed(1) + "kg/" + Number(inv.maxWeight || 0) + "kg";
-  }
-  stateMap = buildStateMap();
-  if (currentTab === "inventory") {
-    renderTab("inventory");
-  }
+  stateMap = buildStateMap((inv.rows || []).map(snapRow));
+  invWeight = Number(inv.weight || 0);
+  // El filtro activo se mantiene: si estabas en Materiales, un snapshot nuevo
+  // no te saca de Materiales.
+  renderFiltro(filtroActualKey);
 }
 
 // ------------------------------------------------- ARMADO DE TROZOS --
 //
 // El mod no puede mandarme un evento: en CLEO Redux 1.5.0 los scripts JS no
-// reciben eventos (probado el 26/09, ver gsis_WebBridge.js). La unica direccion
+// reciben eventos (probado el 26/09, ver gsis_WebInterface.js). La unica direccion
 // que funciona es mod -> pagina, asi que el mod empuja el snapshot.
 //
 // Y no lo manda entero: el dataJson de SAWEB_SEND_EVENT viaja como string de
 // parametro de comando CLEO y el tope duro son 255 chars (GetStringParam con
-// maxlen unsigned char). El snapshot ronda los 3000, asi que llega partido en
-// "inv" con {i, n, d} y hay que armarlo aca.
+// maxlen unsigned char). Todo lo que pase eso llega partido en {i, n, d} y hay
+// que armarlo aca. El limite es del comando, no de la frecuencia: el catalogo
+// son ~700 chars y tambien llega troceado, aunque se mande una sola vez.
 //
-// Cada parte reinicia el buffer porque el snapshot es siempre entero: si llegara
-// una tanda incompleta (el juego cerrado a mitad), al proximo snapshot completo
-// el buffer se pisa solo igual.
-let _invPartes = [];
-let _invEsperadas = 0;
+// El buffer es por canal, asi que "inv" y "catalog" no se pisan entre si. Cada
+// parte reinicia el de su canal porque el payload es siempre entero: si llegara
+// una tanda incompleta (el juego cerrado a mitad), al proximo payload completo el
+// buffer se pisa solo igual.
+const _trozos = {
+  inv: { partes: [], esperadas: 0 },
+  catalog: { partes: [], esperadas: 0 },
+  screen: { partes: [], esperadas: 0 }
+};
 
 // Diagnostico del transporte. Antes vivia en el DOM (#diag) y se leia abajo del
 // panel, encimandose con los botones de navegacion. Se saco de la pantalla: lo
@@ -327,62 +559,60 @@ function _diag(text) {
   console.log("[GSIS] " + text);
 }
 
-function armarInventario(data) {
+// Reensambla un canal troceado. Devuelve el objeto, o null si la tanda esta
+// incompleta todavia, tiene un hueco, o el JSON no parsea (en cuyo caso avisa).
+function ensamblar(name, data) {
+  const buf = _trozos[name];
+  if (!buf) {
+    _diag("canal troceado desconocido: " + name);
+    return null;
+  }
   if (!data || typeof data.i !== "number" || typeof data.n !== "number") {
-    _diag("llegó 'inv' con forma rara: " + JSON.stringify(data).slice(0, 60));
-    return;
+    _diag("llegó '" + name + "' con forma rara: " + JSON.stringify(data).slice(0, 60));
+    return null;
   }
   if (data.i === 0) {
-    _invPartes = [];
-    _invEsperadas = data.n;
+    buf.partes = [];
+    buf.esperadas = data.n;
   }
-  if (data.n !== _invEsperadas) {
-    _diag("tanda inconsistente: n=" + data.n + " esperaba " + _invEsperadas);
-    return;
+  if (data.n !== buf.esperadas) {
+    _diag("tanda inconsistente en '" + name + "': n=" + data.n + " esperaba " + buf.esperadas);
+    return null;
   }
-  _invPartes[data.i] = data.d || "";
+  buf.partes[data.i] = data.d || "";
 
-  if (_invPartes.length < _invEsperadas) {
-    _diag("recibiendo inventario: " + _invPartes.length + "/" + _invEsperadas + " trozos");
-    return;
+  if (buf.partes.length < buf.esperadas) {
+    _diag("recibiendo '" + name + "': " + buf.partes.length + "/" + buf.esperadas + " trozos");
+    return null;
   }
-  for (let k = 0; k < _invEsperadas; k++) {
-    if (typeof _invPartes[k] !== "string") {
-      _diag("falta el trozo " + k + " de " + _invEsperadas);
-      return;
+  for (let k = 0; k < buf.esperadas; k++) {
+    if (typeof buf.partes[k] !== "string") {
+      _diag("falta el trozo " + k + " de " + buf.esperadas + " en '" + name + "'");
+      return null;
     }
   }
 
-  const json = _invPartes.join("");
-  _invPartes = [];
-  _invEsperadas = 0;
+  const json = buf.partes.join("");
+  buf.partes = [];
+  buf.esperadas = 0;
   try {
-    const inv = JSON.parse(json);
-    setInventory(inv);
-    _diag("inventario: " + (inv.rows ? inv.rows.length : 0) + " items, " +
-      (inv.weight || 0).toFixed(1) + "/" + (inv.maxWeight || 0) + " kg");
+    return JSON.parse(json);
   } catch (e) {
     // OJO: esto es lo que pasaba en silencio. Un dataJson truncado arma una
     // string rota aqui adentro y el menu queda vacio sin decir nada.
-    _diag("JSON inválido (" + json.length + " chars): " + e.message);
+    _diag("JSON invalido en '" + name + "' (" + json.length + " chars): " + e.message);
+    return null;
   }
 }
 
-// El toast es la unica superficie para texto que viene del mod sin abrir un
-// panel encima del panel.
-function showToast(text, tone) {
-  if (!toastEl || !text) return;
-  toastEl.className = "toast toast--" + (tone || "info");
-  toastEl.textContent = text;
-  if (toastTimer) clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => toastEl.classList.add("hidden"), 2600);
+function armarInventario(data) {
+  const inv = ensamblar("inv", data);
+  if (!inv) return;
+  setInventory(inv);
+  _diag("inventario: " + (inv.rows ? inv.rows.length : 0) + " items, " +
+    invWeight.toFixed(1) + "/" + maxWeight + " kg");
 }
-
 // ---------------------------------------------------------------- HELPERS --
-
-function clamp01(v) {
-  return v < 0 ? 0 : v > 1 ? 1 : v;
-}
 
 function jsonable(v) {
   try {
@@ -397,57 +627,188 @@ function fmt(v) {
   return JSON.stringify(v);
 }
 
-function setBar(r, ratio) {
-  if (r.fill) {
-    r.fill.style.width = (clamp01(ratio) * 100).toFixed(2) + "%";
-  }
-}
-
-function getRowState(id) {
-  for (const tabKey in stateMap) {
-    const found = stateMap[tabKey].find((r) => r.id === id);
-    if (found) return found;
-  }
-  return null;
-}
-
-// Sin la franja inferior no hay donde dibujar el estado, asi que el log del
-// puente y del input va a la consola. Es la unica forma de ver el ida y vuelta
-// del bridge con el puente puesto.
-function logEvent(label, incoming) {
-  console.log((incoming ? "[IN ] " : "[OUT] ") + label);
-}
-
+// El log del puente y del input va a la consola: la pagina no tiene devtools en
+// el juego, asi que es la unica forma de ver el ida y vuelta del bridge. Solo
+// hay una direccion (lo que llega del mod), asi que no hace falta marcar "out".
+//
+// Cada rama dice lo que el mod(reporto, y nada mas. No hay forma de que aca se
+// afirme algo que el mod no dijo: el que sabe si el WndProc esta mandando las
+// teclas a la pagina es el plugin, y su respuesta llega en uiState.
 function logState() {
   if (!bridgeReady) {
     console.log("[GSIS] preview (sin puente)");
     return;
   }
-  if (!inputOn) {
-    // Con el teclado apagado el juego se lo quedo. F12 lo prende.
-    console.log("[GSIS] input OFF — F12 lo prende");
+  if (!uiState.read) {
+    // El getter no se pudo leer. No es lo mismo que "el teclado esta apagado", y
+    // decir que lo esta seria inventar. Casi siempre es la ASI y el SAWeb.cleo
+    // de versiones distintas.
+    console.log("[GSIS] estado de input no leido: el mod no pudo preguntar a la ASI");
     return;
   }
-  if (!focused) {
-    console.log("[GSIS] input ON — falta click para tomar el foco");
+  if (!uiState.keys) {
+    // El juego tiene el teclado. La razon es siempre una de estas dos, y ninguna
+    // se arregla apretando una tecla: o el puntero no esta sobre la UI, o el
+    // modo del cursor es HIDDEN. Mover el puntero encima es lo que lo prende.
+    console.log("[GSIS] teclado del juego (menu " + (uiState.anyMenu ? "abierto" : "cerrado") +
+      ", focus " + (uiState.focus || "ninguno") + ", modo " + uiState.mode +
+      ") — mové el puntero sobre el panel");
     return;
   }
-  console.log("[GSIS] listo");
+  console.log("[GSIS] listo — la pagina tiene el teclado (focus " + (uiState.focus || "?") + ")");
 }
 
-function emit(name, data) {
+// --------------------------------------------------- CANAL DE ACCIONES --
+//
+// Aca SI hay un camino de vuelta: emit() llega a la cola de la ASI y el mod lo
+// pulla con SAWeb.takeCommand() una vez por frame (SAWeb v2). Lo que no funciona
+// es el otro sentido —que el script JS RECIBA un evento—, y no hace falta para
+// esto.
+//
+// El prefijo "cmd:" no es decorativo: es el contrato. La cola guarda el nombre
+// entero como "saweb:main:cmd:<lo que sea>", y el runtime solo le da al mod los
+// que arrancan asi. Sin el prefijo, el comando se perderia en el camino del
+// TriggerEvent, que es el que no llega.
+
+function emitCommand(payload) {
   if (!bridgeReady) {
-    logEvent(name + " (preview)", false);
+    _diag("preview: comando no enviado (sin puente)");
     return false;
   }
-  const ok = window.SAWeb.emit(name, data) !== false;
-  logEvent(name + " " + fmt(jsonable(data)), !ok);
+  try {
+    const ok = window.SAWeb.emit("cmd:" + payload.cmd, payload) !== false;
+    _diag("cmd " + payload.cmd + (ok ? " enviado" : " (el router lo rechazó)"));
+    return ok;
+  } catch (e) {
+    _diag("cmd " + payload.cmd + " fallo: " + e.message);
+    return false;
+  }
+}
+
+// Que accion corresponde lo decide la pagina segun el tipo de item. El modulo
+// es el que valida: si el item no existe o no se puede equipar, equipWeapon lo
+// dice por su cuenta y la pagina se entera porque el snapshot vuelve sin el.
+//
+// Un cargador no se equipa: su accion es al cinturon. Un material no tiene
+// ninguna. Devuelve null cuando la fila no admite la accion pedida, para que
+// el keycap no tenga que inventar un resultado.
+function actionFor(r, what) {
+  if (!r) return null;
+
+  // Una fila equipada esta FUERA de items[] —el mod la saco al equipar—, asi que
+  // "tirar" no puede funcionar: removeItem la buscaria ahi y no la encontraria,
+  // y el comando se perderia en silencio. "Equipar" tampoco, ya esta equipada.
+  // Lo unico que corresponde es devolverla a donde estaba, y cada ranura tiene su
+  // comando: el arma por su slot de GTA, el cargador por su casilla de cinturon
+  // (por casilla y no por id, porque en el cinturon puede haber dos cargadores
+  // del mismo tipo y la casilla es lo unico que los distingue).
+  if (r.equipado) {
+    if (what !== "unequip") return null;
+    if (r.ranura === "arma") return { cmd: "inv:unequip", slot: r.slot };
+    if (r.ranura === "cinturon") return { cmd: "inv:belt:off", slot: r.slot };
+    return null;
+  }
+
+  if ((r.qty || 1) > 1) {
+    // Apilado: no hay una unidad sola que equipar ni que tirar por id.
+    return what === "drop" ? { cmd: "inv:drop", id: r.id, qty: r.qty || 1 } : null;
+  }
+  if (what === "equip") {
+    if (r.cat === "weapon") return { cmd: "inv:equip", id: r.id };
+    if (r.cat === "magazine") return { cmd: "inv:belt", id: r.id };
+    return null;
+  }
+  if (what === "drop") {
+    return { cmd: "inv:drop", id: r.id, qty: 1 };
+  }
+  return null;
+}
+
+// ---------------------------------------------------- REGISTRO DE ACCIONES --
+//
+// Un solo lugar donde viven las acciones de un item. Lo leen los tres caminos
+// que hay para dispararlas —el menu contextual del click derecho, la tecla X y
+// los dos keycaps del pie— asi que agregar una accion nueva es UNA linea aca y
+// nada mas: el menu se arma solo, la tecla la prueba sola, y el pie ya no la
+// tiene que hardcodear.
+//
+//   id      lo que se pasa a runAccion(); no sale de la pagina
+//   label   el texto del menu. String, o funcion de la fila cuando el verbo
+//           depende del item ("Cinturon" para un cargador, "Equipar" para un arma)
+//   sep     true pone un separador antes de este item
+//   aplica  si la accion tiene sentido para esta fila. Se consulta antes de
+//           mostrarla: un material no tiene acción de equipar y no deberia
+//           aparecer un boton que no hace nada.
+//
+// El orden del menu es el orden de este array. "Tirar" va primero porque es la
+// accion destructiva y la que se usa en el juego: la que borra algo no
+// conviene que sea el segundo click de una lista de dos. "Equipar" queda
+// debajo, separado, para que un click de mas no borre.
+//
+// "Quitar" esta antes de las dos y es la unica que le aparece a una fila
+// equipada: como esa fila no esta en items[], no puede tirar ni volver a
+// equiparse (ver actionFor). El nombre del item sigue siendo el mismo en los
+// dos menus —la lista no cambia, cambia que comandos tiene— asi que no hace
+// falta un menu distinto para equipped.
+//
+// El comando de cada accion lo decide actionFor(), que ya estaba: la pagina no
+// inventa el payload, arma el que el modulo valida. Agregar una accion que no
+// pase por actionFor es posible —basta un run() propio— pero entonces el
+// modulo tiene que saber leerla del otro lado.
+const ACCIONES = [
+  {
+    id: "unequip",
+    label: (r) => (r.ranura === "cinturon" ? "Quitar del cinturón" : "Quitar"),
+    aplica: (r) => !!actionFor(r, "unequip")
+  },
+  {
+    id: "drop",
+    label: "Tirar",
+    sep: true,
+    aplica: (r) => !!actionFor(r, "drop")
+  },
+  {
+    id: "equip",
+    label: (r) => (r.cat === "magazine" ? "Cinturón" : "Equipar"),
+    sep: true,
+    aplica: (r) => !!actionFor(r, "equip")
+  }
+];
+
+// Dispara una accion sobre una fila. Devuelve true si llego a mandarse.
+// Las acciones con id propio (las que no pasan por actionFor) se enchufan aca.
+//
+// El feedback del exito es el item que desaparece de la lista: el snapshot
+// vuelve sin el y la tabla se redibuja sola. No hay aviso en pantalla —no quedo
+// ningun toast en el DOM— y el resultado va a _diag, que es console.
+function runAccion(id, r) {
+  if (!r) {
+    _diag(id + ": no hay fila");
+    return false;
+  }
+  const payload = actionFor(r, id);
+  if (!payload) {
+    _diag(id + ": " + r.name + " no admite esa accion");
+    return false;
+  }
+  const ok = emitCommand(payload);
+  _diag(
+    ok
+      ? etiquetaDe(id, r) + ": " + r.name + " — enviada"
+      : etiquetaDe(id, r) + ": " + r.name + " — el mod no la tomó"
+  );
   return ok;
 }
 
+function etiquetaDe(id, r) {
+  const a = ACCIONES.find((x) => x.id === id);
+  if (!a) return id;
+  return typeof a.label === "function" ? a.label(r) : a.label;
+}
+
 // El browser NUNCA se cierra. La pagina se oculta y se muestra por classe, asi
-// que el DOM sigue vivo, los listeners siguen_atados y el tick() sigue corriendo
-// a 60fps aunque no haya nada visible.
+// que el DOM sigue vivo, los listeners siguen atados y el pump de la ASI sigue
+// corriendo aunque no haya nada visible.
 //
 // Mostrar no necesita nada: el panel sale de display:none y la animacion de
 // entrada se re-dispara sola. Ocultar si: .hidden es display:none, asi que si se
@@ -502,79 +863,12 @@ function setPanelVisible(visible) {
   }, panelAnimMs());
 }
 
-// ---------------------------------------------------------------- TUTORIAL --
-
-function showTutorial(r) {
-  if (!r || !r.tutorial) return;
-
-  tutTitle.textContent = r.tutorial.title;
-  tutContent.innerHTML = r.tutorial.html;
-
-  if (r.tutorial.actionLabel && r.tutorial.action) {
-    tutAction.style.display = "inline-block";
-    tutAction.textContent = r.tutorial.actionLabel;
-    tutAction.onclick = () => r.tutorial.action();
-  } else {
-    tutAction.style.display = "none";
-  }
-
-  tutBox.classList.remove("hidden");
-}
-
-function hideTutorial() {
-  tutBox.classList.add("hidden");
-}
-
-tutClose.addEventListener("click", hideTutorial);
-
 // ------------------------------------------------------------------ RENDER --
-
-function buildRow(r) {
-  const el = document.createElement("div");
-  el.className = "row";
-  el.setAttribute("role", "option");
-  el.dataset.id = r.id;
-
-  const label = document.createElement("span");
-  label.className = "label";
-  label.textContent = r.label;
-  el.appendChild(label);
-
-  // El estado del meter es una clase propia sobre el .meter, no un
-  // descendiente: la especificidad queda en una sola clase y el orden de la
-  // hoja deja de importar. Un mock o una fila real pueden pedir un estado
-  // semantico; si no lo piden, cae en el gris de solo lectura.
-  const track = document.createElement("div");
-  if (r.meterState) {
-    track.className = "meter meter--" + r.meterState;
-  } else {
-    track.className = r.readonly ? "meter meter--readonly" : "meter";
-  }
-
-  const fill = document.createElement("div");
-  fill.className = "meter__fill";
-  track.appendChild(fill);
-  r.meter = track;
-  r.fill = fill;
-
-  el.appendChild(track);
-
-  if (r.tip) {
-    el.title = r.tip;
-  }
-
-  el.addEventListener("click", () => {
-    const rows = stateMap[currentTab];
-    const idx = rows.indexOf(r);
-    if (idx !== -1) {
-      selectRow(idx);
-      showTutorial(r);
-    }
-  });
-
-  r.el = el;
-  return el;
-}
+//
+// Un solo sistema de fila: la tabla. El que existedia para listas con barra
+// (.row + .meter) se fue con los placeholders de Propiedades/Vehiculos, que
+// eran su unico consumidor. Si esos paneles vuelven y necesitan una barra, el
+// patron a copiar es renderTable() + buildTableRow().
 
 // Celda numerica. Un dato ausente se dibuja como guion y no como celda vacia:
 // si la celda desapareciera, la columna dejaria de leerse como columna.
@@ -585,46 +879,121 @@ function cell(text) {
   return c;
 }
 
-function buildTableRow(r) {
+// La columna Cantidad es "cuanto hay", no "municion". Un cargador y un arma
+// muestran sus balas —14/17, 18/30— y un material apilado muestra el apilado:
+// 5 en "Chatarra x5". Lo que no tiene ninguna de las dos cosas muestra guion.
+//
+// Municion va primera a proposito: si un cargador llegara con qty>1 por lo que
+// sea, sus balas siguen siendo el dato mas util de esa fila y el apilado es
+// secundario.
+//
+// El "14/17" sale de ammoCell() en gsis_InventorySerialization.js, que para un cargador usa el
+// cargador del arma equivalente (getClipSizeByItemId saca el prefijo mag_) y
+// para un arma usa su cargador contra el tope del arma. O sea que la columna no
+// arma nada: solo muestra el dato que ya viene.
+function celdaCantidad(r) {
+  if (r.ammo != null) return r.ammo;
+  const q = Number(r.qty) > 1 ? Number(r.qty) : null;
+  return q;
+}
+
+// PLACEHOLDER. El mod no tiene condicion de item que mandar: `quality` esta en
+// la forma de la instancia pero siempre vale 1, asi que no hay nada real que
+// mostrar todavia. Va fijo en 100% con el tope escrito, para que el dia que se
+// enchufe un dato de verdad el clamp ya este y no haya que acordarse.
+//
+// La firma es (fila) como el resto de las celdas: la grilla pasa la fila, y una
+// celda que espera un numero recibe el objeto entero y sale "NaN%".
+const SALUD_MAX = 100;
+function celdaSalud(r) {
+  const v = r.salud == null ? SALUD_MAX : r.salud;
+  return Math.max(0, Math.min(SALUD_MAX, v)) + "%";
+}
+
+function celdaPeso(r) {
+  return r.weight != null ? r.weight.toFixed(1) : null;
+}
+
+function celdaValor(r) {
+  return r.value != null ? "$" + r.value : null;
+}
+
+// Las dos primeras columnas de toda tabla son estructurales y el resto son
+// datos, asi que se arman aparte: el recorrido de buildTableRow es generico y lo
+// que cambia por pantalla es la lista de columnas, no el codigo de la fila.
+//
+// El slot vacio mantiene la columna alineada cuando el item no tiene icono
+// (body_armor es el unico hoy) en vez de correr todo a la izquierda.
+function iconCell(r) {
+  if (!r.icon) {
+    const slot = document.createElement("div");
+    slot.className = "table__icon-slot";
+    return slot;
+  }
+  const img = document.createElement("img");
+  img.className = "table__icon";
+  img.src = ICON_DIR + r.icon;
+  img.alt = "";
+  return img;
+}
+
+// El nombre va dentro de un wrapper porque le agregamos la marca de
+// "Equipado" al lado. Si los dos estuvieran en la misma celda con ellipsis, el
+// nombre largo se comeria la marca o la marca quedaria cortada; con el
+// wrapper el nombre es lo que se encoge y la marca nunca se recorta.
+function nameCell(r) {
+  const nameWrap = document.createElement("span");
+  nameWrap.className = "table__namewrap";
+
+  const name = document.createElement("span");
+  name.className = "table__name";
+  name.textContent = r.name;
+  nameWrap.appendChild(name);
+
+  if (r.equipado) {
+    const tag = document.createElement("span");
+    tag.className = "table__equipped";
+    tag.textContent = r.ranura === "cinturon" ? "(Cinturón)" : "(Equipado)";
+    nameWrap.appendChild(tag);
+  }
+  return nameWrap;
+}
+
+// Una fila. cols es la lista de columnas de la pantalla: cada entrada dice si es
+// la del icono (kind "icon"), la del nombre (kind "name") o una celda de dato
+// (cell). Las tres cosas mantienen el mismo orden que el DOM y que
+// --table-cols en el CSS, asi que la grilla no puede descuadrarse.
+//
+// paneIdx viaja hasta el click para que seleccionar sepa de que lista viene la
+// fila: con el baul hay dos en pantalla.
+function buildTableRow(r, cols, vista, paneIdx) {
   const el = document.createElement("div");
   el.className = "table__row";
   el.setAttribute("role", "option");
   el.dataset.id = r.id;
 
-  // El slot vacio mantiene la columna alineada cuando el item no tiene icono
-  // (materiales y cargadores no tienen) en vez de correr todo a la izquierda.
-  if (r.icon) {
-    const img = document.createElement("img");
-    img.className = "table__icon";
-    img.src = ICON_DIR + r.icon;
-    img.alt = "";
-    el.appendChild(img);
-  } else {
-    const slot = document.createElement("div");
-    slot.className = "table__icon-slot";
-    el.appendChild(slot);
+  for (const col of cols) {
+    if (col.kind === "icon") {
+      el.appendChild(iconCell(r));
+    } else if (col.kind === "name") {
+      el.appendChild(nameCell(r));
+    } else {
+      el.appendChild(cell(col.cell(r)));
+    }
   }
-
-  const name = document.createElement("span");
-  name.className = "table__name";
-  name.textContent = r.name;
-  el.appendChild(name);
-
-  el.appendChild(cell(r.qty != null ? String(r.qty) : null));
-  el.appendChild(cell(r.ammo));
-  el.appendChild(cell(r.weight != null ? r.weight.toFixed(1) : null));
-  el.appendChild(cell(r.value != null ? "$" + r.value : null));
 
   if (r.tip) {
     el.title = r.tip;
   }
 
   el.addEventListener("click", () => {
-    const rows = stateMap[currentTab];
-    const idx = rows.indexOf(r);
+    // El indice se busca en la vista que se esta mostrando, no en el estado
+    // entero: es lo que el jugador esta viendo. Con el filtro en "todos"
+    // coinciden; con un filtro puesto, buscar en el estado daria un numero que no
+    // corresponde a lo que toco, y la seleccion caeria en otra fila.
+    const idx = vista.indexOf(r);
     if (idx !== -1) {
-      selectRow(idx);
-      showTutorial(r);
+      selectRow(idx, paneIdx);
     }
   });
 
@@ -632,90 +1001,246 @@ function buildTableRow(r) {
   return el;
 }
 
-// Tabla KCD: cabecera, y despues una banda por categoria con sus filas debajo.
-// El orden de las bandas sale de CATS, no del orden del array, asi las filas
-// quedan agrupadas aunque el mod las mande mezcladas.
-function renderTable(rows) {
-  const wrap = document.createElement("div");
-  wrap.className = "table";
+// Una columna de la tabla. El orden de la lista tiene que calcar el de
+// --table-cols en el CSS, porque las dos cosas definen la misma grilla.
+//
+//   kind      "icon" o "name": las dos columnas estructurales, las arma
+//             iconCell() / nameCell(). Sin kind, es una celda de dato.
+//   text/icon lo que dice la cabecera. Las numericas van con icono y sin texto;
+//             el nombre viaja en el <title> y el aria-label del SVG.
+//   cell      (fila) => texto, o null si la celda va vacia (sale como guion).
+//
+// El inventario es una lista de 6. Las otras pantallas declaran las suyas y el
+// render es el mismo: por eso esta lista es un dato y no un switch.
+const COLS_INVENTARIO = [
+  { kind: "icon" },
+  { kind: "name", text: "Objeto" },
+  { text: "Cant", icon: "cant", cell: celdaCantidad },
+  { text: "Salud", icon: "salud", cell: celdaSalud },
+  { text: "Peso", icon: "peso", cell: celdaPeso },
+  { text: "Valor", icon: "valor", cell: celdaValor }
+];
 
-  const head = document.createElement("div");
-  head.className = "table__head";
-  for (const h of ["", "Objeto", "Cant", "Balas", "Peso", "Valor"]) {
-    const c = document.createElement("span");
-    if (h !== "Objeto") {
-      c.className = "table__num";
-    }
-    c.textContent = h;
-    head.appendChild(c);
-  }
-  wrap.appendChild(head);
+// Iconos de la cabecera. Van INLINE, no como <img>, por dos razones que en este
+// runtime se aprendieron a la fuerza:
+//
+//   1. Un <img> de .svg no se puede colorear con CSS: el fill esta escrito
+//      adentro del archivo y los cuatro venían en #e3e3e3, un gris que no es
+//      ninguno de los tokens. Arreglarlo con mask-image funcionaba, pero la
+//      mascara mete al elemento en su propia capa de compositing y el runtime
+//      de SAWebUI repinta por rectas sucias (SAWebUICef.log: "rects=1.0"): a la
+//      primera repintada parcial la capa dejaba de pintarse y los cuatro
+//      iconos desaparecian. Inline no tiene capa propia.
+//
+//   2. Inline el color lo hereda del encabezado (fill: currentColor) y no
+//      depende de que un archivo externo llegue a cargar.
+//
+// El costo es que el path vive tambien en assets/iconos/*.svg. Ese .svg es la
+// fuente del dibujo y el ICONS de aca es la copia que se dibuja: si cambias un
+// icono, cambias los dos. Todos comparten el mismo viewBox, la grilla de 24px
+// de Material Symbols con el eje y corrido.
+const HEAD_ICONS = {
+  cant: "M440-91v-366L120-642v321q0 22 10.5 40t29.5 29L440-91Zm80 0 280-161q19-11 29.5-29t10.5-40v-321L520-457v366Zm159-550 118-69-277-159q-19-11-40-11t-40 11l-79 45 318 183ZM480-526l119-68-317-184-120 69 318 183Z",
+  salud: "M481-83Q347-218 267.5-301t-121-138q-41.5-55-54-94T80-620q0-92 64-156t156-64q45 0 87 16.5t75 47.5l-62 216h120l-34 335 114-375H480l71-212q25-14 52.5-21t56.5-7q92 0 156 64t64 156q0 48-13 88t-55 95.5q-42 55.5-121 138T481-83Z",
+  peso: "M480-680q17 0 28.5-11.5T520-720q0-17-11.5-28.5T480-760q-17 0-28.5 11.5T440-720q0 17 11.5 28.5T480-680Zm113 0h70q30 0 52 20t27 49l57 400q5 36-18.5 63.5T720-120H240q-37 0-60.5-27.5T161-211l57-400q5-29 27-49t52-20h70q-3-10-5-19.5t-2-20.5q0-50 35-85t85-35q50 0 85 35t35 85q0 11-2 20.5t-5 19.5Z",
+  valor: "M120-160q-33 0-56.5-23.5T40-240v-440h80v440h680v80H120Zm160-160q-33 0-56.5-23.5T200-400v-320q0-33 23.5-56.5T280-800h560q33 0 56.5 23.5T920-720v320q0 33-23.5 56.5T840-320H280Zm80-80q0-33-23.5-56.5T280-480v80h80Zm400 0h80v-80q-33 0-56.5 23.5T760-400Zm-200-40q50 0 85-35t35-85q0-50-35-85t-85-35q-50 0-85 35t-35 85q0 50 35 85t85 35ZM280-640q33 0 56.5-23.5T360-720h-80v80Zm560 0v-80h-80q0 33 23.5 56.5T840-640Z"
+};
 
-  for (const cat of CATS) {
-    const items = rows.filter((r) => r.cat === cat.key);
-    if (items.length === 0) continue;
+const SVG_NS = "http://www.w3.org/2000/svg";
 
-    const band = document.createElement("div");
-    band.className = "table__group";
-    band.appendChild(document.createTextNode(cat.label));
+// createElementNS y no createElement: sin el namespace SVG el <path> no se
+// dibuja. El <title> es el tooltip — aria-label no lo da — y aria-label es lo
+// que lee el lector de pantalla, porque el nombre de la columna ya no esta
+// escrito en ningun lado de la celda.
+function headIcon(name, label) {
+  const svg = document.createElementNS(SVG_NS, "svg");
+  // className en un elemento de SVG es SVGAnimatedString, no una string: hay
+  // que pasarlo por setAttribute o el selector .table__headicon no matchea.
+  svg.setAttribute("class", "table__headicon");
+  svg.setAttribute("viewBox", "0 -960 960 960");
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", label);
 
-    const cnt = document.createElement("span");
-    cnt.className = "table__group-count";
-    cnt.textContent = items.length;
-    band.appendChild(cnt);
+  const title = document.createElementNS(SVG_NS, "title");
+  title.textContent = label;
+  svg.appendChild(title);
 
-    wrap.appendChild(band);
-    for (const r of items) {
-      wrap.appendChild(buildTableRow(r));
-    }
-  }
+  const path = document.createElementNS(SVG_NS, "path");
+  path.setAttribute("d", HEAD_ICONS[name]);
+  svg.appendChild(path);
 
-  rowsBox.appendChild(wrap);
+  return svg;
 }
 
-function renderTab(tabKey) {
-  currentTab = tabKey;
+// Las bandas salen de una lista: la del catalogo mas, al final, los cats que
+// tengan filas y no esten en ella. Catalogo primero porque es el que trae el
+// orden y el nombre—"Armas" sale de ahi, no del cat— y despues la cola, que se
+// sola se completa si el catalogo no cubrio algo.
+function bandasDe(rows) {
+  const cats = catalog.cats.slice();
+  const vistos = new Set(cats.map((c) => c.key));
+  for (const r of rows) {
+    if (vistos.has(r.cat)) continue;
+    vistos.add(r.cat);
+    cats.push({ key: r.cat, label: r.cat || "Sin categoría" });
+  }
+  return cats;
+}
+
+// El teclado navega por la vista, y la vista tiene que estar en el mismo orden
+// en que se dibujan las filas. Sin esto la seleccion va a saltos: el mod manda
+// las filas en el orden del snapshot y la tabla las reagrupa por banda, asi que
+// viewFiltrada[2] podia ser la tercera fila dibujada o la ultima de la pantalla.
+//
+// El desempate es la posicion original, asi que dentro de una banda el orden es el
+// que mando el mod y no el que impone el sort. Las bandas vacias no entran en el
+// mapa y caen al final: no se dibujan, asi que tampoco hay que recorrerlas.
+function ordenarPorBanda(rows) {
+  const orden = new Map();
+  bandasDe(rows).forEach((c, i) => orden.set(c.key, i));
+  return rows
+    .map((r, i) => ({ r, i }))
+    .sort((a, b) => {
+      const ba = orden.has(a.r.cat) ? orden.get(a.r.cat) : 999;
+      const bb = orden.has(b.r.cat) ? orden.get(b.r.cat) : 999;
+      return ba !== bb ? ba - bb : a.i - b.i;
+    })
+    .map((x) => x.r);
+}
+
+// Tabla KCD: cabecera, y despues una banda por categoria con sus filas debajo.
+// El orden de las bandas sale de bandasDe(), no del orden del array, asi las
+// filas quedan agrupadas aunque el mod las mande mezcladas.
+//
+// El modificador .table--N sale del numero de columnas: es el mismo numero que
+// --table-cols declara en el CSS, asi que la variante y la grilla no pueden
+// desincronizarse. El .table pelado deja la de 6, que es la del inventario.
+//
+// El render vive en renderTablaEn(), que dibuja en cualquier caja. Aca solo se
+// pasa la del inventario: las pantallas de flujo pasan la de su pane.
+function renderTable(rows, cols) {
+  renderTablaEn(rowsBox, cols, rows, undefined);
+}
+
+// Estado vacio de una pestana. No es lo mismo "no hay nada" que "todavia no
+// esta implementado": el primero se resuelve solo, el segundo hay que decirlo,
+// o el jugador cree que perdio sus cosas.
+function renderEmpty(text) {
+  const el = document.createElement("p");
+  el.className = "empty";
+  el.textContent = text;
+  rowsBox.appendChild(el);
+}
+
+// El peso es el dato del pie. Antes solo se dibujaba en la pestana de inventario
+// y se vaciaba en las otras dos; con filtros hay un solo listado, asi que el
+// peso esta siempre. No cambia al cambiar de filtro: el filtro recorta que filas
+// se ven, no cuanto pesa el inventario entero.
+function renderWeight() {
+  if (!weightEl) return;
+  weightEl.textContent = "Peso: " + invWeight.toFixed(1) + "kg/" + maxWeight + "kg";
+}
+
+function renderFiltro(filterKey) {
+  filtroActualKey = filtroKeyDe(
+    FILTROS.find((f) => filtroKeyDe(f) === filterKey) || FILTROS[0]
+  );
+  const filtro = filtroActual();
+
   rowsBox.innerHTML = "";
 
-  const rows = stateMap[tabKey];
+  // El menu se cierra antes de rearmaar. Guardaba una referencia a una fila, y
+  // un snapshot del mod cada 400ms rearma la tabla entera: si el menu quedara
+  // abierto apuntando a una fila que ya no esta en el DOM, la accion caeria
+  // sobre un objeto que nadie ve. Un renglon de "Sin acciones" tampoco: la
+  // fila sigue existiendo en el estado, solo se dibudo distinto.
+  cerrarCtxMenu();
 
-  // Cada pestana elige su renderer por la forma de sus filas. El inventario es
-  // tabla; propiedades y vehiculos son listas simples con barra.
-  if (rows.length > 0 && rows[0].kind === "table") {
-    renderTable(rows);
+  // El filtro no borra filas de stateMap: es una proyeccion. Asi el .el de cada
+  // fila sigue siendo el mismo objeto y cambiar de filtro y volver no pierde
+  // nada. Se ordena por banda para que la vista siga el orden dibujado (ver
+  // ordenarPorBanda).
+  const rows = ordenarPorBanda(stateMap.filter((r) => pasaFiltro(r, filtro)));
+  viewFiltrada = rows;
+
+  // El titulo quedo fijo en Inventario: antes seguia a la pestana y con filtros
+  // no hay a que seguir. El filtro activo ya se ve en el boton marcado.
+  if (titleEl) titleEl.textContent = "Inventario";
+  renderWeight();
+
+  if (rows.length === 0) {
+    renderEmpty(filtro.empty);
   } else {
-    for (const r of rows) {
-      rowsBox.appendChild(buildRow(r));
-      setBar(r, Number(r.value) || 1);
-    }
+    renderTable(rows, COLS_INVENTARIO);
   }
 
-  // Por data-tab y no por la classe: el selector queda estable aunque la
+  // Por data-filter y no por la classe: el selector queda estable aunque la
   // receta .btn cambie de nombre o las variantes se reorganicen.
-  const tabBtns = tabsBox.querySelectorAll("[data-tab]");
-  tabBtns.forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.tab === tabKey);
+  const btns = tabsBox.querySelectorAll("[data-filter]");
+  btns.forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.filter === filtroActualKey);
   });
 
   selectRow(0);
 }
 
-function selectRow(index) {
-  const rows = stateMap[currentTab];
-  if (!rows || rows.length === 0) return;
+// La seleccion vive UNA: es un indice sobre la vista que se esta mirando. Con el
+// baul hay dos listas en pantalla, asi que "la vista" es la del pane activo y la
+// otra se dibuja sin marcar. Sin esto habria que tener un selectedIndex por
+// lista y dos clases de seleccion traveling por el DOM.
+//
+// paneIdx: undefined = el inventario, 0/1 = el pane de un flujo. Se pasa en vez
+// de deducirse porque el click puede venir de cualquiera de las dos tablas.
+function vistaDe(paneIdx) {
+  const p = paneIdx === undefined ? _selPane : paneIdx;
+  return p === null ? viewFiltrada : _vistasPane[p] || [];
+}
 
-  selectedIndex = (index + rows.length) % rows.length;
-  for (const [i, r] of rows.entries()) {
-    if (!r.el) continue;
-    // Cada sistema de fila tiene su clase de seleccion. El estado va como
-    // clase propia y no como descendiente, asi la especificidad queda en una
-    // sola clase y el orden de la hoja deja de importar.
-    const isTable = r.kind === "table";
-    r.el.classList.toggle(isTable ? "table__row--selected" : "selected", i === selectedIndex);
-    r.el.setAttribute("aria-selected", i === selectedIndex ? "true" : "false");
-    if (r.meter) {
-      r.meter.classList.toggle("meter--selected", i === selectedIndex);
+// Que pane tiene la seleccion, o null si es la del inventario. Lo usa el teclado
+// para no tener que acordarse de en que pantalla estamos.
+let _selPane = null;
+// Las filas de cada pane del flujo, en orden de dibujo (ver ordenarPorBanda).
+const _vistasPane = [[], []];
+
+// La clase de seleccion se borra de las tres listas antes de_apply_: si no, al
+// cambiar de pane el elegido del otro lado se queda marcado y hay dos filas
+// iluminadas en dos tablas distintas.
+function limpiarSeleccion() {
+  for (const v of [viewFiltrada, _vistasPane[0], _vistasPane[1]]) {
+    for (const r of v) {
+      if (!r.el) continue;
+      r.el.classList.remove("table__row--selected");
+      r.el.setAttribute("aria-selected", "false");
     }
+  }
+}
+
+function selectRow(index, paneIdx) {
+  const p = paneIdx === undefined ? _selPane : paneIdx;
+  const vista = vistaDe(p);
+  if (vista.length === 0) return;
+
+  limpiarSeleccion();
+  _selPane = p;
+  selectedIndex = (index + vista.length) % vista.length;
+  for (const [i, r] of vista.entries()) {
+    if (!r.el) continue;
+    // El estado de seleccion va como clase propia y no como descendiente, asi
+    // la especificidad queda en una sola clase y el orden de la hoja deja de
+    // importar.
+    r.el.classList.toggle("table__row--selected", i === selectedIndex);
+    r.el.setAttribute("aria-selected", i === selectedIndex ? "true" : "false");
+  }
+
+  // La fila seleccionada tiene que estar a la vista. #rows y .pane__rows son las
+  // cajas con scroll (overflow-y: auto) y cambiar la clase no las mueve: con mas
+  // items de los que entran, las flechas bajaban la seleccion fuera de la
+  // pantalla sin que nada se enterara, y el jugador perdia de vista que fila
+  // era. Con el mouse el scroll venia del evento wheel, pero el teclado no lo
+  // acompanaba.
+  const sel = vista[selectedIndex];
+  if (sel && sel.el) {
+    sel.el.scrollIntoView({ block: "nearest" });
   }
 }
 
@@ -723,59 +1248,1073 @@ function stepRow(dir) {
   selectRow(selectedIndex + dir);
 }
 
-function switchTab(dir) {
-  const tabKeys = Object.keys(TABS);
-  const curIdx = tabKeys.indexOf(currentTab);
-  const nextIdx = (curIdx + dir + tabKeys.length) % tabKeys.length;
-  renderTab(tabKeys[nextIdx]);
+function cambiarFiltro(dir) {
+  const curIdx = FILTROS.findIndex((f) => filtroKeyDe(f) === filtroActualKey);
+  const nextIdx = (curIdx + dir + FILTROS.length) % FILTROS.length;
+  renderFiltro(filtroKeyDe(FILTROS[nextIdx]));
 }
+
+// ============================================================================
+// PANTALLAS DE FLUJO - baul, armeria, retiro, trueque
+// ============================================================================
+//
+// Los cuatro menus de proximidad son el mismo panel con otra funcion: la misma
+// tabla, el mismo pie, la misma navegacion. Lo que cambia es QUE muestran, y eso
+// esta entero en PANTALLAS, abajo. Esta seccion es el machinery: un panel por
+// pantalla, un render generico y una barra de accion.
+//
+// Por que un panel por pantalla y no uno que cambia de contenido: cada uno es
+// una ventana propia con su propio ciclo de vida, y separarlos hace que un
+// error en uno no pueda dejar en blanco al otro. Los cuatro se arman con la misma
+// fabrica (crearPanel), asi que el esqueleto esta escrito una sola vez.
+//
+// El panel del inventario (#panel) no entra en este sistema: tiene filtros de
+// categoria y su propio canal. Lo que comparte con estos es la tabla, y esa ya
+// era generica antes de que existiera ninguno.
+
+let flowData = null;
+let paneActual = 0;
+// Los paneles se arman una vez y se muestran y ocultan por clase, igual que
+// #panel. El mapa es la unica forma de llegar a ellos.
+const _paneles = {};
+
+// Que pantalla se esta mostrando ahora: "" es el inventario, o el id del flujo.
+function pantallaActual() {
+  return uiState.flow || "";
+}
+
+function cfgDe(id) {
+  return PANTALLAS[id] || null;
+}
+
+function panelDe(id) {
+  if (!_paneles[id]) {
+    _paneles[id] = crearPanel(id);
+  }
+  return _paneles[id];
+}
+
+// El esqueleto de un panel de flujo. Se arma con createElement y no en el
+// index.html por la misma razon que las filas: si el esqueleto viviera en el
+// HTML habria que escribirlo cuatro veces y las cuatro copias divergen — que es
+// lo que le paso al mapa de iconos cuando vivia en app.js.
+function crearPanel(id) {
+  const sec = document.createElement("section");
+  sec.className = "panel panel--flujo hidden";
+  // El baul es el unico que no va al costado: son dos listas, y al centro se leen
+  // las dos sin taparse. La clase decide tamano y posicion (style.css).
+  if (id === "trunk") sec.classList.add("panel--centro");
+  sec.id = "pnl-" + id;
+
+  const head = document.createElement("div");
+  head.className = "panel-header";
+  const titulo = document.createElement("h1");
+  titulo.className = "panel__title";
+  const subtitulo = document.createElement("p");
+  subtitulo.className = "panel__subtitle";
+  head.appendChild(titulo);
+  head.appendChild(subtitulo);
+
+  // Donde van los panes. Con dos panes (el baul) se llenan dos columnas; con
+  // uno, una sola a lo ancho.
+  const panes = document.createElement("div");
+  panes.className = "flow__panes";
+  if (id === "trunk") panes.classList.add("flow__panes--2");
+
+  const aviso = document.createElement("p");
+  aviso.className = "aviso hidden";
+
+  const bar = document.createElement("div");
+  bar.className = "accionbar hidden";
+
+  const foot = document.createElement("div");
+  foot.className = "panel-foot";
+  const pieIzq = document.createElement("span");
+  pieIzq.className = "panel-foot__txt";
+  const pieDer = document.createElement("span");
+  pieDer.className = "panel-foot__txt";
+  const footBtns = document.createElement("div");
+  footBtns.className = "panel-foot__btns";
+  const keyhints = document.createElement("div");
+  keyhints.className = "keyhints";
+  foot.appendChild(pieIzq);
+  foot.appendChild(pieDer);
+  foot.appendChild(footBtns);
+  foot.appendChild(keyhints);
+
+  sec.appendChild(head);
+  sec.appendChild(panes);
+  sec.appendChild(aviso);
+  sec.appendChild(bar);
+  sec.appendChild(foot);
+  document.body.appendChild(sec);
+
+  return { sec, titulo, subtitulo, panes, aviso, bar, pieIzq, pieDer, footBtns, keyhints, _avisoTimer: null };
+}
+
+// Muestra una pantalla y oculta la otra. El inventario se apaga cuando hay un
+// flujo: son dos paneles compitiendo por el mismo lugar y el flujo manda,
+// porque se abrio por proximidad y el inventario por una tecla.
+//
+// El panel del inventario no se destruye ni se reconstruye: queda con su ultimo
+// render y cuando el flujo se cierra vuelve a estar como estaba. Por eso no hace
+// falta guardarse nada: su estado vive en stateMap, que no se toco.
+function setPantalla(id) {
+  // El panel se arma antes del loop que muestra y oculta: si se creara despues,
+  // el loop no lo veria y el panel nuevo se quedaria con el "hidden" con que
+  // nacio, invisible aunque le tocara estar en pantalla.
+  if (id) panelDe(id);
+
+  panelEl.classList.toggle("hidden", !!id);
+  for (const otro of Object.keys(_paneles)) {
+    _paneles[otro].sec.classList.toggle("hidden", otro !== id);
+  }
+  if (id) {
+    panelDe(id).sec.classList.remove("panel--closing");
+    limpiarBarra(id);
+    // Las vistas de los panes se vacian al entrar. Sin esto, la seleccion del
+    // inventario queda viva adentro del flujo y el Enter manda un comando de
+    // flujo para una fila que no se esta viendo: el snapshot del flujo todavia
+    // no llego y ya se puede actuar sobre el.
+    _vistasPane[0] = [];
+    _vistasPane[1] = [];
+    _selPane = 0;
+  }
+  if (!id) {
+    // La seleccion vuelve a ser la del inventario. Sin esto, al cerrarse un
+    // flujo el teclado moveria el indice de una lista que ya no esta en pantalla
+    // y la primera flecha saltaria a una fila rara.
+    _selPane = null;
+  }
+}
+
+// El render del flujo. Se llama cuando llega "screen" y no en cada frame, porque
+// la pagina no tiene loop: no hay RAF ni setInterval en el juego.
+function renderFlujo() {
+  const id = pantallaActual();
+  if (!id) return;
+  const cfg = cfgDe(id);
+  const p = panelDe(id);
+  if (!cfg || !flowData || flowData.id !== id) {
+    // Todavia no llego el snapshot del flujo. Se dibuja el esqueleto sin datos
+    // en vez de nada: un panel vacio se lee como "cargando", uno que no aparece
+    // se lee como broken.
+    p.titulo.textContent = cfg ? cfg.titulo : id;
+    p.subtitulo.textContent = "";
+    return;
+  }
+
+  p.titulo.textContent = flowData.titulo || cfg.titulo;
+  p.subtitulo.textContent = flowData.subtitulo || "";
+
+  const panes = flowData.panes || [];
+  if (paneActual >= panes.length) paneActual = 0;
+
+  renderPanes(p, cfg);
+  renderAccionBar(p, cfg);
+  renderPie(p, cfg, flowData);
+
+  // La seleccion arranca en la primera fila del pane activo. Sin esto, abrir el
+  // baul dejaria las dos listas sin marcar y la barra de accion sin fila a la que
+  // pertainenece.
+  //
+  // _selPane se fuerza al pane activo porque es el dueño de la seleccion: si
+  // quedara apuntando al pane anterior, el Enter mandaria el comando sobre una
+  // fila de la lista que el jugador ya no esta mirando.
+  _selPane = paneActual;
+  selectRow(selectedIndex);
+
+  if (flowData.notice) {
+    mostrarAviso(p, flowData.notice);
+  }
+}
+
+// Los panes de una pantalla. Con dos (el baul) se dibujan los dos, y el activo
+// es el que tiene la seleccion; con uno, solo ese.
+function renderPanes(p, cfg) {
+  p.panes.innerHTML = "";
+  const todos = (flowData && flowData.panes) || [];
+  const conDos = todos.length > 1;
+  for (let i = 0; i < todos.length; i++) {
+    p.panes.appendChild(crearPane(p, cfg, todos[i], i, i === paneActual));
+  }
+  p.panes.classList.toggle("flow__panes--2", conDos);
+}
+
+// Un pane: su encabezado (titulo, peso y de que lado viene) y la tabla.
+function crearPane(p, cfg, pane, idx, activo) {
+  const box = document.createElement("div");
+  box.className = "pane" + (activo ? " pane--activo" : "");
+
+  const head = document.createElement("div");
+  head.className = "pane__head";
+  const t = document.createElement("span");
+  t.className = "pane__title";
+  t.textContent = pane ? pane.titulo : "";
+  head.appendChild(t);
+  if (pane && pane.max) {
+    const w = document.createElement("span");
+    w.className = "pane__peso";
+    w.textContent = pane.weight + "/" + pane.max + "kg";
+    head.appendChild(w);
+  }
+  box.appendChild(head);
+
+  const body = document.createElement("div");
+  body.className = "pane__rows";
+  box.appendChild(body);
+
+  const rows = pane ? pane.rows || [] : [];
+  // La vista del pane se ordena por banda y se guarda: la seleccion la recorre
+  // desde ahi, asi que tiene que estar en el mismo orden en que se dibuja.
+  _vistasPane[idx] = ordenarPorBanda(rows);
+  if (rows.length === 0) {
+    const vacio = document.createElement("p");
+    vacio.className = "empty";
+    vacio.textContent = (pane && pane.vacio) || "No hay nada.";
+    body.appendChild(vacio);
+    return box;
+  }
+
+  renderTablaEn(body, cfg.cols, _vistasPane[idx], idx);
+  return box;
+}
+
+// renderTable() dibujaba siempre en rowsBox, que es el contenedor del
+// inventario. Esta es la misma tabla en cualquier caja: el unico cambio es que la
+// caja se pasa por parametro. Sin esto habria dos copias del render de la tabla,
+// que es exactamente el tipo de duplicado que diverge.
+function renderTablaEn(box, cols, rows, paneIdx) {
+  const wrap = document.createElement("div");
+  wrap.className = "table table--" + cols.length;
+
+  const head = document.createElement("div");
+  head.className = "table__head";
+  for (const col of cols) {
+    const c = document.createElement("span");
+    if (col.kind !== "name") c.className = "table__num";
+    if (col.icon) {
+      c.appendChild(headIcon(col.icon, col.text));
+    } else {
+      c.textContent = col.text || "";
+    }
+    head.appendChild(c);
+  }
+  wrap.appendChild(head);
+
+  for (const cat of bandasDe(rows)) {
+    const items = rows.filter((r) => r.cat === cat.key);
+    if (items.length === 0) continue;
+    const band = document.createElement("div");
+    band.className = "table__group";
+    band.appendChild(document.createTextNode(cat.label));
+    const cnt = document.createElement("span");
+    cnt.className = "table__group-count";
+    cnt.textContent = items.length;
+    band.appendChild(cnt);
+    wrap.appendChild(band);
+    for (const r of items) {
+      wrap.appendChild(buildTableRow(r, cols, rows, paneIdx));
+    }
+  }
+
+  box.appendChild(wrap);
+}
+
+// ---------------------------------------------------------------- AVISO --
+//
+// El feedback de una accion de estos menus. Antes no habia ninguno: el mod
+// escribia con showTextBox, que dibuja abajo a la izquierda, DETRAS del panel.
+//
+// El texto llega con los codigos de color del juego (~r~ rojo, ~g~ verde) porque
+// es el mismo showTextBox de siempre, y el tono sale del prefijo: el mod no tiene
+// que decidir como se ve, lo decide la hoja de estilo. Un codigo suelto en el
+// medio del texto se ve como basura, asi que se sacan todos.
+function tonoDe(text) {
+  if (/^~r~/.test(text)) return "bad";
+  if (/^~g~/.test(text)) return "ok";
+  return "info";
+}
+
+function sinCodigos(text) {
+  return String(text).replace(/~[a-zA-Z]~/g, "").trim();
+}
+
+let _avisoTimer = null;
+function mostrarAviso(p, texto) {
+  p.aviso.textContent = sinCodigos(texto);
+  p.aviso.className = "aviso aviso--" + tonoDe(texto);
+  if (_avisoTimer !== null) clearTimeout(_avisoTimer);
+  // El aviso se va solo: el siguiente push trae los datos nuevos, y un mensaje
+  // que no se va tapa la lista.
+  _avisoTimer = setTimeout(function () {
+    _avisoTimer = null;
+    p.aviso.classList.add("hidden");
+  }, 3800);
+}
+
+// ----------------------------------------------------------------- PIE --
+
+// El pie de un menu de proximidad: los numeros del snapshot a la izquierda, los
+// keycaps a la derecha y los botones del menu entre los dos.
+//
+// Los botones del pie son para lo que no es una accion sobre la fila elegida:
+// pagar el carrito, vaciarlo. En la barra de accion estan los de la fila, y
+// meter estas dos ahi seria mentir sobre a que fila se aplican.
+function renderPie(p, cfg, data) {
+  const pie = data.pie || {};
+  p.pieIzq.textContent = pie.izq || "";
+  p.pieDer.textContent = pie.der || "";
+
+  p.footBtns.innerHTML = "";
+  for (const a of cfg.pieAcciones || []) {
+    const b = document.createElement("button");
+    b.className = "btn panel-foot__btn" + (a.principal ? " btn--primary" : "");
+    b.type = "button";
+    b.textContent = a.label;
+    b.addEventListener("click", () => correrAccion(a, null));
+    p.footBtns.appendChild(b);
+  }
+
+  p.keyhints.innerHTML = "";
+  for (const k of cfg.teclas || []) {
+    const b = document.createElement("span");
+    b.className = "keyhint";
+    b.textContent = k.texto;
+    p.keyhints.appendChild(b);
+  }
+}
+
+// ============================================================================
+// BARRA DE ACCION
+// ============================================================================
+//
+// La fila que hay que actuar y cuantos/how much. Es la misma pieza en los cuatro
+// menus —el numero de unidades y el boton que la usa cambian, la forma no— y es
+// lo que evita que cada pantalla tenga su propio manejo de teclas.
+//
+// Los valores viven en la pagina y no en el mod: son la intencion del jugador
+// todavia no confirmada. Lo que el mod recibe es un comando con el numero ya
+// escrito, y el es el que valida (ver putInTrunk, doOffer, collectItem).
+//
+// Los campos se recorren con Tab y se mueven con +/-, y por eso hace falta un
+// indice de cual esta activo: con dos campos (cantidad y oferta) sin el, el "+"
+// no sabria que subir.
+
+let _campoActivo = 0;
+const _valores = {};
+
+// El valor por defecto de un campo, y su maximo, salen de la fila: no hay un tope
+// universal porque un cargador es 1 unidad y la chatarra 5. Un numero magico
+// arriba del componente seria la mitad de una regla que depende de la fila.
+function valorDe(campo, r) {
+  if (_valores[campo.key] !== undefined) return _valores[campo.key];
+  return campo.inicial ? campo.inicial(r) : 1;
+}
+
+function maxDe(campo, r) {
+  return campo.max ? campo.max(r) : 99;
+}
+
+function renderAccionBar(p, cfg) {
+  p.bar.innerHTML = "";
+  const r = selectedRow();
+  const campos = cfg.barra || [];
+
+  if (!r || campos.length === 0) {
+    p.bar.classList.add("hidden");
+    return;
+  }
+  p.bar.classList.remove("hidden");
+
+  // Si el numero de campos cambio (o la pantalla cambio) el indice puede quedar
+  // apuntando afuera: se ajusta antes de dibujar.
+  if (_campoActivo >= campos.length) _campoActivo = 0;
+
+  const nombre = document.createElement("span");
+  nombre.className = "accionbar__item";
+  nombre.textContent = r.name;
+  p.bar.appendChild(nombre);
+
+  for (let i = 0; i < campos.length; i++) {
+    p.bar.appendChild(crearCampo(campos[i], r, i));
+  }
+
+  const acc = cfg.acciones || [];
+  for (const a of acc) {
+    if (a.aplica && !a.aplica(r, paneActual)) continue;
+    const b = document.createElement("button");
+    b.className = "btn accionbar__btn" + (a.principal ? " btn--primary" : "");
+    b.type = "button";
+    b.textContent = a.label(r, paneActual);
+    b.addEventListener("click", () => correrAccion(a, r));
+    p.bar.appendChild(b);
+  }
+}
+
+// Un campo: nombre, menos, el valor, mas. El menos y el mas son botones de
+// verdad y no una tecla porque el teclado va a los saltos (Tab, +/-, Enter) y el
+// mouse a apuntar y clickear, que es como se usa el panel.
+function crearCampo(campo, r, i) {
+  const box = document.createElement("span");
+  box.className = "accionbar__item" + (i === _campoActivo ? " accionbar__item--activo" : "");
+
+  const lab = document.createElement("span");
+  lab.className = "accionbar__label";
+  lab.textContent = campo.label;
+  box.appendChild(lab);
+
+  box.appendChild(pasoBoton(campo, r, -1));
+  const val = document.createElement("span");
+  val.className = "accionbar__valor";
+  val.textContent = campo.format ? campo.format(valorDe(campo, r)) : valorDe(campo, r);
+  box.appendChild(val);
+  box.appendChild(pasoBoton(campo, r, 1));
+
+  return box;
+}
+
+function pasoBoton(campo, r, dir) {
+  const b = document.createElement("button");
+  b.className = "accionbar__paso";
+  b.type = "button";
+  b.textContent = dir < 0 ? "−" : "+";
+  b.addEventListener("click", () => moverCampo(campo, dir));
+  return b;
+}
+
+// Mueve el campo activo. El recorte al maximo va en un solo lado —aca— porque
+// el mod recorta otra vez, y es el que manda: el maximo de la pagina es el del
+// snapshot, que puede tener hasta 400ms.
+function moverCampo(dir) {
+  const cfg = cfgDe(pantallaActual());
+  if (!cfg) return;
+  const campos = cfg.barra || [];
+  if (campos.length === 0) return;
+  const campo = campos[_campoActivo];
+  const r = selectedRow();
+  if (!campo || !r) return;
+
+  const paso = campo.step || 1;
+  let v = (valorDe(campo, r) || 0) + dir * paso;
+  v = Math.max(campo.min !== undefined ? campo.min : 0, Math.min(maxDe(campo, r), v));
+  _valores[campo.key] = v;
+  renderAccionBar(panelDe(pantallaActual()), cfg);
+}
+
+// Cambia el campo que mueven + y -.
+function rotarCampo(dir) {
+  const cfg = cfgDe(pantallaActual());
+  if (!cfg || (cfg.barra || []).length === 0) return;
+  const n = cfg.barra.length;
+  _campoActivo = (_campoActivo + dir + n) % n;
+  renderAccionBar(panelDe(pantallaActual()), cfg);
+}
+
+// Cambia de lista en las pantallas de dos panes. La nueva lista arranca con la
+// primera fila elegida: si no, la seleccion queda apuntando al indice que
+// tenia en la otra y el Enter actua sobre una fila que el jugador no ve.
+function cambiarPane(dir) {
+  const panes = (flowData && flowData.panes) || [];
+  if (panes.length < 2) return;
+  paneActual = (paneActual + dir + panes.length) % panes.length;
+  renderFlujo();
+  selectRow(0);
+}
+
+// Corre una accion. El comando lo arma la pantalla, con los valores de la barra
+// escritos: la pagina compone el payload y el mod lo valida.
+//
+// sobreFila marca las acciones que son de UNA fila (guardar, sacar, agregar,
+// ofrecer, recoger). Las del pie no lo son: pagan el carrito entero, que no es
+// ninguna fila, y llegan con r = null. Sin el flag, el que las escribe tendria
+// que acordarse de que esas no usan fila, y un dia alguien manda una de pie con
+// r = null y el comando sale con id undefined.
+function correrAccion(a, r) {
+  if (a.sobreFila && !r) {
+    _diag((typeof a.label === "function" ? a.label(r) : a.label) + ": no hay fila seleccionada");
+    return;
+  }
+  const payload = a.cmd(r, paneActual, _valores, valorDe);
+  if (!payload) {
+    _diag((typeof a.label === "function" ? a.label(r) : a.label) + ": " + (r ? r.name : "") + " no se puede hacer");
+    return;
+  }
+  const ok = emitCommand(payload);
+  _diag("cmd " + payload.cmd + (ok ? " enviado" : " rechazado"));
+}
+
+// ============================================================================
+// PANTALLAS - el registro de los cuatro menus de proximidad
+// ============================================================================
+//
+// Una entrada por menu. Todo lo que cambia entre ellos esta aca: que columnas
+// tiene la tabla, que campos tiene la barra, que comando dispara cada boton y
+// que teclas anuncia el pie. El render es el mismo de siempre.
+//
+// Que no esta aca, y por que:
+//   - las filas: las arma el mod (gsis_FlowSerialization.js). La pagina no
+//     consulta WEAPON_DATA ni el save, no los tiene.
+//   - los precios y los pesos: tambien son del mod, y el precio depende del
+//     markup de cada NPC.
+//   - los textos de vacio: tambien, porque son frases traducidas del juego.
+//
+//   titulo   el fallback si el snapshot no trajo titulo (todavia no llego)
+//   cols     las columnas, en el mismo formato que COLS_INVENTARIO
+//   barra    los campos de la barra de accion
+//   acciones los botones, en el orden en que se dibujan
+//   teclas   los keycaps del pie, con la letra que hace falta
+//
+// Los comandos van con prefijo del menu ("trunk:", "dealer:") y se despachan en
+// handleCommand() de gsis_WebInterface.js. La lista de un lado y del otro se
+// chequea con check_pantallas.mjs: es el contrato que mas se rompe en silencio.
+const PANTALLAS = {
+  // ---------------------------------------------------------------- BAUL --
+  // Las dos listas son los mismos items, asi que las columnas son las del
+  // inventario. Lo unico que cambia es el sentido del boton: guardar sale de la
+  // mochila y sacar sale del baul, y depende de que lista estas mirando.
+  trunk: {
+    titulo: "Baul",
+    cols: COLS_INVENTARIO,
+    barra: [{ key: "qty", label: "Cantidad", min: 1, step: 1, max: (r) => r.qty || 1 }],
+    acciones: [
+      {
+        principal: true,
+        sobreFila: true,
+        label: (r, pane) => (pane === 0 ? "Guardar en baul" : "Sacar a mochila"),
+        cmd: (r, pane) => (pane === 0
+          ? { cmd: "trunk:put", id: r.id, qty: qtyDe() }
+          : { cmd: "trunk:take", id: r.id, qty: qtyDe() })
+      }
+    ],
+    teclas: [
+      { tecla: "←→", texto: "Cambiar de lista" },
+      { tecla: "+−", texto: "Cantidad" },
+      { tecla: "Enter", texto: "Mover" }
+    ]
+  },
+
+  // ------------------------------------------------------------- ARMERIA --
+  // Catalogo con precio y cuanto hay ya en el carrito. La banda de grupo es la
+  // categoria del arma, asi que las columnas no son las del inventario: aqui
+  // "cant" no significa nada, el arma no se apila en un dealer.
+  //
+  // El carrito se paga desde el pie y no desde la barra: pagar no es una accion
+  // sobre la fila elegida sino sobre el carrito entero, que no es ninguna fila.
+  // Por eso pieAcciones vive aparte de acciones.
+  dealer: {
+    titulo: "Armeria",
+    cols: [
+      { kind: "icon" },
+      { kind: "name", text: "Arma" },
+      { text: "Precio", icon: "valor", cell: (r) => (r.precio != null ? "$" + r.precio : null) },
+      { text: "Carrito", icon: "cant", cell: (r) => r.enCarrito || null }
+    ],
+    barra: [{ key: "qty", label: "Cantidad", min: 1, step: 1, max: () => 99 }],
+    acciones: [
+      {
+        principal: true,
+        sobreFila: true,
+        label: () => "Agregar al carrito",
+        cmd: (r) => ({ cmd: "dealer:add", id: r.id, qty: qtyDe() })
+      }
+    ],
+    // El pie del menu. Sin este bloque el carrito se llenaba y no habia forma de
+    // cobrarlo desde la pagina: checkout() existia en el mod y nadie lo llamaba.
+    pieAcciones: [
+      { label: "Vaciar", cmd: () => ({ cmd: "dealer:cart:clear" }), tecla: "V" },
+      { label: "Pagar", cmd: () => ({ cmd: "dealer:checkout" }), tecla: "P", principal: true }
+    ],
+    teclas: [
+      { tecla: "+−", texto: "Cantidad" },
+      { tecla: "Enter", texto: "Agregar" },
+      { tecla: "V", texto: "Vaciar carrito" },
+      { tecla: "P", texto: "Pagar" }
+    ]
+  },
+
+  // ------------------------------------------------------------- TRUEQUE --
+  // El precio base y la oferta que estas poniendo por unidad. La oferta es el
+  // campo que se mueve con + y -, y arranca en el base: es lo unico que el
+  // jugador puede calcular sin que el NPC le diga nada.
+  seller: {
+    titulo: "Trueque",
+    cols: [
+      { kind: "icon" },
+      { kind: "name", text: "Arma" },
+      { text: "Base", icon: "valor", cell: (r) => (r.base != null ? "$" + r.base : null) },
+      { text: "Oferta", icon: "cant", cell: (r) => (r.oferta != null ? "$" + r.oferta : null) }
+    ],
+    barra: [
+      { key: "qty", label: "Cantidad", min: 1, step: 1, max: (r) => r.qty || 1 },
+      { key: "price", label: "Oferta", min: 0, step: 10, max: () => 99999, format: (v) => "$" + v }
+    ],
+    acciones: [
+      {
+        principal: true,
+        sobreFila: true,
+        label: () => "Ofrecer",
+        cmd: (r) => ({ cmd: "seller:offer", id: r.id, qty: qtyDe(), price: precioDe() })
+      }
+    ],
+    teclas: [
+      { tecla: "Tab", texto: "Elegir campo" },
+      { tecla: "+−", texto: "Subir/bajar" },
+      { tecla: "Enter", texto: "Ofrecer" }
+    ]
+  },
+
+  // -------------------------------------------------------------- RETIRO --  // Las lineas del pedido con lo que queda de cada una. El boton de segunda es
+  // "recoger todo", que es la unica accion que en el mod valida el peso ANTES de
+  // tocar nada (ver collectAll).
+  pickup: {
+    titulo: "Retiro",
+    cols: [
+      { kind: "icon" },
+      { kind: "name", text: "Pedido" },
+      { text: "Queda", icon: "cant", cell: (r) => (r.disponible != null ? r.disponible : null) },
+      { text: "Peso", icon: "peso", cell: (r) => (r.weight != null ? r.weight.toFixed(1) : null) }
+    ],
+    barra: [{ key: "qty", label: "Cantidad", min: 1, step: 1, max: (r) => r.disponible || r.qty || 1 }],
+    acciones: [
+      {
+        principal: true,
+        sobreFila: true,
+        label: () => "Recoger",
+        cmd: (r) => ({ cmd: "pickup:take", id: r.id, qty: qtyDe() })
+      }
+    ],
+    // "Recoger todo" no es de una fila: es del pedido entero, asi que va en el
+    // pie y no en la barra. Es la unica accion del mod que valida el peso del
+    // pedido COMPLETO antes de tocar nada (ver collectAll), asi que tiene que
+    // estar a un clic, no escondida en el menu de una fila.
+    pieAcciones: [
+      { label: "Recoger todo", cmd: () => ({ cmd: "pickup:takeAll" }), tecla: "A", principal: true }
+    ],
+    teclas: [
+      { tecla: "+−", texto: "Cantidad" },
+      { tecla: "Enter", texto: "Recoger" },
+      { tecla: "A", texto: "Recoger todo" }
+    ]
+  }
+};
+
+// Los valores de la barra se leen por nombre, no por indice: el comando dice
+// "qty" y "price" y no tiene que saber en que orden estan los campos ni cual
+// esta activo. Un valor sin escribir es 1 unidad y oferta 0, que es lo que el
+// comando espera cuando el jugador no toco nada.
+function qtyDe() {
+  return Math.max(1, parseInt(_valores.qty, 10) || 1);
+}
+
+function precioDe() {
+  return Math.max(0, parseInt(_valores.price, 10) || 0);
+}
+
+// Los valores que el jugador todavia no confirmó son de UNA pantalla. Al cambiar
+// de menu se limpian: quedarse con "3 unidades" de la armeria al abrir el baul
+// haria guardar 3 cosas de la primera fila sin que nadie lo pidiera.
+function limpiarBarra(id) {
+  if (_barraDe === id) return;
+  _barraDe = id;
+  _valores.qty = undefined;
+  _valores.price = undefined;
+  _campoActivo = 0;
+}
+
+let _barraDe = null;
 
 // ----------------------------------------------------------- TECLADO & EVENTOS --
 
 tabsBox.addEventListener("click", (e) => {
-  const btn = e.target.closest("[data-tab]");
-  if (btn && btn.dataset.tab) {
-    renderTab(btn.dataset.tab);
+  const btn = e.target.closest("[data-filter]");
+  if (btn && btn.dataset.filter) {
+    renderFiltro(btn.dataset.filter);
   }
 });
 
-navPrev.addEventListener("click", () => switchTab(-1));
-navNext.addEventListener("click", () => switchTab(1));
+// X: la tecla que el pie anuncia. Apretar equipa la fila elegida, mantener
+// apretado tira una unidad. El umbral decide al soltar, no al apretar, para no
+// tirar un item porque el click se lingerio un frame.
+//
+// Los dos keycaps del pie hacen lo mismo con un click: son la misma accion
+// escrita de dos formas, y el keycap es el que el jugador ve.
+const HOLD_MS = 600;
+let _xDownAt = 0;
+let _xFired = false;
 
-document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") {
-    hideTutorial();
+// La fila elegida es la de la vista que se esta mirando: con un flujo abierto
+// es la del pane activo, y sin flujo la del inventario filtrado. selectedRow() no
+// sabe de donde sale, usa vistaDe().
+function selectedRow() {
+  const vista = vistaDe();
+  if (vista.length === 0) return null;
+  return vista[selectedIndex] || null;
+}
+
+function doAction(what) {
+  const r = selectedRow();
+  if (!r) {
+    _diag(what + ": no hay fila seleccionada");
+    return false;
+  }
+  const payload = actionFor(r, what);
+  if (!payload) {
+    _diag(what + ": " + r.name + " no admite esa accion");
+    return false;
+  }
+  return emitCommand(payload);
+}
+
+function wireKeycaps() {
+  const equip = document.querySelector('[data-action="equip"]');
+  const drop = document.querySelector('[data-action="drop"]');
+  if (equip) {
+    equip.addEventListener("click", () => doAction("equip"));
+  }
+  if (drop) {
+    drop.addEventListener("click", () => doAction("drop"));
+  }
+}
+
+// ------------------------------------------------------- MENU CONTEXTUAL --
+//
+// El click derecho sobre una fila abre el menu en el cursor. Es la MISMA accion
+// que la tecla X y los keycaps: las tres caminos llaman a runAccion() con el id
+// del registro ACCIONES, asi que este bloque no sabe que existe "Tirar" ni
+// "Equipar" — arma lo que el registro diga que aplica a esa fila.
+//
+// Delegado sobre #rows y no por fila: la tabla se rearma en cada cambio de
+// filtro y en cada snapshot del mod, asi que un listener por fila habria que
+// rebatirlo en cada render. Con delegacion el listener se ata una vez.
+const ctxEl = document.getElementById("ctxmenu");
+let _ctxRow = null;
+
+// Busca la fila a la que pertenece un elemento del DOM. La tabla se rearma
+// seguido, asi que no conviene guardar el elemento: se sube hasta el
+// .table__row del evento y se lo localiza dentro de la vista filtrada por
+// identidad de elemento.
+function filaDe(target) {
+  const el = target && target.closest ? target.closest(".table__row") : null;
+  if (!el) return null;
+  return viewFiltrada.find((r) => r.el === el) || null;
+}
+
+function cerrarCtxMenu() {
+  if (!ctxEl || ctxEl.hidden) return;
+  ctxEl.hidden = true;
+  ctxEl.innerHTML = "";
+  _ctxRow = null;
+}
+
+function abrirCtxMenu(x, y, r) {
+  if (!ctxEl) return;
+  const items = ACCIONES.filter((a) => a.aplica(r));
+
+  // Sin acciones para esta fila no se abre nada. Un menu con un solo renglon
+  // "-- Sin acciones --" es ruido: la X tampoco hace nada en ese caso.
+  if (items.length === 0) {
+    _diag(r.name + ": no tiene acciones");
     return;
   }
+
+  ctxEl.innerHTML = "";
+
+  const head = document.createElement("div");
+  head.className = "ctxmenu__head";
+  head.textContent = r.name;
+  ctxEl.appendChild(head);
+
+  for (const a of items) {
+    if (a.sep) {
+      const sep = document.createElement("div");
+      sep.className = "ctxmenu__sep";
+      ctxEl.appendChild(sep);
+    }
+    const b = document.createElement("button");
+    b.className = "ctxmenu__item";
+    b.type = "button";
+    b.setAttribute("role", "menuitem");
+    b.textContent = typeof a.label === "function" ? a.label(r) : a.label;
+    b.addEventListener("click", () => {
+      const fila = _ctxRow;
+      cerrarCtxMenu();
+      if (fila) runAccion(a.id, fila);
+    });
+    ctxEl.appendChild(b);
+  }
+
+  _ctxRow = r;
+  // hidden=false ANTES de medir: offsetWidth es 0 con el menu oculto, y sin las
+  // medidas no se puede saber si hay que corrido.
+  ctxEl.hidden = false;
+
+  // Ajuste al borde. Se mide recien insertado y se corre lo que sobre, primero
+  // en horizontal y despues en vertical. El menu pegado al borde se ve mejor que
+  // cortado: la fila esta siempre en el mismo lugar, el menu es lo que cede.
+  const mw = ctxEl.offsetWidth;
+  const mh = ctxEl.offsetHeight;
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  let px = x;
+  let py = y;
+  if (px + mw > vw) px = Math.max(0, x - mw);
+  if (py + mh > vh) py = Math.max(0, y - mh);
+  ctxEl.style.left = px + "px";
+  ctxEl.style.top = py + "px";
+}
+
+if (rowsBox) {
+  rowsBox.addEventListener("contextmenu", (e) => {
+    const r = filaDe(e.target);
+    if (!r) return;
+    // preventDefault antes de cualquier cosa: sin esto CEF saca su menu propio
+    // y se ven los dos.
+    e.preventDefault();
+    // El click derecho tambien selecciona: la accion es sobre la fila que se
+    // toco, no sobre la que estaba elegida de antes.
+    const idx = viewFiltrada.indexOf(r);
+    if (idx !== -1) selectRow(idx);
+    abrirCtxMenu(e.clientX, e.clientY, r);
+  });
+
+  // Click en cualquier otro lado cierra. Va en document y no en #rows a
+  // proposito: el menu vive en body, asi que un listener en #rows no lo veria.
+  // No hace falta la fase de captura: los items del menu cierran solos en su
+  // click, y el mousedown de document corre antes del click, no despues.
+  document.addEventListener("mousedown", (e) => {
+    if (ctxEl && !ctxEl.hidden && !ctxEl.contains(e.target)) {
+      cerrarCtxMenu();
+    }
+  });
+}
+
+// Sin puente (preview en un navegador) el teclado tiene que andar igual, asi que
+// el bail-out de abajo solo corta cuando hay puente y el mod dijo que la pagina
+// NO esta recibiendo teclas.
+function tecladoEnLaPagina() {
+  if (!bridgeReady) return true;
+  return uiState.keys;
+}
+
+document.addEventListener("keydown", (e) => {
+  // Si el WndProc no esta mandando las teclas aca, este keydown no vino de una
+  // pulsacion del jugador: es un evento del navegador sin contraparte. Antes el
+  // handler corria igual y, con el panel oculto, cambiaba la seleccion y
+  // disparaba acciones en silencio.
+  if (!tecladoEnLaPagina()) {
+    return;
+  }
+
+  // Escape cierra el menu. Con el menu contextual abierto se queda el y lo
+  // cierra; si no, pide el cierre.
+  //
+  // El cierre lo pide la pagina con "ui:close" y no lo hace el mod detectando la
+  // tecla, porque cuando la pagina se queda con el teclado el WndProc la
+  // consume (hace return 0) y el juego nunca la ve. Ese camino de vuelta no
+  // depende del input, asi que anda siempre. Ver gsis_Input.js.
+  //
+  // "ui:close" es un solo comando para las dos cosas: el mod cierra el flujo
+  // si hay uno y, si no, el panel. La pagina no tiene que saber cual era.
+  if (e.key === "Escape") {
+    e.preventDefault();
+    if (ctxEl && !ctxEl.hidden) {
+      e.stopPropagation();
+      cerrarCtxMenu();
+    } else {
+      emitCommand({ cmd: "ui:close" });
+    }
+    return;
+  }
+
+  // La I abre y cierra. Mismo camino que el Escape, mismo motivo: con el teclado
+  // en la pagina, el mod no puede ver la tecla. Con un flujo abierto el mod la
+  // ignora: el menu de proximidad tiene la pantalla.
+  if (e.key.toLowerCase() === "i") {
+    e.preventDefault();
+    emitCommand({ cmd: "ui:toggle" });
+    return;
+  }
+
+  // Con el menu abierto el teclado de fila no corre: se eligio una accion
+  // apuntando, no moviendo la seleccion. Sin este return, abrir el menu con el
+  // click derecho y despues mover las flechas cambiaba la fila escondida detras
+  // del menu y la accion iba a caer sobre otra.
+  if (ctxEl && !ctxEl.hidden) return;
+
+  // Que pantalla es la que esta tomando las teclas. Aca se decide todo lo que
+  // sigue: con un flujo abierto las flechas horizontales cambian de lista y la
+  // barra de accion manda; sin flujo, los filtros y equipar/tirar.
+  const flow = pantallaActual();
+  const cfg = flow ? cfgDe(flow) : null;
+  const vista = vistaDe();
+
   if (e.key === "ArrowDown") {
     e.preventDefault();
     stepRow(1);
   } else if (e.key === "ArrowUp") {
     e.preventDefault();
     stepRow(-1);
-  } else if (e.key === "Enter") {
-    e.preventDefault();
-    const rows = stateMap[currentTab];
-    if (rows && rows[selectedIndex]) {
-      showTutorial(rows[selectedIndex]);
-    }
   } else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
     e.preventDefault();
-    switchTab(e.key === "ArrowRight" ? 1 : -1);
-  } else if (e.key.toLowerCase() === "q" || e.key.toLowerCase() === "e") {
+    const dir = e.key === "ArrowRight" ? 1 : -1;
+    // Con dos listas, izquierda y derecha cambian de lista; es el mismo gesto
+    // horizontal del inventario (donde cambian de filtro) para el mismo
+    // proposito. Con un solo pane no hay a que moverse y la tecla no hace nada.
+    if (cfg) cambiarPane(dir);
+    else cambiarFiltro(dir);
+  } else if (e.key === "Home") {
     e.preventDefault();
-    switchTab(e.key.toLowerCase() === "e" ? 1 : -1);
+    selectRow(0);
+  } else if (e.key === "End") {
+    e.preventDefault();
+    selectRow(vista.length - 1);
+  } else if (e.key === "PageDown" || e.key === "PageUp") {
+    // Una "pagina" es lo que entra en la caja, no el alto entero: scrollear
+    // media pantalla de golpe es lo que hace el navegador con la rueda, y es lo
+    // unico que el jugador ya conoce.
+    e.preventDefault();
+    const alto = cajaDeScroll() ? cajaDeScroll().clientHeight : 300;
+    const paso = Math.max(1, Math.floor(alto / 48));
+    selectRow(selectedIndex + (e.key === "PageDown" ? paso : -paso));
+  } else if (e.key === "Tab" && cfg) {
+    // Tab recorre los campos de la barra. Con un solo campo no hace nada y no
+    // se come la tecla: el tabulador del navegador no tiene a donde ir porque no
+    // hay inputs, pero dejarlo pasar no rompe nada.
+    e.preventDefault();
+    rotarCampo(e.shiftKey ? -1 : 1);
+  } else if (cfg && (e.key === "+" || e.key === "=")) {
+    e.preventDefault();
+    moverCampo(1);
+  } else if (cfg && (e.key === "-" || e.key === "_")) {
+    e.preventDefault();
+    moverCampo(-1);
+  } else if (e.key === "Enter") {
+    // Con un flujo, Enter es la accion principal de la barra. Sin flujo, confirma
+    // con la misma regla que la X: si el item tiene accion de equipar, esa; si
+    // no, nada. Tirar sigue siendo solo con mantener la X, para que un Enter de
+    // confirmacion no borre nada por sorpresa.
+    e.preventDefault();
+    if (cfg) {
+      correrPrincipal(cfg);
+    } else {
+      const r = selectedRow();
+      if (r && actionFor(r, "equip")) {
+        doAction("equip");
+      } else if (r) {
+        _diag("Enter: " + r.name + " no tiene accion de equipar");
+      }
+    }
+  } else if (!cfg && (e.key.toLowerCase() === "q" || e.key.toLowerCase() === "e")) {
+    e.preventDefault();
+    cambiarFiltro(e.key.toLowerCase() === "e" ? 1 : -1);
+  } else if (cfg && (e.key.toLowerCase() === "a" || e.key.toLowerCase() === "v" || e.key.toLowerCase() === "p")) {
+    // Las letras de las acciones del pie. Cada pantalla declara las suyas en
+    // pieAcciones y el pie las anuncia, asi que aca no hay una tecla fija por
+    // accion: se busca la que coincide y, si la pantalla no la tiene, no pasa
+    // nada. Con eso, agregar una accion al carrito no obliga a tocar el teclado.
+    const letra = e.key.toLowerCase();
+    const a = (cfg.pieAcciones || []).find((x) => (x.tecla || "").toLowerCase() === letra);
+    if (a) {
+      e.preventDefault();
+      correrAccion(a, null);
+    } else {
+      _diag("letra " + letra + ": " + flow + " no la tiene asignada");
+    }
+  } else if (e.key.toLowerCase() === "x" && !e.repeat) {
+    // La X es la accion principal en las dos familias. En el inventario tiene
+    // ademas el "tirar al soltar", que aca no existe: ninguno de los cuatro menus
+    // borra nada, asi que no hay nada que decidir al soltar.
+    if (cfg) {
+      e.preventDefault();
+      correrPrincipal(cfg);
+      return;
+    }
+    const r = selectedRow();
+    if (!r) return;
+    e.preventDefault();
+    _xDownAt = performance.now();
+    _xFired = false;
+
+    // Que la X haga algo al apretar depende del item: un cargador va al
+    // cinturon, un arma se equipa, un material no tiene accion. Si no hay
+    // accion al apretar, la X queda reservada para "tirar" al soltar.
+    if (actionFor(r, "equip")) {
+      _xFired = true;
+      doAction("equip");
+    } else {
+      _diag("X: " + r.name + " no tiene accion de equipar");
+    }
   }
 });
 
-// Con el teclado apagado el click NO marca foco: mostrar "HACE CLICK" mientras
-// el teclado sigue OFF seria mentira, porque el click no cambia nada del lado
-// del input. El aviso de F12 tiene que seguir ahi.
-document.addEventListener("mousedown", () => {
-  if (!bridgeReady || !inputOn) {
+// La caja con scroll de lo que se esta mirando. El PageUp/Down mide esta, y con
+// un flujo abierto no es #rows sino el pane activo.
+function cajaDeScroll() {
+  if (!pantallaActual()) return rowsBox;
+  const p = _paneles[pantallaActual()];
+  if (!p) return rowsBox;
+  const activa = p.panes.children[paneActual];
+  return activa ? activa.querySelector(".pane__rows") : rowsBox;
+}
+
+function correrPrincipal(cfg) {
+  const r = selectedRow();
+  const a = (cfg.acciones || []).find((x) => x.principal);
+  if (!a) {
+    _diag("pantalla sin accion principal");
     return;
   }
-  focused = true;
+  correrAccion(a, r);
+}
+
+document.addEventListener("keyup", (e) => {
+  if (e.key.toLowerCase() !== "x" || _xFired) {
+    return;
+  }
+  // Con un flujo abierto, la X ya fired al apretar (la accion principal) y no hay
+  // nada que decidir al soltar. Sin este return, un keyup suelto caeria en el
+  // "tirar" del inventario con el panel de flujo abierto.
+  if (pantallaActual()) {
+    return;
+  }
+  // Si el menu se abrio entre el apretar y el soltar, la X ya no esta deciding
+  // nada: se cancela el "tirar por mantener" para que no caiga una accion que
+  // el jugador ya no esta pidiendo.
+  if (ctxEl && !ctxEl.hidden) {
+    _xFired = true;
+    return;
+  }
+  // Solo hay que decidir tirar si la X se mantuvo y todavia no se uso.
+  //
+  // La guarda de _xDownAt es lo que evita que un keyup sin keydown borre un item.
+  // El que decide tirar es el keyup, asi que si llega uno solo, no hay nada que
+  // decidir. Sin guarda, el 0 inicial de _xDownAt hacia que la cuenta fuera
+  // "ahora menos 0" — el tiempo de vida de la pagina, siempre mayor que
+  // HOLD_MS. Con la X ya mantenida al abrir el menu, todos los keydown llegan con
+  // repeat y el !e.repeat del keydown los descarta, con lo que _xDownAt queda en
+  // ese 0 y al soltar la X se borraba un item. Es la unica accion del panel que
+  // no se puede deshacer.
+  if (_xDownAt === 0) {
+    return;
+  }
+  if (performance.now() - _xDownAt >= HOLD_MS) {
+    _xFired = true;
+    _xDownAt = 0;
+    doAction("drop");
+  }
+});
+
+// El click ya no marca foco: no hay nada que marcar. Antes ponia `focused = true`
+// y eso alimentaba un aviso que pedia hacer click, sobre una bandera que la
+// pagina no puede leer. El WndProc ya toma el foco de CEF solo cuando el puntero
+// pasa por encima de la UI (Main.cpp, SendMouseToUi), asi que el click no cambia
+// nada del lado del input. Se deja el listener solo para que el estado se
+// re-loguee cuando el jugador interactua, que es cuando el diagnostico sirve.
+document.addEventListener("mousedown", () => {
+  if (!bridgeReady) {
+    return;
+  }
   logState();
 });
 
@@ -790,27 +2329,40 @@ if (window.SAWeb) {
       // antes de los scripts de la pagina — pero si pasa, que no queden items
       // falsos en pantalla.
       if (dropMock()) {
-        renderTab(currentTab);
+        renderFiltro(filtroActualKey);
       }
 
-      // El script avisa si el input de la UI quedo prendido o apagado (prende lo
-      // mismo que el cursor, con F12). Es la unica fuente de verdad aca.
-      if (name === "input" && data && typeof data.enabled === "boolean") {
-        inputOn = data.enabled;
-        // Al prender el teclado hay que volver a pedir foco con un click: el
-        // click anterior pudo haber ocurrido con el teclado apagado.
-        if (inputOn) {
-          focused = false;
-        }
-      }
-
-      // Aca el bridge toma el control de la visibilidad. Mientras no llegue un
-      // "panels" la pagina se queda como esta: visible. Por eso el arranque en
-      // preview y el apagado son el mismo mecanismo.
-      if (name === "panels" && data && typeof data.menu === "boolean") {
-        setPanelVisible(data.menu);
-        if (data.menu) {
-          _diag("menú abierto — esperando inventario");
+      // "uistate" reemplaza a "input" y "panels". Trae las tres cosas que antes
+      // la pagina armaba sola —menu visible, teclado en la pagina, foco— con la
+      // diferencia que importa: "menu visible" y "la pagina tiene el teclado" son
+      // cosas distintas, y la segunda es la que decide si el keydown de abajo
+      // representa algo.
+      if (name === "uistate" && data) {
+        uiState = {
+          read: data.read === true,
+          menu: data.menu === true,
+          anyMenu: data.anyMenu === true,
+          keys: data.keys === true,
+          mode: typeof data.mode === "number" ? data.mode : 0,
+          focus: typeof data.focus === "string" ? data.focus : "",
+          openUis: typeof data.openUis === "number" ? data.openUis : 0,
+          flow: typeof data.flow === "string" ? data.flow : ""
+        };
+        // El bridge toma el control de la visibilidad. Mientras no llegue un
+        // "uistate" la pagina se queda como esta: visible. Por eso el arranque en
+        // preview y el apagado son el mismo mecanismo.
+        setPanelVisible(uiState.menu);
+        // flow decide QUE panel se ve, y hay exactamente uno.
+        //
+        // REGLA 1 (ver gsis_WebInterface.js): el mod ya garantiza la exclusion, asi
+        // que aca no hay nada que decidir — con flow llega el id del menu de
+        // proximidad y el inventario se apaga; con flow vacio se ve el inventario.
+        // Los dos jamas vienen juntos, y por eso la linea se puede leer como una
+        // regla y no como una preferencia: si flow y menu llegan con algo abierto,
+        // el mod esta roto y esta pagina no lo puede arreglar.
+        setPantalla(uiState.menu ? uiState.flow : "");
+        if (uiState.menu) {
+          _diag(uiState.flow ? ("menú " + uiState.flow + " abierto") : "menú abierto — esperando inventario");
         }
       }
 
@@ -820,34 +2372,37 @@ if (window.SAWeb) {
         armarInventario(data);
       }
 
-      if (name === "ping") {
-        window.SAWeb.emit("pong", { at: Date.now() });
+      // El panel de flujo llega en "screen", tambien troceado. Va aparte del
+      // inventario porque son dos paneles que no se ven al mismo tiempo, y
+      // mezclar los dos en un solo canal seria mandar el snapshot de la pantalla
+      // que no se esta mirando.
+      if (name === "screen") {
+        const sc = ensamblar("screen", data);
+        if (sc) {
+          flowData = sc;
+          renderFlujo();
+        }
+      } else if (name === "catalog") {
+        // Los datos estaticos llegan troceados, una sola vez, al abrir el menu.
+        // Aplicarlos puede cambiar como se ve la tabla que ya esta en pantalla
+        // (iconos que faltaban, el peso maximo del subtitulo), asi que redibuja.
+        // Solo se diagnostica el ultimo trozo: loguear los 12 intermedios es ruido.
+        const cat = ensamblar("catalog", data);
+        if (cat) {
+          applyCatalog(cat);
+          // El catalogo trae las bandas y los iconos de las filas, asi que
+          // hay que redibujar: sin esto las filas ya dibujadas quedan con los
+          // iconos del catalogo anterior.
+          renderFiltro(filtroActualKey);
+          _diag("catálogo: " + catalog.cats.length + " bandas, " +
+            Object.keys(catalog.icons).length + " iconos, max " + maxWeight + " kg");
+        }
+      } else {
+        logState();
+        console.log("[GSIS] [in] " + name + " " + fmt(jsonable(data)));
       }
-
-      logState();
-      logEvent(name + " " + fmt(jsonable(data)), true);
     });
   }
-}
-
-// -------------------------------------------------------------------- FRAME --
-
-let frames = 0;
-let fpsAt = performance.now();
-
-function tick() {
-  frames++;
-
-  const now = performance.now();
-  if (now - fpsAt >= 1000) {
-    lastEmitAt = now;
-    frames = 0;
-    fpsAt = now;
-  }
-}
-
-if (window.SAWeb) {
-  window.SAWeb.tick = tick;
 }
 
 // --------------------------------------------------------------------- INIT --
@@ -858,7 +2413,9 @@ if (!bridgeReady) {
   applyMock();
 }
 
-renderTab("inventory");
+wireKeycaps();
+
+renderFiltro(FILTRO_INICIAL);
 logState();
 
 // Arranca CERRADO si hay puente. Antes arrancaba visible y esperaba al "panels"
@@ -871,14 +2428,27 @@ logState();
 // sirve para revisar el diseno a ojo.
 setPanelVisible(!bridgeReady);
 
+// El preview muestra un menu de proximidad, no el inventario: es el estado que
+// no se puede ver de otra forma, porque en el juego se abre parandote al lado
+// del baul o del dealer. Con ?flujo=<id> se cambia cual se mira. Ver applyMock().
+if (!bridgeReady) {
+  setPantalla(mockFlowId());
+  renderFlujo();
+  _diag("preview: menu de ejemplo '" + mockFlowId() + "' (?flujo=trunk|dealer|seller|pickup)");
+}
+
 if (bridgeReady) {
   _diag("conectado al mod — apretá I");
 }
 
-// El mod NO puede recibir eventos, asi que la pagina no manda nada: no hay
-// "ready", no hay "cmd", no hay "inv:get". Todo es de una sola via: el mod
-// empuja "panels" e "inv" y la pagina reacciona. Ver gsis_WebBridge.js.
+// El mod NO puede recibir EVENTOS de CLEO, asi que no hay "ready" ni listeners
+// del lado del script. Lo que si hay es el otro extremo del transporte: la
+// pagina escribe en la cola de la ASI con emit("cmd:<algo>") y el mod la lee con
+// SAWeb_PollCommand una vez por frame. Ver "ACCIONES" en gsis_WebInterface.js.
 //
-// Las acciones (equipar, cinturon) NO funcionan: no hay canal de vuelta de la
-// pagina al mod. El inventario es de solo lectura. Ver "ACCIONES" en
-// gsis_WebBridge.js.
+// Por ahi van las acciones (equipar, cinturon, tirar) y tambien ui:close y
+// ui:toggle. Los ultimos dos estan ahi por una razon concreta: cuando la pagina
+// se queda con el teclado, el WndProc la consume y el juego no ve la tecla, con
+// lo que el mod no puede cerrar su propio menu detectando ESC o la I. Ese canal
+// no depende del input, asi que funciona siempre.
+

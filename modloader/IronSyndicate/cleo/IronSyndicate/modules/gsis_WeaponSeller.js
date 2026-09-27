@@ -5,18 +5,25 @@
 // ============================================================================
 // GSIS WeaponSeller - Punto de venta (trueque con NPC)
 // ============================================================================
-// N esferas (data/gsis_spot_data → seller) + tecla F abre menu trueque (ui/gsis_SellMenu.js)
+// N esferas (data/gsis_spot_data → seller) + tecla F abre menu trueque
 // Estado POR characterId (spot.characterId → CHARACTERS): cada NPC tiene
 // intereses/budget/techo propios (ch.seller en character_data, opcional).
 // Techo = sellPrice + rand del rango del personaje (o default 50-450 / 0-150)
 // Regenera solo al cumplir interes (budget bajo o N ventas del interes)
-// La UI orquesta removeItem/addScore (modulos no importan entre si)
-// Depende de: Config, ModuleRegistry, weapon_data, character_data, SpotRuntime
+// La oferta la orquesta doOffer() mas abajo, en este archivo: offerWeapon()
+// sola evalua, y el que saca el item, paga y hace hablar al NPC es el modulo.
+// Depende de: ModuleRegistry, Input, weapon_data, character_data, SpotRuntime,
+//             Items, L10n, Notice
 // ============================================================================
 
 import { register } from "../core/gsis_ModuleRegistry.js";
+import { registerMenuSource } from "../core/gsis_Input.js";
+import { t } from "../core/gsis_L10n.js";
+import { setNotice } from "../core/gsis_Notice.js";
+import { emit } from "../core/gsis_EventBus.js";
 import { getSellPrice, WEAPON_DATA } from "../data/gsis_weapon_data.js";
 import { getCharacter } from "../data/gsis_character_data.js";
+import { getItems, removeItem, isInstanced } from "./gsis_Items.js";
 import {
     createSpotGate, updateSpotGate, createSpotSpheres, updateSpotFKeySpot
 } from "../core/gsis_SpotRuntime.js";
@@ -41,7 +48,10 @@ function _defaultState() {
         fulfilled: false,
         minSellInterest: 0,
         techoInterest: [50, 450],
-        techoBase: [0, 150]
+        techoBase: [0, 150],
+        // Si el comprador ya escucho UNA oferta. El presupuesto se esconde hasta
+        // que pasa: ver getSellState().
+        offered: false
     };
 }
 
@@ -72,11 +82,17 @@ export function getActiveCharacterId() {
     return _activeCharId || DEFAULT_CHAR;
 }
 
+// El estado que ve la pagina. El presupuesto viene null hasta que el jugador
+// hizo su primera oferta: no es un detalle de la pagina, es la regla del juego
+// (el NPC no muestra la plata antes de que le digas cuanto queres), asi que el
+// gate va aca y no en la pagina. Si el gate fuera de la pagina, el dato viaja en
+// el snapshot y cualquiera que lea el log del bridge lo ve igual.
 export function getSellState() {
     var st = _activeState();
     return {
         interests: st.interests.slice(),
-        budget: st.budget,
+        budget: st.offered ? st.budget : null,
+        offered: st.offered,
         fulfilled: st.fulfilled
     };
 }
@@ -168,6 +184,75 @@ export function offerWeapon(itemId, qty, unitPrice) {
         ok: true, total: total, interest: isInterest,
         msgKey: "SEL_A1", msgParams: { n: total }
     };
+}
+
+// La oferta del jugador. Es la orquestacion que vivia en el ui/gsis_SellMenu.js:
+// offerWeapon() solo EVALUA (y descuenta del presupuesto del NPC si acepta), asi
+// que el que mete el item en la mochila, le paga al jugador y le hace hablar al
+// NPC es este.
+//
+// El orden es el que importa: primero que el jugador tenga la cantidad, despues
+// la evaluacion, y solo si acepto se saca el item y se paga. Al reves, un NPC que
+// acepta un item que el jugador no tiene deja plata regalada.
+export function doOffer(itemId, qty, unitPrice) {
+    qty = Math.max(1, parseInt(qty, 10) || 1);
+    unitPrice = Math.max(0, Math.round(Number(unitPrice) || 0));
+
+    var owned = _ownedQty(itemId);
+    if (owned < qty) {
+        setNotice(t("SEL_NOQ"));
+        return false;
+    }
+
+    // La oferta escuchada abre el presupuesto. Va antes de evaluar para que
+    //idgetre el rechazo por caro: el jugador ya sabe cuanto tiene el NPC.
+    _activeState().offered = true;
+
+    var res = offerWeapon(itemId, qty, unitPrice);
+    _say(res.msgKey, res.msgParams);
+    setNotice(t(res.msgKey, res.msgParams));
+
+    if (!res.ok) return false;
+
+    // removeItem es el que valida el peso: si no entra despues de haber aceptado
+    // el NPC, el aviso es el del modulo y el item no sale de la mochila.
+    if (!removeItem(itemId, qty)) {
+        setNotice(t("SEL_ERR"));
+        return false;
+    }
+    try {
+        new Player(0).addScore(res.total);
+    } catch (e) {
+        log("[WeaponSeller] no se pudo pagar: " + e.message);
+        return false;
+    }
+    return true;
+}
+
+// El NPC habla con su tema de dialogo (00BB con nombre), que es distinto del
+// texto de la pagina. Los dos caminos usan la misma key.
+function _say(key, params) {
+    try {
+        emit("characters:say", {
+            characterId: getActiveCharacterId(),
+            key: key,
+            params: params || null,
+            ms: 3000,
+            replace: true
+        });
+    } catch (e) { }
+}
+
+// Cuantas unidades tiene el jugador de ese id. Los instanciados (todas las armas
+// con weaponId) valen 1 por fila; el resto se apila y suma qty.
+function _ownedQty(itemId) {
+    var items = getItems();
+    var n = 0;
+    for (var i = 0; i < items.length; i++) {
+        if (items[i].id !== itemId) continue;
+        n += isInstanced(itemId) ? 1 : (items[i].qty || 1);
+    }
+    return n;
 }
 
 // ============================================================================
@@ -309,6 +394,7 @@ function _checkFulfilled(st) {
 
 function initWeaponSeller() {
     log("[GSIS] WeaponSeller: esferas pendientes (esperar exterior)");
+    registerMenuSource("seller", function () { return _showSellMenu; });
 }
 
 function updateWeaponSellerModule(now) {

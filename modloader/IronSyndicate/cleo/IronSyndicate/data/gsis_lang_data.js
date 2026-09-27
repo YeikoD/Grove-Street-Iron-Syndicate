@@ -221,7 +221,7 @@ export var STRINGS = {
         en: "~g~Deal, that price works for me! (+${n})"
     },
 
-    // --- UI comun (ImGui, sin codigos ~) ---
+    // --- UI comun (sin codigos ~) ---
     BTN_CLS: { es: "Cerrar", en: "Close" },
     BTN_BUY: { es: "Comprar", en: "Buy" },
     BTN_RST: { es: "RESETEAR", en: "RESET" },
@@ -240,6 +240,13 @@ export var STRINGS = {
     CAT_WPN: { es: "Armas", en: "Weapons" },
     CAT_MAT: { es: "Materiales", en: "Materials" },
     CAT_MAG: { es: "Cargadores", en: "Magazines" },
+
+    // Como se cierra un menu de proximidad. Va en el subtitulo de los cuatro, y
+    // no es opcional: sin el el jugador no tiene como enterarse de que puede
+    // alejarse. El panel se abre al tocar la esfera y el pointer puede haber
+    // quedado encima, y con el pointer encima las teclas son de la pagina —o sea
+    // que no puede caminar hasta sacarlo de ahi.
+    MENU_HNT: { es: "Alejate para cerrar el menu", en: "Walk away to close" },
 
     // --- UI Inventario ---
     GSIS_MENU: { es: "Grove Street Iron Syndicate", en: "Grove Street Iron Syndicate" },
@@ -281,23 +288,33 @@ export var STRINGS = {
     // --- UI Dealer ---
     DLR_TTL: { es: "Armeria Mayorista", en: "Wholesale Arms" },
     DLR_TOT: { es: "Total carrito: ${n}", en: "Cart total: ${n}" },
+    DLR_CAT: { es: "Catalogo", en: "Catalog" },
+    DLR_DIN: { es: "Tu dinero: ${n}", en: "Your money: ${n}" },
+    DLR_NON: { es: "Este vendedor no tiene nada en el catalogo", en: "This seller has nothing in the catalog" },
     CRT_UI: { es: "Carrito vacio", en: "Cart empty" },
 
     // --- UI Baul ---
     TRK_TTL: { es: "Baul - {name} ({model})", en: "Trunk - {name} ({model})" },
     TRK_L: { es: "Baul: {w}/{max} kg", en: "Trunk: {w}/{max} kg" },
     TRK_H: { es: "BAUL", en: "TRUNK" },
+    TRK_MOC: { es: "MOCHILA", en: "BACKPACK" },
     TRK_EMI: { es: "(inventario vacio)", en: "(inventory empty)" },
     TRK_EMB: { es: "(baul vacio)", en: "(trunk empty)" },
-    TRK_HNT: { es: "B: menu | 3: cerrar baul | Alejarse cierra el menu", en: "B: menu | 3: close trunk | Moving away closes menu" },
+    TRK_HNT: { es: "B: menu | 3: cerrar baul", en: "B: menu | 3: close trunk" },
 
     // --- UI Retiro ---
     PKC_TTL: { es: "Retiro de pedido", en: "Order pickup" },
     PKC_ORD: { es: "Pedido: ${n}  |  Peso: {w} kg", en: "Order: ${n}  |  Weight: {w} kg" },
+    PKC_LIN: { es: "Lineas del pedido", en: "Order lines" },
+    PKC_LIB: { es: "Libre en mochila: {free} kg", en: "Backpack free: {free} kg" },
+    PKC_NON: { es: "No hay pedido para recoger", en: "No order to collect" },
 
     // --- UI Trueque ---
     SEL_TTL: { es: "Trueque — Cliente local", en: "Trade — Local client" },
     SEL_BUS: { es: "Busca hoy: {list}", en: "Looking for today: {list}" },
     SEL_BUD: { es: "Presupuesto: ${n}", en: "Budget: ${n}" },
+    SEL_BUDH: { es: "Presupuesto: (no te lo dijo)", en: "Budget: (not told)" },
+    SEL_ARMAS: { es: "Tus armas", en: "Your weapons" },
+    SEL_OK: { es: "Se cumplio lo que buscaba", en: "He got what he wanted" },
     SEL_NON: { es: "(no tienes armas para vender)", en: "(no weapons to sell)" }
 };

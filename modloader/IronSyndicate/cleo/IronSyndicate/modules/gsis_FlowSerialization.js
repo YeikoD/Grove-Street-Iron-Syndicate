@@ -1,0 +1,348 @@
+// GSIS - FlowSerialization
+// Copyright (C) 2026  YeikoD
+// License: GNU GPL v3 or later (full text in LICENSE).
+
+// ============================================================================
+// GSIS FlowSerialization - los view models de los menus de proximidad
+//
+// Los cuatro menus que no son el inventario (baul, armeria, retiro, trueque) se
+// abren por proximidad y son del mismo material: una lista de items y un pie con
+// dos numeros. La pagina los dibuja con la misma tabla, asi que lo unico que
+// cambia entre ellos es QUE se muestra, y eso es lo que hay aca.
+//
+// Un archivo para los cuatro, y no uno por menu, por dos razones:
+//
+//   1. El canal de la pagina es uno ("screen") y lo que viaja es { id, ...panes }.
+//      Si cada menu tuviera su archivo, la forma del payload quedaria repartida
+//      en cuatro lugares y cualquier campo nuevo habria que acordarlo cuatro
+//      veces. Un archivo es un contrato.
+//   2. currentFlow() y closeFlow() necesitan conocer a los cuatro. Esa funcion es
+//      la que decide que panel esta abierto; si el id viviera en cada modulo, el
+//      unico que las cuatro conoce seria el bridge, y entonces el bridge seria el
+//      lugar donde se decide que menu hay.
+//
+// Shape del payload (el mismo para los cuatro):
+//   {
+//     id:        "trunk" | "dealer" | "seller" | "pickup",
+//     titulo:    string, primera linea del panel
+//     subtitulo: string, segunda linea (null si no aplica)
+//     notice:    string, feedback de la ultima accion. NO se arma aca: lo agrega
+//                el bridge, que es el unico que sabe si el push sale en este
+//                frame o en el siguiente, y consumirlo antes de tiempo lo
+//                perderia. Va ya traducido y con los codigos ~r~/~g~ del juego:
+//                la pagina saca el tono del prefijo. Es de un solo uso.
+//     panes:     [ { key, titulo, weight, max, vacio, rows } ],  un pane = menu
+//                simple. vacio es lo que se dibuja cuando no hay filas, y lo
+//                manda el mod porque es una frase traducida y especifica del
+//                menu: "no tenes cargadores" no aplica en el baul.
+//     pie:       { izq, der }  textos ya armados, o null
+//   }
+//
+// Las filas son de gsis_ItemRow.js —misma forma que las del inventario— mas las
+// claves que cada menu necesita. La pagina dibuja las columnas que la pantalla
+// declara, asi que una clave que nadie lee no se manda.
+//
+// Regla de la casa: esto importa de core/ y data/, y de modules/ SOLO a traves de
+// sus funciones exportadas. No se toca GameState ni se muta nada: los snapshot
+// son de lectura. Las acciones viven en los modulos owners (putInTrunk, doOffer,
+// collectItem, addToCart), que son los que validan.
+// ============================================================================
+
+import { MISC } from "../core/gsis_Config.js";
+import { t } from "../core/gsis_L10n.js";
+import { query } from "../core/gsis_EventBus.js";
+import { getModuleData } from "../core/gsis_SaveManager.js";
+import { getItemWeight } from "../data/gsis_item_data.js";
+import { WEAPON_DATA, getSellPrice } from "../data/gsis_weapon_data.js";
+import { getVehicleName } from "../data/gsis_vehicle_data.js";
+import { itemRow } from "./gsis_ItemRow.js";
+import {
+    getItems, getTotalWeight,
+    getTrunkItems, getTrunkWeight, getTrunkMaxCapacity
+} from "./gsis_Items.js";
+import {
+    isTrunkMenuVisible, closeTrunkMenu, getTrunkVehicleId
+} from "./gsis_Trunk.js";
+import {
+    isDealerMenuVisible, closeDealerMenu, getActiveCharacterId,
+    getDealerPrice, getCart, getCartTotal, getCJMoney
+} from "./gsis_WeaponDealer.js";
+import {
+    isSellMenuVisible, closeSellMenu, getSellState
+} from "./gsis_WeaponSeller.js";
+import {
+    isPickupMenuVisible, closePickupMenu, getOrder
+} from "./gsis_DealerPickup.js";
+
+// Los cuatro menus, en el orden en que se consultan. El orden importa: dos
+// menus pueden quedar visibles a la vez si el jugador esta entre dos esferas, y
+// en ese caso gana el primero de la lista. La lista es la unica fuente: el
+// bridge no mantiene su propia copia.
+//
+// Los nombres son los mismos que usa registerMenuSource() en cada modulo, asi
+// que el id del payload, el nombre de la fuente y el prefijo del comando
+// ("trunk:put") dicen lo mismo sin traducciones.
+var FLUJOS = [
+    { id: "trunk", visible: isTrunkMenuVisible, close: closeTrunkMenu },
+    { id: "dealer", visible: isDealerMenuVisible, close: closeDealerMenu },
+    { id: "seller", visible: isSellMenuVisible, close: closeSellMenu },
+    { id: "pickup", visible: isPickupMenuVisible, close: closePickupMenu }
+];
+
+// Que flujo esta abierto, o "" si ninguno. "" es lo que la pagina lee como "no hay
+// panel de flujo".
+export function currentFlow() {
+    for (var i = 0; i < FLUJOS.length; i++) {
+        try {
+            if (FLUJOS[i].visible()) return FLUJOS[i].id;
+        } catch (e) { }
+    }
+    return "";
+}
+
+// Cierra el flujo abierto. Devuelve el id del que cerro, o "" si no habia
+// ninguno: es lo que la pagina necesita para saber si su Escape hizo algo.
+export function closeFlow() {
+    var id = currentFlow();
+    if (!id) return "";
+    for (var i = 0; i < FLUJOS.length; i++) {
+        if (FLUJOS[i].id !== id) continue;
+        try {
+            FLUJOS[i].close();
+        } catch (e) {
+            log("[FlowSerialization] no se pudo cerrar " + id + ": " + e.message);
+        }
+    }
+    return id;
+}
+
+// El snapshot del flujo abierto, o null si no hay ninguno. Null y no un objeto
+// vacio: la pagina lo usa para decidir si muestra un panel de flujo o el de
+// inventario, y un objeto vacio no se distingue de un menu sin datos.
+export function snapFlow() {
+    var id = currentFlow();
+    if (!id) return null;
+
+    var out = null;
+    try {
+        if (id === "trunk") out = _snapTrunk();
+        else if (id === "dealer") out = _snapDealer();
+        else if (id === "seller") out = _snapSeller();
+        else if (id === "pickup") out = _snapPickup();
+    } catch (e) {
+        log("[FlowSerialization] snapshot de " + id + " fallo: " + e.message);
+        return null;
+    }
+    if (!out) return null;
+
+    out.id = id;
+    return out;
+}
+
+// ------------------------------------------------------------------- BAUL --
+//
+// El unico con dos listas, asi que el unico con dos panes. El de la izquierda es
+// la mochila y el de la derecha el baul; la pagina los dibuja lado a lado.
+//
+// Las dos listas son itemRow() sin mas: los items del baul son los mismos
+// objetos que los de la mochila, con la misma forma. Lo que los diferencia es de
+// donde se leen, y eso lo decide el pane, no la fila.
+function _snapTrunk() {
+    var vid = getTrunkVehicleId();
+    if (vid === -1) return null;
+
+    return {
+        titulo: t("TRK_TTL", { name: _vehicleName(vid), model: _vehicleModel(vid) }),
+        subtitulo: _subtitulo(t("TRK_HNT")),
+        panes: [
+            {
+                key: "mochila",
+                titulo: t("TRK_MOC"),
+                vacio: t("TRK_EMI"),
+                weight: _round(getTotalWeight()),
+                max: MISC.MAX_INVENTORY_WEIGHT,
+                rows: _rows(getItems())
+            },
+            {
+                key: "baul",
+                titulo: t("TRK_H"),
+                vacio: t("TRK_EMB"),
+                weight: _round(getTrunkWeight(vid)),
+                max: getTrunkMaxCapacity(vid),
+                rows: _rows(getTrunkItems(vid))
+            }
+        ],
+        pie: null
+    };
+}
+
+function _rows(items) {
+    var out = [];
+    for (var i = 0; i < items.length; i++) {
+        out.push(itemRow(items[i]));
+    }
+    return out;
+}
+
+// ----------------------------------------------------------------- ARMERIA --
+//
+// El catalogo es WEAPON_DATA filtrado por precio, no una tabla propia: lo que no
+// tiene precio no se vende. El precio sale de getDealerPrice, asi que el markup y
+// el catalogo acotado de cada NPC ya estan aplicados.
+//
+// La banda de grupo de cada fila es la CATEGORIA del arma (Pistolas, Escopetas),
+// no el type del item: en la armeria todas las filas son type weapon, y con el
+// type quedaria una sola banda, que es el inventario con otros numeros.
+function _snapDealer() {
+    var charId = getActiveCharacterId();
+    var cart = getCart();
+
+    var rows = [];
+    for (var i = 0; i < WEAPON_DATA.length; i++) {
+        var w = WEAPON_DATA[i];
+        if (!w.itemId) continue;
+        var p = getDealerPrice(w.itemId, charId);
+        if (!p) continue; // este NPC no lo vende
+        var fila = itemRow({ id: w.itemId, qty: 1 });
+        fila.cat = w.category || w.itemId;
+        fila.precio = p;
+        fila.enCarrito = cart[w.itemId] || 0;
+        rows.push(fila);
+    }
+
+    return {
+        titulo: t("DLR_TTL"),
+        subtitulo: _subtitulo(_dealerName(charId)),
+        panes: [{ key: "catalogo", titulo: t("DLR_CAT"), vacio: t("DLR_NON"), weight: 0, max: 0, rows: rows }],
+        pie: {
+            izq: t("DLR_DIN", { n: getCJMoney() }),
+            der: _cartVacio(cart) ? t("CRT_UI") : t("DLR_TOT", { n: getCartTotal() })
+        }
+    };
+}
+
+function _cartVacio(cart) {
+    for (var k in cart) {
+        if (cart.hasOwnProperty(k) && cart[k] > 0) return false;
+    }
+    return true;
+}
+
+// Nombre del personaje que esta vendiendo. Sale del modulo de personajes por
+// query, no de CHARACTERS: asi el titulo muestra el nombre que el juego ya tiene
+// en pantalla y no un segundo nombre posible. characterId no se pasa como
+// characterId: el query lo llama id.
+function _dealerName(charId) {
+    try {
+        var info = query("characters:name", { id: charId });
+        if (info && info.name) return info.name;
+    } catch (e) { }
+    return t("DLR_TTL");
+}
+
+// ----------------------------------------------------------------- TRUEQUE --
+//
+// Las filas son las armas del jugador que el NPC compra. El presupuesto NO se
+// arma aca: getSellState() ya lo devuelve null hasta la primera oferta, asi que
+// el dato no sale del mod (ver el comentario de getSellState).
+function _snapSeller() {
+    var items = getItems();
+    var rows = [];
+    for (var i = 0; i < items.length; i++) {
+        var base = getSellPrice(items[i].id);
+        if (!base) continue; // el NPC no compra esto
+        var fila = itemRow(items[i]);
+        fila.base = base;
+        // La oferta arranca en el valor base, que es lo unico que el jugador
+        // puede calcular sin informacion del NPC. Subirla es el trueque.
+        fila.oferta = base;
+        rows.push(fila);
+    }
+
+    var st = getSellState();
+    return {
+        titulo: t("SEL_TTL"),
+        subtitulo: _subtitulo(t("SEL_BUS", { list: st.interests.length ? st.interests.join(", ") : "-" })),
+        panes: [{ key: "venta", titulo: t("SEL_ARMAS"), vacio: t("SEL_NON"), weight: 0, max: 0, rows: rows }],
+        pie: {
+            izq: st.budget == null ? t("SEL_BUDH") : t("SEL_BUD", { n: st.budget }),
+            der: st.fulfilled ? t("SEL_OK") : ""
+        }
+    };
+}
+
+// ------------------------------------------------------------------ RETIRO --
+//
+// Las filas son lineas de pedido, no inventario: el item todavia no esta en la
+// mochila. El qty que se ve es el que quedo del pedido, y por eso la fila se arma
+// con esa cantidad y no con la que tendria en la mochila.
+function _snapPickup() {
+    var order = getOrder();
+    if (!order) return null;
+
+    var rows = [];
+    var peso = 0;
+    for (var i = 0; i < order.items.length; i++) {
+        var linea = order.items[i];
+        var fila = itemRow({ id: linea.id, qty: linea.qty });
+        fila.disponible = linea.qty;
+        peso += getItemWeight(linea.id) * linea.qty;
+        rows.push(fila);
+    }
+
+    return {
+        titulo: t("PKC_TTL"),
+        subtitulo: _subtitulo(t("PKC_ORD", { n: order.total, w: _round(peso) })),
+        panes: [{ key: "pedido", titulo: t("PKC_LIN"), vacio: t("PKC_NON"), weight: 0, max: 0, rows: rows }],
+        pie: {
+            izq: t("PKC_LIB", { free: _round(MISC.MAX_INVENTORY_WEIGHT - getTotalWeight()) }),
+            der: ""
+        }
+    };
+}
+
+// ------------------------------------------------------------------ COMUN --
+
+// La segunda linea del panel, con el cierre siempre al final.
+//
+// No es cosmetico: estos menus se abren al tocar la esfera y se cierran al
+// alejarse, y el player NO esta congelado (ver setMenuGameState). El panel
+// aparece en el medio de la pantalla y el pointer puede haber quedado encima, y
+// con el pointer encima las teclas son de la pagina — o sea que el jugador no
+// puede caminar hasta sacarlo de ahi. Sin esta linea, la unica forma de cerrar
+// seria adivinar que hay que mover el mouse.
+function _subtitulo(texto) {
+    return texto ? texto + "  |  " + t("MENU_HNT") : t("MENU_HNT");
+}
+
+function _round(kg) {
+    return Math.round(kg * 10) / 10;
+}
+
+// El vehiculo del baul. El VehicleModule es de otro modulo y no se importa: se
+// le pregunta por el registro, que es como el resto de los modulos se alcanzan.
+// Mismo camino que usa getTrunkMaxCapacity() en gsis_Items.js.
+function _vehicleEntry(vehicleId) {
+    var data = getModuleData("VehicleModule");
+    if (!data || !data.vehicles) return null;
+    for (var i = 0; i < data.vehicles.length; i++) {
+        if (data.vehicles[i].id === vehicleId) return data.vehicles[i];
+    }
+    return null;
+}
+
+function _vehicleModel(vehicleId) {
+    var v = _vehicleEntry(vehicleId);
+    return v && v.model !== undefined ? v.model : "?";
+}
+
+function _vehicleName(vehicleId) {
+    var v = _vehicleEntry(vehicleId);
+    if (v && v.name) return v.name;
+    var m = _vehicleModel(vehicleId);
+    try {
+        var n = getVehicleName(m);
+        if (n) return n;
+    } catch (e) { }
+    return String(m);
+}

@@ -12,6 +12,7 @@
 
 import { saveGame, getActiveSlot } from "../core/gsis_SaveManager.js";
 import { KEYS, TIMERS } from "../core/gsis_Config.js";
+import { keyJustPressed } from "../core/gsis_Input.js";
 import { register } from "../core/gsis_ModuleRegistry.js";
 import { on, emit } from "../core/gsis_EventBus.js";
 import { t } from "../core/gsis_L10n.js";
@@ -39,7 +40,7 @@ export function updateVehicleModule(now) {
     }
 
     // --- F5: Guardar ---
-    if (Pad.IsKeyJustPressed(KEYS.SAVE)) {
+    if (keyJustPressed(KEYS.SAVE)) {
         emit("vehicle:syncForSave", {});  // Sincroniza estados
         var slot = getActiveSlot();  // Obtiene slot activo
         var success = saveGame(slot);  // Guarda partida

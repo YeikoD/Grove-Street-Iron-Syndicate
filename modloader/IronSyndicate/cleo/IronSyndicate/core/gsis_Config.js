@@ -18,8 +18,25 @@ export var KEYS = {
     DEBUG_ITEM: 76,     // L — debug: agregar item
     BAG: 80,            // P — toggle bolso visual
     DEALER: 70,         // F — menu dealer mayorista
-    RELOAD: 82          // R — swap de cargador (Ballistic)
+    RELOAD: 82,         // R — swap de cargador (Ballistic)
+    ESC: 27             // ESC — cierra la UI web (modules/gsis_WebInterface.js)
 };
+
+// Las teclas de movimiento.
+//
+// Van aparte porque son las unicas que tienen que seguir llegando al juego con un
+// menu de proximidad abierto. Ese menu se cierra ALEJANDOSE, asi que sin W no hay
+// forma de alejarse: no congelar al player no alcanza, porque con un panel en
+// pantalla la pagina se queda con el teclado entero. Se las pasa al runtime con
+// setMenuKeyPassthrough (core/gsis_Input.js), que las saca del WndProc antes de
+// que las vea la pagina.
+//
+// Son codigos de teclado virtual, como los de KEYS. NO son los codigos de tecla de
+// GTA: los dos sistemas numeran distinto (VK_W es 87, y el codigo de tecla de GTA
+// viene de un scancode de DirectInput). Confundirlos produce una lista que no
+// matchea nada en el WndProc, y el sintoma es el soft-lock otra vez — con el
+// detalle de que la lista "se aplico" sin error.
+export var MOVE_KEYS = [87, 65, 83, 68];  // W A S D
 
 // Distancias (unidades de juego)
 export var DIST = {
@@ -55,7 +72,7 @@ export var MISC = {
     PICKUP_Z: 13.4925,
     PICKUP_MODEL: 1254,           // Modelo del pickup
     PICKUP_DEALER_BLIP: 18,       // Sprite radar del punto de retiro
-    HIDE_RADAR_WHEN_MENU: true    // Oculta el radar con cualquier ventana de la UI
+    HIDE_RADAR_WHEN_MENU: true    // Radar con el menu principal (el que congela). Los de proximidad no: el jugador sigue en el mundo
 };
 
 // Actores permanentes: dormancy por radio + budgets de spawn/check

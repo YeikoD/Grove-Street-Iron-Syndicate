@@ -31,6 +31,10 @@ flotas de vehículos con baúl propio y diálogos propios.
 - [CLEO Redux](https://re.cleo.li/) 32-bit (`cleo_redux.asi` + carpeta `cleo/`)
 - Plugins: `SA.GameEntities.cleo`, `SA.MemoryOperations.cleo`, `SA.FileSystemOperations.cleo`,
   `SA.IniFiles.cleo`, `SA.Input.cleo`, `SA.Text.cleo`
+- **SAWebUI** (la interfaz es una página web): `modloader\SAWebUI\` con
+  `SAWebUI.SA.asi`, `SAWebUICefHelper.exe` y `cleo\cleo_plugins\SAWeb.cleo`.
+  Además, la sección `"saweb"` en `cleo\.config\sa.json` — sin ella los 8 comandos
+  `SAWEB_*` no se registran y `native()` falla.
 - Opcional: `SilentPatchSA.asi`, `GTASA.WidescreenFix.asi`, `FramerateVigilante.SA.asi`,
   `modloader.asi` (Mod Loader)
 
@@ -42,18 +46,21 @@ El código del mod va en la carpeta del mod, y **un shim va en la raíz de `cleo
 GTA SA\
 ├── cleo\
 │   ├── .config\cleo.ini
+│   ├── .config\sa.json              ← sección "saweb" (8 comandos)
 │   ├── cleo_plugins\
 │   └── [fs][mem]gsis_index.js        ← shim (obligatorio)
 └── modloader\
+    ├── SAWebUI\                      ← runtime de la UI web
     └── IronSyndicate\                ← el mod
         ├── KeepNoAmmo.SA.asi
         ├── image\ sounds\
+        ├── UI\                       ← index.html + app.js + style.css
         └── cleo\
             ├── [fs][mem]gsis_index.js  ← entry real
             ├── cleo_text\
             └── IronSyndicate\
                 ├── mod.json
-                ├── core\ data\ modules\
+                ├── core\ data\ modules\ ui\
                 └── saves\
 ```
 

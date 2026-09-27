@@ -35,18 +35,30 @@
 
   /* Rampa de grises. Reemplaza los ~30 hex sueltos que tenian el mismo rol
      escrito de 2 a 3 maneras (#888 / #8a8a8a / #888888, por ejemplo). */
-  --g-1000: #000000;  /* sombra de texto: negro puro, no un gris del ramp */
-  --g-950: #0b0b0c;   /* sunken: input, code block */
-  --g-900: #131415;   /* superficie de boton en reposo */
-  --g-800: #242628;   /* superficie hover */
-  --g-700: #2f3134;   /* superficie activa / track seleccionado */
-  --g-600: #3d4044;   /* borde fuerte */
-  --g-500: #4a4e53;   /* borde hover */
-  --g-400: #5f646a;   /* track del meter */
-  --g-300: #8a9099;   /* texto muted */
-  --g-200: #b6bcc3;   /* fill del meter */
-  --g-100: #d4d7da;   /* texto body */
-  --g-000: #ffffff;   /* texto inverso */
+  --g-1000: #000000;
+  /* sombra de texto: negro puro, no un gris del ramp */
+  --g-950: #0b0b0c;
+  /* sunken: input, code block */
+  --g-900: #131415;
+  /* superficie de boton en reposo */
+  --g-800: #242628;
+  /* superficie hover */
+  --g-700: #2f3134;
+  /* superficie activa / track seleccionado */
+  --g-600: #3d4044;
+  /* borde fuerte */
+  --g-500: #4a4e53;
+  /* borde hover */
+  --g-400: #5f646a;
+  /* track del meter */
+  --g-300: #8a9099;
+  /* texto muted */
+  --g-200: #b6bcc3;
+  /* fill del meter */
+  --g-100: #d4d7da;
+  /* texto body */
+  --g-000: #ffffff;
+  /* texto inverso */
 
   /* Blancos con alfa: velos de fila y bordes. */
   --w-04: rgba(255, 255, 255, 0.04);
@@ -57,7 +69,7 @@
   /* Tones. Cada familia de tinte toma su texto de aca, asi el hue tiene una
      sola definicion. --amber existe para que "warn" y "success" no sean el
      mismo verde: antes eran #4ed967 y #9fd6a0 sobre fondos casi iguales. */
-  --gold: #ece5d3;
+  --gold: #ffffff;
   --green: #4ed967;
   --green-soft: #9fd6a0;
   --amber: #e0b54a;
@@ -127,8 +139,8 @@
      Con dos tokens y dos overrides, cualquier cambio de uno dejaba al otro
      desfasado. Uno solo y los dos boxes heredan.
 
-     Negro puro con alfa. #panel y #tutorial-box no lo sobreescriben, asi que
-     leen ESTE token y no pueden desincronizarse. El 0.84 deja ver la escena
+     Negro puro con alfa. #panel no lo sobreescribe, asi que lee ESTE token
+     directo y no puede desincronizarse con nadie. El 0.84 deja ver la escena
      sin que el texto pierda lectura; el default de SAWebUI era 0.86. */
   --surface-overlay: rgba(0, 0, 0, 0.84);
   --surface-raised: var(--g-900);
@@ -186,29 +198,21 @@
   --box-w: 27vw;
   --box-h: 51.1vh;
   /* 0: el box arranca en el borde izquierdo de la pantalla. Antes era
-     calc(3vw - 7px), un nudge de posicion constante en px y no en vw. Lo
-     comparten los boxes de la misma fila --el tutorial se ancla a --box-x
-     para pegarse al principal--, asi que van juntos: si el principal se
-     corre, el tutorial se corre con el y el gap entre los dos no cambia. */
+     calc(3vw - 7px), un nudge de posicion constante en px y no en vw. */
   --box-x: 0;
   --box-y: 15vh;
   --box-px: var(--spw-4);
   --box-pb: var(--sp-2);
 
   /* Ancho del panel PRINCIPAL, el que esta en pantalla ahora. Vive aparte de
-     --box-w a proposito: --box-w es la medida de casa para los paneles
-     futuros, y este es el ancho real del que esta pasando. El tutorial se
-     coloca al lado de este, asi que tiene que leer ESTE y no el default вЂ”
-     cuando el panel se ensancho y el tutorial seguia anclado a --box-w
-     (27vw), se le monto encima. Que los dos lean el mismo token hace que eso
-     no pueda volver a pasar.
+     --box-w a proposito: --box-w es la medida de casa para los paneles futuros,
+     y este es el ancho real del que esta pasando.
 
-     Es la UNICA fuente del ancho principal: #panel lo toma por --panel-w y el
-     tutorial lo lee directo para calcular su left. Antes el valor estaba
-     escrito dos veces como literal (aca y en #panel) y ensanchar uno sin el
-     otro era justo el bug de arriba. Para cambiar el ancho se toca ESTA
-     linea. */
-  --main-w: 38vw;
+     Es la UNICA fuente del ancho principal: #panel lo toma por --panel-w. Antes
+     el valor estaba escrito dos veces como literal (aca y en #panel) y
+     ensanchar uno sin el otro hacia que se montaran. Para cambiar el ancho se
+     toca ESTA linea. */
+  --main-w: 30.1vw;
 
   --label-w: 9.8vw;
   --row-h: 3.1vh;
@@ -250,10 +254,16 @@ body {
 .table {
   /* Ancho de la columna del icono. Vive como token propio y no metido en
      --table-cols porque lo necesitan tres reglas: la grilla, el <img> del
-     icono y el sangrado de la banda de grupo. */
-  --table-icon-w: 3.1vh;
+     icono y el sangrado de la banda de grupo.
 
-  /* icon | nombre | cant | balas | peso | valor. El 1fr es el nombre, que
+     OJO: este token y --table-row-h estan atados. .table__row tiene height
+     fijo, asi que un icono mas alto que la fila se sale de la fila y pisa la de
+     arriba: por eso cuando el icono sube, la fila sube con el. La proporcion
+     se mantiene (icono 3.1/fila 3.4 antes, 3.4/3.7 ahora), o sea que el aire
+     de arriba y de abajo es el de siempre. */
+  --table-icon-w: 3.4vh;
+
+  /* icon | nombre | cant | salud | peso | valor. El 1fr es el nombre, que
      absorbe lo que sobre y por eso el nombre nunca queda desalineado al
      cambiar el ancho del panel.
 
@@ -261,22 +271,25 @@ body {
      CABECERA, no el dato. Antes iban en 2.4 / 3.6 / 2.8 / 3.6vw y "CANT" no
      entraba en 2.4vw: como las celdas van con text-align:right, lo que
      desborda se come el gap de la izquierda y las etiquetas quedaban pegadas
-     ("CANIBALASPESOVALOR"). El dato nunca fue el que manda: la palabra mas
+     ("CANTPESOVALOR"). El dato nunca fue el que manda: la palabra mas
      larga de cada columna es su encabezado. */
   --table-cols: var(--table-icon-w) 1fr 3.2vw 3.8vw 3.2vw 3.8vw;
   --table-gap: var(--spw-2);
   /* Alto de fila y cuerpo propios de la tabla, sueltos de --row-h y --fs-sm.
      Cuando el panel se ensancho a 38vw, filas de 3.1vh con texto de 1.6vh
      quedaron chicas para el ancho que tienen. Se desacoplan a proposito:
-     --fs-sm es ademas el cuerpo de .btn y de .toast, asi que subirlo por la
-     escala global venia con los botones y el toast enganados al inventario.
+      --fs-sm es ademas el cuerpo de .btn, asi que subirlo por la escala global
+      venia con los botones enganados al inventario.
      --row-h sigue siendo el alto de las listas de las otras pestanas, que van
-     con .row y no con la tabla. */
-  --table-row-h: 3.4vh;
+     con .row y no con la tabla. Sube con --table-icon-w (ver alla): el icono
+     tiene que entrar en la fila. */
+  --table-row-h: 3.7vh;
   --table-fs: 1.8vh;
-  /* Las etiquetas del header van con tracking propio y mas cerrado que el del
-     resto de la UI: son el elemento que define el ancho de columna, asi que
-     cada pixel de tracking se paga dos veces. */
+  /* El tracking cerrado sigue, pero solo le sirve a la celda del nombre: las
+     otras cuatro son iconos y el ancho de columna lo define --headicon, no la
+     tipografia. Cuando eran texto, el tracking se pagaba dos veces porque el
+     encabezado es lo que dimensiona la columna; ahora eso es un problema de
+     una sola celda. */
   --table-head-fs: 1.35vh;
   --table-head-track: 0.08vw;
 
@@ -294,6 +307,28 @@ body {
   --table-row-pad-x: var(--spw-3);
 }
 
+/* Una variante por cantidad de columnas. El numero del modificador ES el numero
+   de tracks de --table-cols, y el que pone la clase es renderTable() con el
+   largo de la lista de columnas de la pantalla: la grilla y las columnas se
+   definen en un solo lugar y no pueden desincronizarse.
+
+   Las de menos columnas reparten el ancho entre las que quedan en vez de dejar
+   la tabla mas angosta: el nombre ya toma lo que sobra (1fr), asi que la
+   diferencia se nota en las numericas, que son las que hay que poder leer.
+   La de 6 es la del inventario y repite el valor de .table a proposito, para
+   que un .table sin modificador siga siendo una tabla de inventario. */
+.table--4 {
+  --table-cols: var(--table-icon-w) 1fr 3.4vw 3.8vw;
+}
+
+.table--5 {
+  --table-cols: var(--table-icon-w) 1fr 3.2vw 3.6vw 3.6vw;
+}
+
+.table--6 {
+  --table-cols: var(--table-icon-w) 1fr 3.2vw 3.8vw 3.2vw 3.8vw;
+}
+
 .table__head,
 .table__row {
   display: grid;
@@ -305,7 +340,11 @@ body {
 /* Cabecera. Se corre con el mismo grid que las filas para que las columnas
    caigan exactamente arriba de sus datos. nowrap + overflow hidden son la
    defensa: si un encabezado futuro no entra en su columna, se recorta en vez
-   de invadir la vecina y volver a pegarlas. */
+   de invadir la vecina y volver a pegarlas.
+
+   Solo el nombre de la columna usa la tipografia: las cuatro celdas numericas
+   van con un icono (abajo, .table__headicon), asi que el color, el uppercase y
+   el tracking de acá los muestran el texto y los iconos los heredan. */
 .table__head {
   font-size: var(--table-head-fs);
   font-weight: 700;
@@ -316,9 +355,40 @@ body {
   border-bottom: 1px solid var(--divider);
 }
 
-.table__head > span {
+.table__head>span {
   white-space: nowrap;
   overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Los encabezados numericos son iconos, no texto. Van INLINE en el DOM, no
+   como <img>, y el motivo esta en app.js: un <img> de .svg no se puede
+   colorear con CSS (el fill esta en el archivo) y arreglarlo con mask-image
+   rompia en este runtime. Inline el color lo hereda de una vez.
+
+   OJO: nada de mask, filter ni nada que meta al elemento en su propia capa de
+   compositing. SAWebUI repinta por rectas sucias y una capa propia deja de
+   pintarse en la primera repintada parcial. fill + currentColor es
+   justamente lo que no hace eso. */
+.table__headicon {
+  --headicon: 1.85vh;
+
+  /* inline-block, NO block, y esto es lo que alinea los iconos con los datos.
+     El header hereda text-align: right de .table__num, y text-align solo mueve
+     contenido inline: un bloque de ancho fijo se pegaba al inicio del span y
+     los cuatro iconos quedaban corridos a la izquierda de sus columnas,
+     mientras los numeros de abajo seguian a la derecha. Con inline-block el
+     text-align los pega al borde derecho igual que a los datos.
+
+     vertical-align: middle los centra en la linea. Sin eso se apoyan sobre la
+     baseline y quedan un pelo arriba: como el span ya no tiene texto, la
+     baseline es el borde inferior del svg y el interlineado del strut los
+     empuja. */
+  display: inline-block;
+  width: var(--headicon);
+  height: var(--headicon);
+  vertical-align: middle;
+  fill: currentColor;
 }
 
 /* Banda de grupo. El filete izquierdo es --g-600, el mismo gris del thumb del
@@ -417,66 +487,45 @@ body {
   justify-self: center;
 }
 
+/* Celda del nombre: el nombre y, si la fila esta equipada, la marca al lado.
+   El wrapper es un flex y no la celda misma porque el ellipsis tiene que caer
+   SOLO sobre el nombre: si la celda entera fuera la que recorta, un nombre largo
+   se comeria la marca y "Equipado" seria justo lo que no se ve cuando mas hace
+   falta. El nombre flex:0 1 auto se encoge; la marca flex:0 0 auto no. */
+.table__namewrap {
+  display: flex;
+  align-items: center;
+  gap: var(--spw-2);
+  min-width: 0;
+}
+
 .table__name {
   /* min-width:0 es lo que permite que la celda se encoja y active el ellipsis.
      Sin eso el minimo automatico de un item de grid es su contenido, y un
      nombre largo empuja las columnas numericas hacia la derecha. */
+  flex: 0 1 auto;
   min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-/* ======================================================== RECETA: .toast --
-   Feedback de una accion. Vive dentro del panel y por eso es absolute: no
-   participa del flex column, asi que aparece y desaparece sin mover la tabla.
-
-   El fondo va sobre la caja porque se superpone a las filas — sin el, el texto
-   se pierde contra el texto de los items. El filete de la izquierda lleva el
-   tono, y con --guide-w para que pese igual que las guias de la tabla. */
-
-.toast {
-  --toast-tone: var(--state-info);
-  --toast-text: var(--text-info);
-
-  position: absolute;
-  left: var(--panel-px);
-  right: var(--panel-px);
-  bottom: var(--sp-6);
-  display: flex;
-  align-items: center;
-  padding: var(--sp-2) var(--spw-2);
-  background: var(--surface-sunken);
-  border: 1px solid var(--border-strong);
-  border-left: var(--guide-w) solid var(--toast-tone);
-  font-size: var(--fs-sm);
-  color: var(--toast-text);
-  z-index: 10;
-}
-
-.toast--ok {
-  --toast-tone: var(--state-ok);
-  --toast-text: var(--text-ok);
-}
-
-.toast--bad {
-  --toast-tone: var(--state-bad);
-  --toast-text: var(--text-danger);
-}
-
-.toast--warn {
-  --toast-tone: var(--state-warn);
-  --toast-text: var(--text-warning);
-}
-
-.toast--info {
-  --toast-tone: var(--state-info);
-  --toast-text: var(--text-info);
+/* La marca de equipado. Muted y chica a proposito: informa, no compite con el
+   nombre. No lleva background —un fondo leeria como fila seleccionada, que es
+   otra cosa—. El parentesis va en el texto y no por CSS para que el
+   screen reader lo lea junto con la palabra. */
+.table__equipped {
+  flex: 0 0 auto;
+  font-size: var(--fs-2xs);
+  font-weight: 700;
+  color: var(--text-accent);
+  letter-spacing: 0;
+  white-space: nowrap;
 }
 
 /* ============================================================ RECETA: .btn --
    Un solo lugar donde vive como se ve un boton. Antes .tab, .navbtn,
-   .btn-action y #tut-close repetian el mismo bloque de cinco o seis
+   .btn-action y .btn-cerrar repetian el mismo bloque de cinco o seis
    propiedades con hex distintos. Ahora cada variante declara sus tokens y
    esta regla los lee. Anadir un boton nuevo es una linea, no una copia. */
 
@@ -518,17 +567,97 @@ body {
 
 /* PestaР“В±as: llenar el ancho disponible, texto chico y bold. */
 .btn--tab {
-  flex: 1 1 0;
-  --btn-height: 2.5vh;
+  /* Cuadrado, no estirado. flex-basis en 0 los estiraba a todo el ancho
+     disponible y con 54px de alto salian ovales: border-radius:50% da un
+     circulo solo si ancho y alto son iguales. Por eso el ancho sale del alto
+     y flex-grow se apaga — el boton toma lo que mide. */
+  flex: 0 0 auto;
+  width: var(--btn-height);
+  /* 5.6vh, no 5vh: el alto tiene que alcanzar para que el icono quepa DENTRO
+     del circulo, no reaching las esquinas. El cuadrado inscrito de un
+     circulo de diametro D mide D/raiz(2), o sea que para un icono de 3.9vh hace
+     falta un circulo de 3.9 x 1.414 = 5.5vh. Con 5.6vh queda medio pixel de
+     aire; con 5vh --el doble exacto del 2.5vh original-- las esquinas del PNG
+     se salen del borde redondeado y se ven como un cuadrado encima. */
+  --btn-height: 5.6vh;
   --btn-fs: var(--fs-xs);
   --btn-weight: 700;
+  /* Los botones no llevan texto: son imagenes. El fondo del boton tiene que
+     quedar opaco para que el PNG no se transparente sobre el panel. Los PNG
+     traen su propio fondo (no son alfa), asi que sin esto se ve un rectangulo
+     del color del boton alrededor de la imagen. */
+  padding: 0;
+  /* 50% del lado corto. Como ancho == alto, sale un circulo y no un ovalo. */
+  border-radius: 50%;
+}
+
+/* El icono del filtro. 3.9vh es el doble de los 1.95vh de antes, que salian
+   de --btn-height:2.5vh con el icono al 78%. Los dos numeros estan atados: el
+   boton mide 5vh y el icono es el 78% de eso, 3.9vh justos. Si se cambia uno hay
+   que cambiar el otro.
+
+   Los PNG son de 50x50 y 3.9vh son 42px a 1080p y 56px a 1440p: se achican
+   nomas, nunca se escalan para arriba, asi que no pierden nada. El ancho sale
+   de la proporcion y el alto lo manda esta regla. */
+.btn--tab-icon {
+  --tabicon: 3.9vh;
+
+  display: block;
+  height: var(--tabicon);
+  width: auto;
+  max-width: 100%;
+  object-fit: contain;
+  /* El PNG ya trae su color. Sin esto un icono inactivo se ve apagado y el
+     activo igual, y el estado activo pierde toda la lectura. */
+  opacity: 0.72;
+  transition: opacity var(--dur) ease;
+}
+
+/* El icono activo sube a opaco. Va en la variante y no en :hover porque el
+   hover de .btn--tab no deberia encenderse cuando el filtro ya esta activo. */
+.btn--tab.active .btn--tab-icon {
+  opacity: 1;
+}
+
+/* El hover de los filtros NO es el de .btn. El de .btn aclaraba el borde a
+   --g-500, un gris, y sobre un circulo de 5.6vh eso se leia como un aro suelto
+   que no queria decir nada.
+
+   Hover es SOLO fondo e icono: el fondo un paso mas alto y el icono a opaco. El
+   borde se queda en su gris de reposo a proposito — el verde del borde es lo
+   unico que marca el filtro activo, y si el hover tambien lo pone, con el mouse
+   parado encima del filtro que ya estas viendo los dos se confunden. Por eso
+   hover levanta el fondo y nada mas. */
+.btn--tab:hover {
+  --btn-bg-hover: var(--surface-hover);
+  --btn-border-hover: var(--border-hover);
+}
+
+.btn--tab:hover .btn--tab-icon {
+  opacity: 1;
 }
 
 .btn--tab.active {
   --btn-bg: var(--surface-active);
+  /* El hover tambien, y no es cosmetico: .btn:hover pinta el fondo con
+     --btn-bg-hover, no con --btn-bg. Sin declarar aca el token, pasarle por
+     encima al filtro ya activo lo OSCURECIA —--surface-hover #242628 contra el
+     --surface-active #2f3134 que tiene en reposo— y el boton seleccionado
+     perdiase el fondo justo cuando lo estabas mirando. */
+  --btn-bg-hover: var(--surface-active);
+  --btn-border-hover: var(--border-hover);
   --btn-text: var(--text-inverse);
   --btn-border: var(--accent);
-  box-shadow: inset 0 -2px 0 var(--accent);
+  /* Sin box-shadow. Se probaron las dos marcas de activo extra y las dos
+     quedaron feas en un circulo: la barra de abajo (inset 0 -2px 0) se recortaba
+     en los extremos por la curva y parecia una linea suelta cruzando el borde, y
+     el aro de 2px (inset 0 0 0 2px) le sumaba al borde de 1px tres píxeles de
+     verde concentricos, que es lo mas ruidoso posible en una UI que es toda gris
+     oscuro con el verde usado en un filete de 1px.
+
+     El activo se marca con lo que ya alcanza: borde de 1px verde, fondo un paso
+     mas alto y icono a opaco. El verde queda siendo la unica cosa de la fila
+     que dice "estas aca". */
 }
 
 /* Navegacion: misma receta que la pestaР“В±a, un pelo mas alta. */
@@ -537,29 +666,9 @@ body {
   --btn-height: 2.6vh;
 }
 
-/* Accion primaria del tutorial. Alto automatico: es texto, no una tira. */
-.btn--primary {
-  --btn-bg: var(--tint-ok-bg);
-  --btn-bg-hover: var(--tint-ok-bg-hi);
-  --btn-border: var(--tint-ok-bd);
-  --btn-text: var(--tint-ok-tx);
-  --btn-text-hover: var(--text-inverse);
-  --btn-height: auto;
-  --btn-py: var(--sp-3);
-  --btn-px: var(--spw-5);
-  --btn-weight: 700;
-}
-
-/* Cierre: sin fondo ni borde hasta que lo pasan por encima. */
-.btn--ghost {
-  --btn-bg: transparent;
-  --btn-bg-hover: var(--surface-hover);
-  --btn-border: transparent;
-  --btn-border-hover: var(--border-strong);
-  --btn-height: auto;
-  --btn-px: var(--spw-2);
-  --btn-fs: var(--fs-lg);
-}
+/* .btn--primary (ejecutar) y .btn--ghost (cerrar) vivian en la ventana de
+   tutorial. Se fueron con ella. Los dos son recetas de una linea si vuelven:
+   --btn-bg / --btn-bg-hover / --btn-border / --btn-text y el alto. */
 
 /* ========================================================= RECETA: .panel --
    El box de la UI. Reemplaza a .box y ahora es tambien la fuente de la
@@ -611,17 +720,15 @@ body {
   flex-direction: column;
   /* Ancho del panel principal. NO pisa --box-w: ese sigue en 27vw como
      default de casa para los proximos paneles. Toma --main-w, que es donde
-     vive el valor: --main-w es lo que lee tambien el tutorial para pegarse
-     aca, asi que los dos anchos no pueden desincronizarse. */
+     vive el valor. */
   --panel-w: var(--main-w);
   /* Alto completo: el box va de borde a borde vertical. Antes --box-y lo bajaba
      15vh y --box-h lo cortaba en 51.1vh, dejando 34vh de escena vacia abajo.
      Pisar los dos tokens alcanza porque .panel los lee de ahi. --box-y y
-     --box-h quedan intactos como default de casa: el tutorial se apoya en
-     --box-y y por eso no se mueve con este cambio. */
+     --box-h quedan intactos como default de casa para los proximos paneles. */
   --panel-y: 0;
   --panel-h: 100vh;
-  /* Entrada: la misma fadeIn del tutorial. No hay que re-dispararla a mano
+  /* Entrada: fadeIn. No hay que re-dispararla a mano
      porque el browser nunca se cierra —el panel sale de display:none por
      clase, no se monta de nuevo— y una animacion se re-dispara sola cuando el
      elemento vuelve a renderizarse. Por eso la salida SI necesita una clase
@@ -651,6 +758,266 @@ body {
   margin-bottom: var(--sp-2);
 }
 
+/* El titulo y el subtitulo de los paneles de flujo. El inventario los tiene por
+   id (#title) porque son uno solo y estan escritos en el HTML; aca son cuatro
+   paneles que se arman en JS, asi que van por clase.
+   Mismos valores que #title para que un panel se vea igual al otro. */
+.panel__title {
+  font-size: var(--title-size);
+  font-weight: 700;
+  color: var(--text-gold);
+  line-height: 1.1;
+}
+
+/* El subtitulo es la segunda linea: la pista de donde estas, el pedido, lo que
+   busca el cliente. Va en muted y mas chico, para que el titulo mande. */
+.panel__subtitle {
+  font-size: var(--fs-2xs);
+  color: var(--text-muted);
+  margin-top: var(--sp-1);
+}
+
+/* El pie de un panel de flujo. Cuatro cosas en una linea: el dato de la izquierda,
+   el de la derecha, los botones del menu y los keycaps. Los keycaps se van al
+   borde con margin-left:auto, que es lo que hace el pie del inventario. */
+.panel-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--spw-3);
+  padding-top: var(--sp-2);
+  margin-top: var(--sp-2);
+  border-top: 1px solid var(--divider);
+}
+
+.panel-foot__txt {
+  font-size: var(--fs-2xs);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.panel-foot__txt + .panel-foot__txt {
+  color: var(--text-body);
+  font-weight: 700;
+}
+
+.panel-foot__btns {
+  display: flex;
+  gap: var(--spw-2);
+  margin-left: auto;
+}
+
+.panel-foot__btn {
+  --btn-height: 3vh;
+  --btn-fs: var(--fs-2xs);
+}
+
+/* Los keycaps del pie. El inventario los tiene por id (#keyhints) porque es un
+   solo pie con dos teclas; aca hay cuatro, y el bloque se arma con la clase. */
+.panel-foot .keyhints {
+  display: flex;
+  gap: var(--spw-2);
+}
+
+.keyhint {
+  font-size: var(--fs-2xs);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* --------------------------------------------------- PANELES DE FLUJO --
+   Baul, armeria, retiro y trueque. Cuatro ventanas con el mismo esqueleto y la
+   misma tabla, cada una con su funcion. No son pestanas del panel: el modulo las
+   abre por proximidad y el panel del inventario se apaga mientras hay una.
+
+   El ancho y el alto salen de los mismos tokens que el panel principal, asi que
+   un panel de flujo tiene EXACTAMENTE el mismo tamaño. Lo unico que se pisa es el
+   padding: el baul lleva dos tablas y la barra de accion, y con el padding de
+   casa se queda sin lugar. */
+.panel--flujo {
+  display: flex;
+  flex-direction: column;
+  --panel-w: var(--main-w);
+  --panel-y: 0;
+  --panel-h: 100vh;
+  --panel-pt: var(--sp-5);
+  animation: fadeIn var(--dur-slow) ease-out;
+}
+
+/* El baul va al centro y es mas ancho: son dos listas, y con el ancho de una
+   cada tabla queda de 13vw y los nombres no entran. El ancho lo toma la casa
+   (--box-w es 27vw) y lo que se pisa es el ancho de las dos listas, que se
+   calculan con grid 1fr 1fr. */
+.panel--flujo.panel--centro {
+  --panel-x: 50%;
+  --panel-w: 60vw;
+  margin-left: -30vw;
+}
+
+/* Los panes. Con uno, la caja ocupa todo el ancho; con dos, se parte en dos
+   columnas iguales. El grid y no el flex para que las dos tengan EXACTAMENTE el
+   mismo ancho: con flex, la mas larga de las dos se lleva elSlack y las tablas
+   quedan de distinto tamano. */
+.flow__panes {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--spw-5);
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.flow__panes--2 {
+  grid-template-columns: 1fr 1fr;
+}
+
+.pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+.pane__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--spw-2);
+  padding: 0 var(--spw-2) var(--sp-1);
+  border-bottom: 1px solid var(--divider);
+  margin-bottom: var(--sp-1);
+}
+
+.pane__title {
+  font-size: var(--fs-2xs);
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: var(--spw-1);
+}
+
+/* El peso del pane va a la derecha de su titulo y no en el pie: el pie es del
+   menu entero y el baul tiene DOS pesos distintos, uno por lista. */
+.pane__peso {
+  font-size: var(--fs-2xs);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* La caja con scroll de un pane. min-height:0 sin el cual el flex no la deja
+   encoger y la tabla de largo empuja al panel en vez de scrollear. */
+.pane__rows {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* El pane que tiene la seleccion se marca con el filete de acento, el mismo
+   criterio que la fila elegida: el estado va en el elemento, no en un
+   descendiente. El otro pane se ve entero y se entiende que se puede apuntar. */
+.pane--activo .pane__title {
+  color: var(--text-accent);
+}
+
+/* ------------------------------------------------------------- AVISO --
+   El feedback de una accion. Sale entre la tabla y la barra, porque es de la
+   fila que estas mirando y no del menu entero. El tono lo decide el prefijo del
+   texto (~r~ / ~g~), que es el mismo criterio que usa el juego. */
+.aviso {
+  font-size: var(--fs-2xs);
+  padding: var(--sp-1) var(--spw-2);
+  margin-top: var(--sp-1);
+  border-left: 3px solid transparent;
+  background: var(--surface-hover);
+}
+
+.aviso--bad {
+  color: var(--state-bad);
+  border-left-color: var(--state-bad);
+}
+
+.aviso--ok {
+  color: var(--state-ok);
+  border-left-color: var(--state-ok);
+}
+
+.aviso--info {
+  color: var(--text-muted);
+  border-left-color: var(--divider);
+}
+
+/* ------------------------------------------------------- BARRA DE ACCION --
+   Que se hace y cuantos. Es la misma pieza en los cuatro menus: el nombre de la
+   fila, los campos y el boton. Va entre la tabla y el pie, y es lo que uno ve
+   apenas elige una fila. */
+.accionbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spw-3);
+  padding: var(--sp-2) var(--spw-2);
+  margin-top: var(--sp-2);
+  border-top: 1px solid var(--divider);
+  background: var(--surface-sunken);
+}
+
+.accionbar__item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spw-1);
+  font-size: var(--fs-2xs);
+  color: var(--text-muted);
+}
+
+/* El nombre de la fila va con el color del texto normal: es el dato, no una
+   etiqueta. */
+.accionbar__item:first-child {
+  color: var(--text-body);
+  font-weight: 700;
+  max-width: 22vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* El campo activo se marca con el fondo de la pastilla. Con dos campos (cantidad
+   y oferta) el jugador tiene que saber a cual responde el "+", y sin esto no hay
+   forma de saberlo. */
+.accionbar__item--activo .accionbar__label {
+  color: var(--text-accent);
+}
+
+.accionbar__label {
+  text-transform: uppercase;
+  letter-spacing: var(--spw-1);
+}
+
+.accionbar__valor {
+  min-width: 4.2vw;
+  text-align: center;
+  color: var(--text-body);
+  font-variant-numeric: tabular-nums;
+}
+
+.accionbar__paso {
+  width: 2.6vh;
+  height: 2.6vh;
+  line-height: 1;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-raised);
+  color: var(--text-body);
+  cursor: pointer;
+  font-size: var(--fs-2xs);
+}
+
+.accionbar__paso:hover {
+  border-color: var(--border-hover);
+  background: var(--surface-hover);
+}
+
+.accionbar__btn {
+  margin-left: auto;
+}
+
 /* El titulo va en flujo, arriba del subtitulo, dentro del box. Antes se
    anclaba al borde superior con bottom:100% y un margen negativo para asomar
    3.4vh por fuera: con el box de alto completo eso se caia de pantalla, y en
@@ -668,13 +1035,18 @@ body {
   white-space: nowrap;
 }
 
-#subtitle {
+/* El peso vive en el pie (#foot), no arriba con el titulo: la guia de teclas
+   tiene el ancho util completo y el peso se le alinea al lado. Sin
+   text-transform: uppercase a proposito — el pie entero se escribe como esta
+   en el HTML, asi el peso y los verbos de las teclas se leen con la misma
+   capitalizacion y no conviven PESO: 3.2KG/12KG al lado de "Equipar". */
+#weight {
   font-size: var(--fs-2xs);
   font-weight: 700;
   color: var(--text-accent);
   letter-spacing: var(--spw-1);
-  text-transform: uppercase;
   text-shadow: 1px 1px 2px var(--g-1000);
+  white-space: nowrap;
 }
 
 /* ---------------------------------------------------------------- PestaР“В±as --
@@ -682,6 +1054,11 @@ body {
 
 #tabs {
   display: flex;
+  /* Los botones son cuadrados y no crecen (ver .btn--tab), asi que con solo
+     flex-start quedan amontonados a la izquierda y con ~410px de aire al lado.
+     space-between los reparte de punta a punta y la fila ocupa el mismo ancho
+     que la tabla de abajo. */
+  justify-content: space-between;
   gap: var(--spw-1);
   margin-bottom: var(--sp-4);
   border-bottom: 1px solid var(--divider);
@@ -695,7 +1072,7 @@ body {
   flex-direction: column;
   /* Area de contenido: unico hijo que crece, y el contenedor de scroll del
      panel. min-height:0 es lo que permite que flexbox lo encoja hasta el
-     limite del panel РІР‚вЂќ sin eso el default min-height:auto impide encogerlo
+     limite del panel — sin eso el default min-height:auto impide encogerlo
      abaixo de su contenido y la lista se desborda en vez de scrollear.
      El nav queda clavado al borde inferior porque no crece. */
   flex: 1 1 auto;
@@ -723,6 +1100,17 @@ body {
 
 #rows::-webkit-scrollbar-thumb:hover {
   background: var(--border-hover);
+}
+
+/* Estado vacio de una pestana. Va centrado con margin:auto, que es lo que
+   centra en un contenedor flex column (#rows); height:100% no reacharia.
+   Es un placeholder, no un error: muted y sin competir con las filas. */
+.empty {
+  margin: auto;
+  padding: var(--sp-6) var(--spw-4);
+  color: var(--text-muted);
+  font-size: var(--fs-md);
+  text-align: center;
 }
 
 .row {
@@ -840,57 +1228,184 @@ body {
   border-color: var(--text-gold);
 }
 
-/* ------------------------------------------------------------- NavegaciР“С–n --
-   Igual que las pestaР“В±as: .btn.btn--nav mas el contenedor. */
+/* ---------------------------------------------------------------- Pie --
+   Peso a la izquierda, guia de teclas a la derecha. Es una fila sola. El
+   margin-top vivia en #nav cuando el pie eran dos botones de navegacion; con
+   el wrapper se muda al padre, asi el pie no depende de ser el ultimo hijo del
+   panel.
 
-#nav {
+   El borde de arriba es la tercera separadora de la hoja y usa el mismo token
+   que las otras dos (#tabs, .table__head): --divider. El aire va con padding y
+   no con margin para que la linea quede entre los dos, y no pegada al peso. */
+#foot {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: var(--spw-3);
+  border-top: 1px solid var(--divider);
+  padding-top: var(--sp-4);
   margin-top: var(--sp-4);
 }
 
-/* ------------------------------------------------------- Paneles (GSIS) -- */
+/* flex: 0 0 auto para que el peso no se estire. Con space-between el peso se
+   queda pegado a la izquierda del ancho que ocupa y la guia a la derecha del
+   suyo, sin que ninguna de las dos se reparta la mitad. */
+#foot>#weight {
+  flex: 0 0 auto;
+}
+
+#keyhints {
+  display: flex;
+  align-items: center;
+  gap: var(--spw-4);
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+/* ======================================================= RECETA: .keyhint --
+   Una tecla y lo que hace. El <img> es una foto de keycap de 50x50 y el texto
+   al lado dice que hace, porque la diferencia entre apretar y mantener se ve
+   en la imagen pero no se lee sola.
+
+   El texto va con el mismo cuerpo y tracking que las bandas de la tabla: son
+   las dos cosas que se leen sin ser el dato. Muted a proposito — es una guia,
+   no informacion, y tiene que poder leerse al pie de la lista sin competir
+   con los items. */
+.keyhint {
+  display: flex;
+  align-items: center;
+  gap: var(--spw-2);
+  min-width: 0;
+  /* Es un <button> porque hace la misma cosa que la tecla X y el jugador la
+     toca con el mouse. Sin este reset aparecen el fondo, el borde y el padding
+     default del browser, que rompen la guia. */
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* El hover tiene que verse: si no, el keycap parece decorativo y el jugador no
+   se da cuenta de que se puede clickear. El activo va apenas mas claro que el
+   hover porque el click es instantaneo. */
+.keyhint:hover .keyhint__act {
+  color: var(--text-body);
+}
+
+.keyhint:active .keyhint__act {
+  color: var(--text-gold);
+}
+
+.keyhint__cap {
+  /* Las dos keycaps vienen de 50x50. A 2.4vh el mayor display es ~37px a
+     1440p, o sea nunca se estan escalando hacia arriba: se achican nomas. */
+  width: 2.4vh;
+  height: 2.4vh;
+  object-fit: contain;
+  flex: 0 0 auto;
+}
+
+/* El verbo va como esta escrito en el HTML, sin text-transform. El pie entero
+   —el peso y estos dos verbos— se lee con la capitalizacion del fuente: si
+   estos dos estan en mayuscula y el peso no, el pie parece de dos piezas. */
+.keyhint__act {
+  font-size: var(--fs-2xs);
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: var(--spw-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* =================================================== RECETA: .ctxmenu --
+   Menu contextual de la fila, el que sale pegado al cursor con el click
+   derecho. Es la MISMA accion que la tecla X y los keycaps del pie, escrita
+   de una tercera forma: los tres caminos leen el registro ACCIONES de app.js,
+   asi que agregar una accion nueva no toca ni el menu ni el cableado.
+
+   El fondo es --surface-active y no --surface-raised porque el panel de atras
+   es negro: --raised es casi negro y el menu se perdia. --active es el gris
+   claro de la escala y se lee como algo elevated por encima del panel. */
+.ctxmenu {
+  --ctxmenu-w: 13vw;
+
+  position: fixed;
+  z-index: 200;
+  min-width: var(--ctxmenu-w);
+  padding: var(--sp-1);
+  background: var(--surface-active);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-panel);
+}
+
+.ctxmenu__item {
+  display: flex;
+  align-items: center;
+  gap: var(--spw-2);
+  width: 100%;
+  padding: var(--sp-3) var(--spw-3);
+  background: transparent;
+  border: 0;
+  color: var(--text-body);
+  font-family: inherit;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--dur-fast) ease, color var(--dur-fast) ease;
+}
+
+.ctxmenu__item:hover,
+.ctxmenu__item:focus-visible {
+  background: var(--surface-hover);
+  color: var(--text-inverse);
+  outline: none;
+}
+
+/* Separador entre grupos de acciones. Optativo: una accion declara
+   sepBefore y el menu le pone esta linea arriba. Sirve para que "Tirar" no
+   quede pegada a "Equipar" cuando la lista crece. */
+.ctxmenu__sep {
+  height: 1px;
+  margin: var(--sp-1) var(--spw-2);
+  background: var(--divider);
+}
+
+/* Renglon informativo: no es una accion, es el nombre del item sobre el que se
+   abrio el menu. Muted para que no compita con los verbos. */
+.ctxmenu__head {
+  padding: var(--sp-2) var(--spw-3);
+  color: var(--text-muted);
+  font-size: var(--fs-2xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: var(--spw-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ------------------------------------------------------------- Paneles (GSIS) -- */
 
 /* El browser NUNCA se cierra: la pagina se oculta y se muestra por classe.
-   El DOM sigue vivo y el tick() sigue corriendo. !important porque #panel y
-   #tutorial-box tienen display propio y la regla tiene que ganar. */
+   El DOM sigue vivo y el tick() sigue corriendo. !important porque #panel tiene
+   display propio y la regla tiene que ganar. */
 .hidden {
   display: none !important;
 }
 
-/* -------------------------------------------------- Ventana Tutorial Modal --
-   La segunda .panel. Comparte fondo y borde con la principal вЂ” son el mismo
-   material вЂ” y solo sobreescribe la geometria que tiene que ser distinta: se
-   coloca al lado del panel principal con un margen, es mas angosto y no tiene
-   alto fijo porque deja que el contenido lo determine.
+/* Los dos caminos de la misma animacion, y los dos son de #panel: fadeIn entra,
+   fadeOut sale. Salieron de la ventana de tutorial, que era la otra usuaria de
+   fadeIn.
 
-   El left sale de --main-w, NO de --box-w: el default de casa es 27vw y el
-   panel principal es mas ancho que eso. Con --box-w el tutorial se le montaba
-   encima. Y --panel-w no sirve aca: las custom properties se resuelven en el
-   elemento donde se usan, asi que var(--panel-w) dentro de #tutorial-box daria
-   el 36vw que este mismo bloque declara, no el ancho del otro panel. */
-
-#tutorial-box {
-  display: flex;
-  flex-direction: column;
-  z-index: 100;
-  animation: fadeIn var(--dur-slow) ease-out;
-
-  --panel-x: calc(var(--box-x) + var(--main-w) + var(--spw-5));
-  --panel-y: var(--box-y);
-  --panel-w: 36vw;
-  --panel-h: auto;
-  --panel-pt: var(--sp-6);
-  --panel-pb: var(--sp-6);
-  --panel-px: var(--spw-5);
-}
-
-/* Los dos caminos de la misma animacion. fadeIn la usa el tutorial y tambien
-   #panel; fadeOut es su inverso y solo la usa #panel al cerrar.
-
-   El desplazamiento es horizontal y no vertical porque ambos boxes se apoyan
-   en el borde izquierdo: entrar desde -10px los hace venir del canto, que es
-   de donde "salen" en pantalla. */
+   El desplazamiento es horizontal y no vertical porque el panel se apoya en el
+   borde izquierdo: entrar desde -10px lo hace venir del canto, que es de donde
+   "sale" en pantalla. */
 @keyframes fadeIn {
   from {
     opacity: 0;
@@ -913,128 +1428,4 @@ body {
     opacity: 0;
     transform: translateX(-10px);
   }
-}
-
-.tutorial-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  border-bottom: 1px solid var(--divider);
-  padding-bottom: var(--sp-4);
-  margin-bottom: var(--sp-5);
-}
-
-.tutorial-header h2 {
-  font-family: var(--font-display);
-  font-size: var(--fs-xl);
-  color: var(--text-gold);
-  font-weight: 400;
-}
-
-.tutorial-header-right {
-  display: flex;
-  align-items: center;
-  gap: var(--spw-3);
-}
-
-.tutorial-body {
-  flex: 1 1 auto;
-  overflow-y: auto;
-  padding-right: var(--spw-3);
-  font-size: var(--fs-md);
-  line-height: 1.45;
-  color: var(--text-body);
-}
-
-.tutorial-body p {
-  margin-bottom: var(--sp-5);
-}
-
-.tutorial-body ul {
-  margin-left: var(--spw-5);
-  margin-bottom: var(--sp-5);
-}
-
-.tutorial-body li {
-  margin-bottom: var(--sp-2);
-}
-
-.tutorial-body pre {
-  background: var(--surface-sunken);
-  border: 1px solid var(--g-700);
-  border-left: 3px solid var(--accent);
-  padding: var(--sp-5) var(--sp-4);
-  font-family: var(--font-mono);
-  font-size: var(--fs-sm);
-  color: var(--text-body);
-  overflow-x: auto;
-  margin: var(--sp-5) 0;
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-
-.tutorial-body code {
-  font-family: var(--font-mono);
-  background: var(--w-10);
-  color: var(--text-accent);
-  padding: var(--sp-1) var(--spw-1);
-  border-radius: var(--radius-sm);
-}
-
-.tutorial-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  border-top: 1px solid var(--divider);
-  padding-top: var(--sp-5);
-  margin-top: var(--sp-5);
-}
-
-.tut-tip {
-  font-size: var(--fs-xs);
-  color: var(--text-muted);
-}
-
-/* ========================================================= RECETA: .badge --
-   Chip de estado. Antes eran cuatro clases que repetian background / color /
-   border con doce hex distintos. Ahora una receta y cuatro overrides. */
-
-.badge {
-  --badge-bg: var(--w-08);
-  --badge-bd: var(--border-subtle);
-  --badge-tx: var(--text-muted);
-
-  display: inline-block;
-  padding: var(--sp-1) var(--spw-2);
-  font-size: var(--fs-2xs);
-  font-weight: 700;
-  border-radius: var(--radius-sm);
-  margin-right: var(--spw-1);
-  background: var(--badge-bg);
-  border: 1px solid var(--badge-bd);
-  color: var(--badge-tx);
-}
-
-.badge--info {
-  --badge-bg: var(--tint-info-bg);
-  --badge-bd: var(--tint-info-bd);
-  --badge-tx: var(--tint-info-tx);
-}
-
-.badge--warn {
-  --badge-bg: var(--tint-warn-bg);
-  --badge-bd: var(--tint-warn-bd);
-  --badge-tx: var(--tint-warn-tx);
-}
-
-.badge--success {
-  --badge-bg: var(--tint-ok-bg);
-  --badge-bd: var(--tint-ok-bd);
-  --badge-tx: var(--tint-ok-tx);
-}
-
-.badge--danger {
-  --badge-bg: var(--tint-bad-bg);
-  --badge-bd: var(--tint-bad-bd);
-  --badge-tx: var(--tint-bad-tx);
 }

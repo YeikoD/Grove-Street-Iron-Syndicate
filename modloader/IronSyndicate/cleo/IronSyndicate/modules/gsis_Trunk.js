@@ -5,15 +5,28 @@
 // ============================================================================
 // GSIS Trunk - Sistema de baules (abrir/cerrar, spheres, menu)
 // ============================================================================
-// Depende de: SaveManager, Config, ModuleRegistry, EventBus
+// Depende de: SaveManager, Config, ModuleRegistry, EventBus, Items, L10n, Notice
 // Usa query("spawner:*") para handles (sin importar Spawner)
 // ============================================================================
 
 import { getModuleData, setModuleData } from "../core/gsis_SaveManager.js";
-import { KEYS, DIST, TIMERS } from "../core/gsis_Config.js";
+import { KEYS, DIST, TIMERS, MISC } from "../core/gsis_Config.js";
+import { keyJustPressed, registerMenuSource } from "../core/gsis_Input.js";
 import { register } from "../core/gsis_ModuleRegistry.js";
 import { on, query } from "../core/gsis_EventBus.js";
 import { t } from "../core/gsis_L10n.js";
+import { setNotice } from "../core/gsis_Notice.js";
+import { ITEMS, getItemName } from "../data/gsis_item_data.js";
+import {
+    addToTrunk,
+    removeFromTrunk,
+    getTrunkItems,
+    getTrunkWeight,
+    getTrunkMaxCapacity,
+    getItems,
+    getTotalWeight,
+    isInstanced
+} from "./gsis_Items.js";
 
 // Estado de baules abiertos
 var _openTrunks = {}; // { vehicleId: { handle, pickup, lastUpdate, sphereX/Y/Z } }
@@ -102,7 +115,7 @@ export function syncStatesForSave() {
 
 // Tecla 3: alternar baul del vehiculo dado (entry via query a Spawner)
 function handleTrunkKey(c) {
-    if (!Pad.IsKeyJustPressed(KEYS.TRUNK)) return;
+    if (!keyJustPressed(KEYS.TRUNK)) return;
     try {
         var entry = c.isInAnyCar()
             ? query("spawner:find", { car: c.getCarIsUsing() })
@@ -111,7 +124,7 @@ function handleTrunkKey(c) {
     } catch (e) { }
 }
 
-// Update por frame: tecla 3, pending sync, spheres, proximidad, menu, tecla R
+// Update por frame: tecla 3, pending sync, spheres, proximidad, menu, tecla B
 export function updateTrunk(c, now, spawning) {
     handleTrunkKey(c);
 
@@ -188,8 +201,12 @@ export function updateTrunk(c, now, spawning) {
         }
     }
 
-    // --- R: toggle menu del baul mas cercano ---
-    if (Pad.IsKeyJustPressed(KEYS.TRUNK_MENU)) {
+    // --- B: toggle menu del baul mas cercano ---
+    // La segunda mitad del toggle (volver a cerrarlo) es inalcanzable:
+    // keyJustPressed devuelve false mientras haya un menu abierto, y este menu
+    // es una registerMenuSource mas. Se cierra con la 3, alejandose 1.5 m, o
+    // con Escape desde la pagina (que va por "ui:close" y llega a closeFlow()).
+    if (keyJustPressed(KEYS.TRUNK_MENU)) {
         if (!c.isInAnyCar() && _openTrunkCount > 0) {
             var closestTrunkId = null;
             var closestDist = DIST.TRUNK_ACCESS;
@@ -276,6 +293,114 @@ export function closeTrunk() {
 }
 
 // ============================================================================
+// API para la pagina web (gsis_FlowSerialization + gsis_WebInterface)
+// ============================================================================
+//
+// Estas dos son las que ejecutan el "Guardar" y el "Sacar" del panel. No son un
+// alias de addToTrunk: traen el chequeo de peso explicito y el aviso, que es lo
+// que vivia en el ui/gsis_TrunkMenu.js que se borro. addToTrunk ya devuelve
+// false cuando no entra, pero sin el dato de cuanto falta no se puede escribir
+// un mensaje util ("necesitas 5 kg") y sin mensaje el jugador cree que el panel
+// esta roto.
+//
+// Devuelven true/false para que el bridge sepa si redibujar.
+
+// Inventario -> baul. id y qty vienen de la fila elegida y su stepper.
+export function putInTrunk(id, qty) {
+    var vid = getTrunkVehicleId();
+    if (vid === -1) {
+        setNotice(t("TRK_NOG"));
+        return false;
+    }
+    qty = Math.max(1, parseInt(qty, 10) || 1);
+
+    var def = ITEMS[id];
+    if (!def) {
+        setNotice(t("TRK_NOG"));
+        return false;
+    }
+    // El pre-cheque va aca y no adentro de addToTrunk para poder decir cuanto
+    // falta. La funcion igual vuelve a calcular el peso y a rechazar: si el
+    // chequeo y la mutacion se separan, el segundo es el que manda.
+    var need = def.weight * qty;
+    var free = getTrunkMaxCapacity(vid) - getTrunkWeight(vid);
+    if (need > free) {
+        setNotice(t("TRK_FUL", { free: Math.round(free * 10) / 10, need: Math.round(need * 10) / 10 }));
+        return false;
+    }
+    // No hay enough en el inventario tampoco: sin este mensaje, un item que el
+    // baul acepta y el inventario no, se come el TRK_NOG generico.
+    if (!_hasInInventory(id, qty)) {
+        setNotice(t("TRK_NOG"));
+        return false;
+    }
+
+    if (!addToTrunk(vid, id, qty)) {
+        setNotice(t("TRK_NOG"));
+        return false;
+    }
+    setNotice(t("TRK_PUT", { qty: qty, name: getItemName(id) }));
+    return true;
+}
+
+// Baul -> inventario. El chequeo es el del inventario, no el del baul: es el que
+// puede rechazar y por eso el mensaje es INV_FR.
+export function takeFromTrunk(id, qty) {
+    var vid = getTrunkVehicleId();
+    if (vid === -1) {
+        setNotice(t("TRK_NON"));
+        return false;
+    }
+    qty = Math.max(1, parseInt(qty, 10) || 1);
+
+    var def = ITEMS[id];
+    if (!def) {
+        setNotice(t("TRK_NON"));
+        return false;
+    }
+    if (_trunkQty(vid, id) < qty) {
+        setNotice(t("TRK_NON"));
+        return false;
+    }
+    var need = def.weight * qty;
+    var free = MISC.MAX_INVENTORY_WEIGHT - getTotalWeight();
+    if (need > free) {
+        setNotice(t("INV_FR", { free: Math.round(free * 10) / 10, need: Math.round(need * 10) / 10 }));
+        return false;
+    }
+
+    if (!removeFromTrunk(vid, id, qty)) {
+        setNotice(t("TRK_NON"));
+        return false;
+    }
+    setNotice(t("TRK_TAK", { qty: qty, name: getItemName(id) }));
+    return true;
+}
+
+// Cuantas unidades de un id hay en un lado. Suma qty salvo para los instanciados
+// (cargadores y armas), que son una fila por unidad y valen 1 cada una.
+function _trunkQty(vehicleId, id) {
+    var items = getTrunkItems(vehicleId);
+    var n = 0;
+    for (var i = 0; i < items.length; i++) {
+        if (items[i].id !== id) continue;
+        n += isInstanced(id) ? 1 : (items[i].qty || 1);
+    }
+    return n;
+}
+
+function _hasInInventory(id, qty) {
+    var items = getItems();
+    var n = 0;
+    for (var i = 0; i < items.length; i++) {
+        if (items[i].id !== id) continue;
+        n += isInstanced(id) ? 1 : (items[i].qty || 1);
+        if (n >= qty) return true;
+    }
+    return false;
+}
+
+// ============================================================================
 // INTERNAS
 // ============================================================================
 
@@ -347,6 +472,11 @@ function _updateTrunkStateInDataById(vehicleId, trunkOpen) {
 
 function initTrunk() {
     log("[GSIS] Trunk inicializado");
+    // El menu del baul es un menu: mientras este abierto, el teclado es de la UI
+    // y ningun hotkey del mod tiene que disparar. Antes no se registraba y el
+    // interruptor de teclado solo miraba el menu principal, asi que la R del
+    // menu del baul competia con la R de recargar.
+    registerMenuSource("trunk", isTrunkMenuVisible);
     on("vehicle:destroyed", function (e) {
         onVehicleDead(e.id);
     });

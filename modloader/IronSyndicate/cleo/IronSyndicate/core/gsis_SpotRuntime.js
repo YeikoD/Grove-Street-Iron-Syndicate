@@ -23,6 +23,7 @@
 // ============================================================================
 
 import { KEYS, DIST } from "./gsis_Config.js";
+import { keyJustPressed } from "./gsis_Input.js";
 import { getSpots } from "../data/gsis_spot_data.js";
 
 // Gate interior: pending hasta getAreaVisible() === 0 (igual que Spawner/Actors)
@@ -107,7 +108,7 @@ export function updateSpotFKeySpot(c, type, visible, hasSpheres) {
     var open = visible;
 
     // Auto-apertura al entrar en la esfera o presionar tecla F en rango
-    if (n.dist < DIST.SPHERE || (n.dist < DIST.DEALER_ACCESS && Pad.IsKeyJustPressed(KEYS.DEALER))) {
+    if (n.dist < DIST.SPHERE || (n.dist < DIST.DEALER_ACCESS && keyJustPressed(KEYS.DEALER))) {
         open = true;
     }
 

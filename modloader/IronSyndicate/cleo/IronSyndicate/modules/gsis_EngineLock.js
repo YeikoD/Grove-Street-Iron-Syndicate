@@ -11,6 +11,7 @@
 
 import { setModuleData, getModuleData } from "../core/gsis_SaveManager.js";
 import { KEYS, TIMERS } from "../core/gsis_Config.js";
+import { keyJustPressed } from "../core/gsis_Input.js";
 import { register } from "../core/gsis_ModuleRegistry.js";
 import { on, emit, query } from "../core/gsis_EventBus.js";
 import { t } from "../core/gsis_L10n.js";
@@ -170,7 +171,7 @@ function updateEngineLock(now) {
         var c = p.getChar();
 
         // --- 1: Motor on/off + blip ---
-        if (Pad.IsKeyJustPressed(KEYS.ENGINE)) {
+        if (keyJustPressed(KEYS.ENGINE)) {
             if (c.isInAnyCar()) {
                 var car = c.getCarIsUsing();
                 handleEngineToggle(car, query("spawner:find", { car: car }));
@@ -183,7 +184,7 @@ function updateEngineLock(now) {
             : null);
 
         // --- 2: Lock/unlock puertas (mas cercano) ---
-        if (Pad.IsKeyJustPressed(KEYS.LOCK)) {
+        if (keyJustPressed(KEYS.LOCK)) {
             handleLockToggle(query("spawner:closest", { char: c }));
         }
     } catch (e) { }

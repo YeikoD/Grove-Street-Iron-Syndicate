@@ -5,6 +5,7 @@
 // GSIS_ItemsModule - Sistema de items
 import { registerModule, getModuleData, setModuleData } from "../core/gsis_SaveManager.js";
 import { KEYS, MISC } from "../core/gsis_Config.js";
+import { keyJustPressed } from "../core/gsis_Input.js";
 import { register } from "../core/gsis_ModuleRegistry.js";
 import { on } from "../core/gsis_EventBus.js";
 import { t } from "../core/gsis_L10n.js";
@@ -23,7 +24,11 @@ function isMagazine(id) {
 
 // true si el item es instancia (no apila): cargador o arma con weaponId.
 // El arma instancia guarda su estado: { id, qty:1, hasMag, ammo }
-function isInstanced(id) {
+//
+// Exportada porque es una regla de conteo, no de guardado: el baul la necesita
+// para saber si "3" son tres filas o tres unloaded de un apilado. Copiarla
+// aca seria la mitad de una regla que decide si las cosas se multiplican.
+export function isInstanced(id) {
     if (isMagazine(id)) return true;
     var def = ITEMS[id];
     if (!def || def.type !== "weapon") return false;
@@ -108,7 +113,7 @@ export function initItemManager() {
 
 // Debug: tecla L agrega 9mm, chatarra y 1 cargador (probar inventario/baul)
 export function updateItemManager() {
-    if (Pad.IsKeyJustPressed(KEYS.DEBUG_ITEM)) {  // Detecta tecla L
+    if (keyJustPressed(KEYS.DEBUG_ITEM)) {  // Detecta tecla L
         var ok9 = addItem("9mm", 1);  // Agrega arma de prueba
         var okScrap = addItem("scrap_metal", 5);  // Agrega material de prueba
         var okMag = addItem("mag_9mm", 1);  // Agrega cargador de prueba

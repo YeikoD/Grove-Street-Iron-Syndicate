@@ -31,8 +31,8 @@ import "./IronSyndicate/modules/gsis_WeaponSeller.js";
 // El bridge va aca, y no en cualquier lado: tiene que leer los flags de
 // proximidad de este frame, asi que va despues de los modulos que los
 // calculan (Trunk / WeaponDealer / DealerPickup / WeaponSeller) y antes de
-// Ballistic / FireButton. Occupaba el mismo lugar el UIManager de ImGui.
-import "./IronSyndicate/ui/gsis_WebBridge.js";
+// Ballistic / FireButton, que dependen de Items.
+import "./IronSyndicate/modules/gsis_WebInterface.js";
 import "./IronSyndicate/modules/gsis_Ballistic.js";
 import "./IronSyndicate/modules/gsis_FireButton.js";
 
