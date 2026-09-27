@@ -65,9 +65,9 @@ export var STRINGS = {
         en: "~g~+1 9mm, +5 scrap, +1 magazine"
     },
 
-    // --- Baul ---
+    // --- Maletero ---
     TRK_FUL: {
-        es: "~r~Baul lleno (libre {free} kg, necesitas {need} kg)",
+        es: "~r~Maletero lleno (libre {free} kg, necesitas {need} kg)",
         en: "~r~Trunk full ({free} kg free, need {need} kg)"
     },
     TRK_NOG: {
@@ -232,7 +232,7 @@ export var STRINGS = {
     BTN_OPN: { es: "Abrir", en: "Open" },
     BTN_ALL: { es: "RECOGER TODO", en: "PICK UP ALL" },
     BTN_OFF: { es: "Ofrecer", en: "Offer" },
-    BTN_CTB: { es: "Cerrar Baul", en: "Close Trunk" },
+    BTN_CTB: { es: "Cerrar Maletero", en: "Close Trunk" },
     MONEY: { es: "Dinero: ${n}", en: "Money: ${n}" },
     MONEY2: { es: "Dinero: $?", en: "Money: $?" },
     FRE_L: { es: "Libre: {n} kg", en: "Free: {n} kg" },
@@ -302,14 +302,14 @@ export var STRINGS = {
     DLR_NON: { es: "Este vendedor no tiene nada en el catalogo", en: "This seller has nothing in the catalog" },
     CRT_UI: { es: "Carrito vacio", en: "Cart empty" },
 
-    // --- UI Baul ---
-    TRK_TTL: { es: "Baul - {name} ({model})", en: "Trunk - {name} ({model})" },
-    TRK_L: { es: "Baul: {w}/{max} kg", en: "Trunk: {w}/{max} kg" },
-    TRK_H: { es: "BAUL", en: "TRUNK" },
+    // --- UI Maletero ---
+    TRK_TTL: { es: "Maletero Vehiculo - {name} ({model})", en: "Trunk - {name} ({model})" },
+    TRK_L: { es: "Maletero: {w}/{max} kg", en: "Trunk: {w}/{max} kg" },
+    TRK_H: { es: "MALETERO", en: "TRUNK" },
     TRK_MOC: { es: "MOCHILA", en: "BACKPACK" },
     TRK_EMI: { es: "(inventario vacio)", en: "(inventory empty)" },
-    TRK_EMB: { es: "(baul vacio)", en: "(trunk empty)" },
-    TRK_HNT: { es: "ESPACIO: menu | 3: cerrar baul", en: "SPACE: menu | 3: close trunk" },
+    TRK_EMB: { es: "(maletero vacio)", en: "(trunk empty)" },
+    TRK_HNT: { es: "ESPACIO: menu | 3: cerrar maletero", en: "SPACE: menu | 3: close trunk" },
 
     // --- UI Retiro ---
     PKC_TTL: { es: "Retiro de pedido", en: "Order pickup" },

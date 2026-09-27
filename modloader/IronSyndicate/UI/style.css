@@ -904,17 +904,18 @@ body {
    "17/17" que trae adentro.
 
    --subtitle-font   PriceDown, la fuente que el archivo nombra para esta linea.
-   --subtitle-fs     --fs-lg, y no el --fs-2xs que llevaba antes. Es la misma
-                     fuente con otro nombre, no un detalle de tamano: PriceDown
-                     es de adorno, con la letra llena de detalle, y a 1.25vh
-                     (13px) los glifos se juntan y la linea deja de leerse. Se
-                     midio rasterizando el mismo texto de 1.25vh a 2.2vh: a 13px
-                     ya no se lee, a 16px se vuelve a adivinar y desde 19px se
-                     lee. 2.2vh es el cuerpo del paso, el primero de la escala
-                     que se lee con comodidad, y deja el titulo (5.2vh) cuatro
-                     veces                      mas arriba: la linea de arriba manda. Es el piso: la
-                     pantalla del maletero lo pisa a 2.6vh y lo sube a la linea
-                     del titulo, ver .panel--centro .panel__subtitle mas abajo.
+   --subtitle-fs     3.0vh, GLOBAL: el mismo cuerpo en las cinco pantallas, y no
+                     el --fs-2xs (1.25vh) que llevaba antes. Es la misma fuente
+                     con otro nombre, no un detalle de tamano: PriceDown es de
+                     adorno, con la letra llena de detalle, y a 1.25vh (13px)
+                     los glifos se juntan y la linea deja de leerse. Se midio
+                     rasterizando el mismo texto de 1.25vh a 2.2vh: a 13px ya no
+                     se lee, a 16px se vuelve a adivinar y desde 19px se lee.
+                     3.0vh es ese cuerpo con margen -el que se lee de lejos, que
+                     es como se usa el maletero, parado al lado del vehiculo- y
+                     sigue siendo menos de la mitad del titulo (5.2vh): la linea
+                     de arriba manda. Lo unico que un menu puede cambiar es la
+                      POSICION de su linea, ver .panel-header--linea.
    --subtitle-gap  el aire entre el titulo y esta linea. El titulo va con
                    line-height 1.0, o sea que su caja de linea es JUSTO el
                    cuerpo: los gajos se salen de la caja y el subtitulo era el
@@ -922,7 +923,7 @@ body {
                    dos los controla el mismo lugar. */
 .panel__subtitle {
   --subtitle-font: var(--font-subtitle);
-  --subtitle-fs: var(--fs-lg);
+  --subtitle-fs: 3.0vh;
   --subtitle-weight: 400;
   --subtitle-color: var(--text-muted);
   --subtitle-track: 0;
@@ -947,27 +948,33 @@ body {
   display: none;
 }
 
-/* Solo la pantalla del maletero (.panel--centro, ver crearPanel() en app.js):
-   el nombre del auto va en la MISMA linea que el titulo, pegado al borde
-   derecho del encabezado.
+/* El subtitulo en la MISMA linea que el titulo, pegado al borde derecho del
+   encabezado. Lo usan las dos pantallas cuya segunda linea es UNA palabra o dos
+   letras —un dato que identifica, no una frase—:
 
-   En la misma linea y no debajo porque ahi la linea es UNA sola palabra: debajo
-   quedaria pegada al titulo y se leeria como una segunda linea del titulo
-   ("Maletero Vehiculo / Infernus"); al otro extremo de la misma linea se lee
-   como lo que es, el dato que identifica el vehiculo, y el encabezado queda con
-   sus dos extremos: menu a la izquierda, auto a la derecha.
+     maletero   el auto ("Infernus"): el encabezado queda con sus dos extremos,
+                menu a la izquierda y auto a la derecha.
+     inventario "CJ": de que menu es y de quien es, en la misma linea.
 
-   A 2.6vh y no a los 2.2vh de la receta: con una sola palabra no compite con
-   el titulo (5.2vh) ni desplaza nada, y el cuerpo extra es lo que hace que el
-   nombre del auto se alcance a leer de lejos, que es como se usa este menu
-   (parado al lado del vehiculo).
+   En la misma linea y no debajo porque ahi la linea es corta: debajo quedaria
+   pegada al titulo y se leeria como una segunda linea de el ("Maletero
+   Vehiculo / Infernus", "Inventario / CJ"); al otro extremo de la misma linea se
+   lee como lo que es.
 
-   Los otros tres menus no lo siguen: sus lineas son largas (el vendedor, lo que
-   busca el cliente, el pedido con sus importes) y en una linea propia con el
-   borde derecho lleno se leen cortadas y sin relacion con el titulo. El margen
-   de abajo es 0 porque el gap titulo/subtitulo solo apedia cuando eran dos
-   bloques. */
-.panel--centro .panel-header {
+   Los otros tres menus de proximidad NO lo siguen: sus lineas son largas (el
+   vendedor, lo que busca el cliente, el pedido con sus importes) y en una linea
+   propia con el borde derecho lleno se leen cortadas y sin relacion con el
+   titulo. Para una de esas, el subtitulo es una frase y lo que quiere es un
+   bloque abajo del titulo, que es lo que hace la receta de arriba.
+
+   El tamano NO lo toca: --subtitle-fs es global, el mismo en las cinco pantallas
+   (ver la receta de arriba); lo unico que este modificador cambia es la POSICION
+   de la linea.
+
+   El margen de abajo es 0 porque el gap titulo/subtitulo solo apedia cuando eran
+   dos bloques; el padding-left del lado del titulo es el aire minimo para que un
+   titulo largo y un subtitulo corto no se toquen. */
+.panel-header--linea {
   display: flex;
   align-items: baseline;
 }
@@ -975,13 +982,11 @@ body {
 /* min-width:0 porque el h1 viene con overflow:hidden y, como flex item, su
    min-width por defecto es el contenido: sin esto un titulo largo empujaria al
    subtitulo fuera del panel en vez de acortarse con elipsis. */
-.panel--centro .panel__title {
+.panel-header--linea .panel__title {
   min-width: 0;
 }
 
-.panel--centro .panel__subtitle {
-  --subtitle-fs: 2.6vh;
-
+.panel-header--linea .panel__subtitle {
   margin: 0 0 0 auto;
   padding-left: var(--sp-3);
   white-space: nowrap;
@@ -1325,7 +1330,7 @@ body {
 /* A donde se va la fila: el destino de la transferencia, pegado al nombre.
    Con dos listas el sentido del boton dependia de cual esta mirando el jugador y
    eso solo estaba escrito en el texto del boton, abajo a la derecha; aca se lee
-   junto al item ("AK-47 → BAUL"), que es donde esta la decision. En acento, la
+   junto al item ("AK-47 → MALETERO"), que es donde esta la decision. En acento, la
    misma marca que el titulo de la lista activa. Solo existe en las pantallas con
    dos listas (ver renderAccionBar). */
 .accionbar__dir {

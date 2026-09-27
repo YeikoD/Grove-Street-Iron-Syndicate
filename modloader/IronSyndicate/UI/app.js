@@ -240,17 +240,26 @@ const MOCK = {
   ]
 };
 
-// Los cuatro menus de proximidad, de ejemplo. Misma forma que los que manda
-// gsis_FlowSerialization.js, incluido el id: la pagina dibuja la pantalla segun
-// el id del snapshot, asi que un mock sin id dibuja el esqueleto y no sirve.
+// REGISTRO DE LOS MENUS DEL PREVIEW. La clave es el id de la pantalla, el mismo
+// que usa PANTALLAS: por eso agregar un menu aqui es agregar una entrada alla y
+// el recorrido de pantallas (PREVIEW_CICLO) lo toma solo, sin tocar ningun
+// switch. Ver previewVer().
 //
-// Se cambian con ?flujo=trunk en la barra de direcciones para mirar uno por vez:
-// en el navegador no hay proximidad que abra nada, asi que sin esto solo se ve
-// el primero.
+//   titulo/subtitulo  lo que se ve en el encabezado.
+//   panes             las listas.
+//   notice            opcional. Sale entre la tabla y la barra como aviso, y es
+//                     el estado que hay que mirar que se lea.
+//
+// En el navegador no hay proximidad que abra nada, asi que el menu que se mira lo
+// elige el que revisa: con Ctrl+flecha se recorre, o con ?flujo=<id> en la barra
+// de direcciones se abre uno puntual y queda fijo.
 const MOCK_FLUJOS = {
   trunk: {
     titulo: "Maletero Vehiculo - Infernus (411)",
     subtitulo: "ESPACIO: menu | 3: cerrar maletero | ESPACIO o ESC para cerrar el menu",
+    // Con aviso, para que se vea como se ven los errores de peso. Es el estado
+    // que mas se repite en el juego y el que hay que mirar que se lea.
+    notice: "~r~Maletero lleno (libre 1.3 kg, necesitas 2.5 kg)",
     panes: [
       {
         key: "mochila",
@@ -334,11 +343,28 @@ const MOCK_FLUJOS = {
 
 let mockActive = false;
 
-// Que menu de proximidad simula el preview. Sin parametro, el primero de la
-// lista: es el que se abre con la tecla B y conviene ver de entrada.
+// Que pantalla del mock se mira al abrir la pagina. Sin parametro, el
+// INVENTARIO: es la pantalla principal y la que esta en pantalla casi siempre, y
+// antes el preview arrancaba en un menu de proximidad, o sea que para revisar el
+// panel que mas se usa habia que pasar por otro. Antes era el primero de la
+// lista, que es el baul.
+//
+//   (nada)      inventario
+//   inv         inventario, escrito de las dos formas que se ocurren
+//   trunk       maletero
+//   dealer      armeria
+//   seller      trueque
+//   pickup      retiro
+//
+// Un id que no existe cae en el inventario en vez de romperse: es un parametro de
+// la barra de direcciones, no parte del contrato, y un typo tiene que verse como
+// "no se encontro ese menu" y no como una pagina en blanco.
 function mockFlowId() {
-  const q = new URLSearchParams(window.location.search).get("flujo");
-  return q && MOCK_FLUJOS[q] ? q : Object.keys(MOCK_FLUJOS)[0];
+  const q = String(new URLSearchParams(window.location.search).get("flujo") || "").toLowerCase();
+  if (!q || q === "inv" || q === "inventario" || q === "0") return "";
+  if (MOCK_FLUJOS[q]) return q;
+  _diag("?flujo=" + q + " no existe — se abre el inventario");
+  return "";
 }
 
 // Lo que manda el mod en "catalog": peso maximo, bandas de grupo e iconos. Sin
@@ -376,17 +402,91 @@ function applyMock() {
     // mismo item— dejaban de decir lo mismo.
     itemRow({ id: "scrap_metal", name: "Chatarra", cat: "material", qty: 5, weight: 2.5 })
   ];
-  // El preview tambien muestra un menu de proximidad. Sin esto habria que
-  //_DISEÑAR el baul sin la pantalla: en el juego el baul se abre solo, y la
-  // unica forma de ver como queda aca es fingir que hay uno abierto.
-  const id = mockFlowId();
-  const payload = MOCK_FLUJOS[id];
-  payload.id = id;
-  // Con un aviso, para que se vea como se ven los errores de peso. Es el estado
-  // que mas se repite en el juego y el que hay que mirar que se lea.
-  payload.notice = id === "trunk" ? "~r~Maletero lleno (libre 1.3 kg, necesitas 2.5 kg)" : null;
-  uiState = { read: true, menu: true, anyMenu: true, keys: true, mode: 1, focus: UI_ID_PREVIEW, openUis: 1, flow: id };
-  flowData = payload;
+  // La pantalla que se mira NO se decide aca: la elige previewVer() en el
+  // arranque, y despues el que revisa con Ctrl+flecha. Antes este bloque armaba
+  // el payload del primer menu y dejaba uiState.flow en ese id, o sea que la
+  // eleccion vivia en el generador de datos y en el que la muestra: cambiar el
+  // menu inicial era cambiar dos lugares.
+  uiState = { read: true, menu: true, anyMenu: true, keys: true, mode: 1, focus: UI_ID_PREVIEW, openUis: 1, flow: "" };
+}
+
+// El recorrido de pantallas del preview: el inventario primero y despues los
+// menus de proximidad, en el orden en que estan declarados en MOCK_FLUJOS.
+//
+// Se arma SOLO desde el registro del mock. Agregar un menu es agregar una clave a
+// MOCK_FLUJOS (con su entrada en PANTALLAS) y el recorrido lo agarra sin tocar el
+// teclado ni ningun switch. Por eso aca no hay una lista de menus escrita a mano:
+// seria una segunda lista que se desincroniza de la primera el dia que falte una
+// entrada en alguna de las dos.
+//
+// OJO con el lugar donde se llama. PANTALLAS es un const declarado mas abajo en
+// este archivo, asi que recorrer el registro NO se puede hacer en el punto donde
+// vive MOCK_FLUJOS: se leeria antes de inicializarse y el script entero moriria
+// con "Cannot access 'PANTALLAS' before initialization". Se arma en el INIT, abajo
+// de todo. Ver el mismo caso en FILTRO_INICIAL.
+function cicloPreview() {
+  const ids = Object.keys(MOCK_FLUJOS);
+  for (const id of ids) {
+    // Un id sin PANTALLAS no rompe nada —la pagina dibuja el esqueleto sin
+    // datos, que es justo para lo que esta el esqueleto— pero es un error al
+    // registrar el menu, asi que se avisa por consola en vez de dejar que el que
+    // revisa lo descubra viendo un panel vacio.
+    if (!PANTALLAS[id]) {
+      _diag("preview: '" + id + "' esta en MOCK_FLUJOS pero no en PANTALLAS — se vera el esqueleto sin datos");
+    }
+  }
+  // "" primero: el inventario es la pantalla principal, asi que es la que esta
+  // abierta y la primera a la que vuelve el recorrido.
+  return [""].concat(ids);
+}
+
+// El recorrido, armado en el INIT (ver cicloPreview). Vive en una variable de
+// modulo y no se calcula al vuelo porque armarlo lee PANTALLAS, que se declara
+// mas abajo en el archivo.
+let CICLO_PREVIEW = null;
+
+// Cambiar de pantalla en el PREVIEW. Sin puente y solo sin puente: la unica
+// llamada es la del arranque y la de Ctrl+flecha, y las dos estan en ramas
+// !bridgeReady, asi que en el juego esta funcion no existe para nadie.
+function previewVer(id) {
+  const inv = !id;
+  if (!inv) {
+    const payload = MOCK_FLUJOS[id];
+    if (!payload) {
+      _diag("preview: no hay mock para '" + id + "'");
+      return;
+    }
+    // El id va en el payload porque renderFlujo() lo usa para saber si el
+    // snapshot que tiene es de la pantalla que esta abierta (flowData.id !== id).
+    payload.id = id;
+    uiState = Object.assign({}, uiState, { flow: id });
+    flowData = payload;
+  } else {
+    uiState = Object.assign({}, uiState, { flow: "" });
+    flowData = null;
+  }
+
+  // REGLA 1, igual que en el juego: la visibilidad de #panel la decide
+  // setPanelVisible() y no la toca nadie mas. En el preview siempre se muestra,
+  // asi que el destino es el mismo para las cinco pantallas — con un flujo
+  // abierto la ultima lo apagaria y sin flujo la primera no lo destaparia.
+  setPanelVisible(true);
+  setPantalla(id);
+  if (inv) renderFiltro(filtroActualKey);
+  else renderFlujo();
+
+  _diag("preview: " + (inv ? "inventario" : id));
+}
+
+// Un paso del recorrido, con la vuelta por el final. El indice sale de
+// pantallaActual() —que es uiState.flow, con "" para el inventario— y no de una
+// variable propia: si el recorrido y la pantalla se desincronizan, la flecha
+// saltaria a un menu en vez de moverse al vecino.
+function previewSaltar(dir) {
+  const ciclo = CICLO_PREVIEW || [];
+  if (ciclo.length < 2) return;
+  const i = ciclo.indexOf(pantallaActual());
+  previewVer(ciclo[(i + dir + ciclo.length) % ciclo.length]);
 }
 
 // En el juego el mock no debe aparecer ni un frame. Se cae en cuanto el puente
@@ -1415,7 +1515,16 @@ function crearPanel(id) {
   sec.id = "pnl-" + id;
 
   const head = document.createElement("div");
-  head.className = "panel-header";
+  // El subtitulo del baul —el nombre del auto— va en la linea del titulo, y el
+  // inventario lo hace igual con "CJ" (esta declarado en el HTML). Los otros tres
+  // lo llevan en su propia linea porque son frases largas.
+  //
+  // La condicion se lee de la clase del panel y no se repite como otro
+  // `id === "trunk"`: las dos cosas son el baul, y con dos comparaciones
+  // separadas el dia que una pantalla se sume a una de las dos se puede sumar a
+  // una y no a la otra.
+  head.className = "panel-header" +
+    (sec.classList.contains("panel--centro") ? " panel-header--linea" : "");
   const titulo = document.createElement("h1");
   titulo.className = "panel__title";
   const subtitulo = document.createElement("p");
@@ -2520,6 +2629,23 @@ document.addEventListener("keydown", (e) => {
     return;
   }
 
+  // PREVIEW: Ctrl+flecha recorre las pantallas del ejemplo. Va primero y con su
+  // propio return a proposito, por las dos razones que lo sostienen:
+  //
+  //   1. No existe en el juego. La rama entera esta detrás de !bridgeReady, asi
+  //      que no es un atajo que en el juego no hace nada: es codigo que en el
+  //      juego no esta. Ctrl+flecha con puente cae al handler de siempre y no
+  //      encuentra nada que hacer con ella.
+  //   2. No puede caer en la navegacion de la tabla. ↑↓ mueven la fila y ←→ cambian
+  //      de lista en el baul; por eso el cambio de pantalla necesita el
+  //      modificador, y por eso esta rama no se puede escribir mas abajo, donde
+  //      esas dos leen la misma tecla.
+  if (!bridgeReady && e.ctrlKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+    e.preventDefault();
+    previewSaltar(e.key === "ArrowRight" ? 1 : -1);
+    return;
+  }
+
   // Escape cierra el menu. Con el menu contextual abierto se queda el y lo
   // cierra; si no, pide el cierre.
   //
@@ -2577,15 +2703,36 @@ document.addEventListener("keydown", (e) => {
   const cfg = flow ? cfgDe(flow) : null;
   const vista = vistaDe();
 
-  if (e.key === "ArrowDown") {
+  // WASD como alias de las flechas. El jugador trae la mano en WASD -asi se
+  // mueve en el juego- y hacerlo buscar las flechas para recorrer una lista
+  // rompe el gesto. Vale en las dos pantallas: arriba/abajo mueven la fila y
+  // izquierda/derecha cambian de lista (flujos) o de filtro (inventario), que es
+  // exactamente lo que hacen las flechas de arriba.
+  //
+  // La A es la unica de las cuatro que una pantalla tiene asignada (pickup:
+  // "Recoger todo", letra anunciada en el pie), y ahi manda la accion: el alias
+  // no se come una tecla que el pie promete. No se pierde navegacion por eso,
+  // porque las flechas horizontales en ese flujo no mueven nada -tiene un solo
+  // pane- y la fila si sigue moviendose con la W y la S.
+  //
+  // Con modificador no hay alias: Ctrl+A es del navegador y las flechas con
+  // Ctrl son el recorrido de pantallas del preview.
+  const k = e.key.toLowerCase();
+  const libreDeAccion = !cfg ||
+    !(cfg.pieAcciones || []).some((x) => String(x.tecla || "").toLowerCase() === k);
+  const nav = (!e.ctrlKey && !e.metaKey && !e.altKey && libreDeAccion)
+    ? ({ w: "ArrowUp", a: "ArrowLeft", s: "ArrowDown", d: "ArrowRight" }[k] || e.key)
+    : e.key;
+
+  if (nav === "ArrowDown") {
     e.preventDefault();
     stepRow(1);
-  } else if (e.key === "ArrowUp") {
+  } else if (nav === "ArrowUp") {
     e.preventDefault();
     stepRow(-1);
-  } else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+  } else if (nav === "ArrowLeft" || nav === "ArrowRight") {
     e.preventDefault();
-    const dir = e.key === "ArrowRight" ? 1 : -1;
+    const dir = nav === "ArrowRight" ? 1 : -1;
     // Con dos listas, izquierda y derecha cambian de lista; es el mismo gesto
     // horizontal del inventario (donde cambian de filtro) para el mismo
     // proposito. Con un solo pane no hay a que moverse y la tecla no hace nada.
@@ -2902,13 +3049,19 @@ logState();
 // sirve para revisar el diseno a ojo.
 setPanelVisible(!bridgeReady);
 
-// El preview muestra un menu de proximidad, no el inventario: es el estado que
-// no se puede ver de otra forma, porque en el juego se abre parandote al lado
-// del baul o del dealer. Con ?flujo=<id> se cambia cual se mira. Ver applyMock().
+// El preview arranca en el INVENTARIO y se recorre con Ctrl+flecha: el inventario
+// es la pantalla principal y la que esta en pantalla casi siempre, asi que es la
+// primera a la que hay que poder volver. El recorrido sale del registro del mock
+// (cicloPreview), asi que un menu nuevo se recorre sin tocar este bloque.
+//
+// El recorrido se arma ACA y no junto a MOCK_FLUJOS porque PANTALLAS se declara
+// mas abajo: leerlo antes de su inicializacion mataria el script entero.
 if (!bridgeReady) {
-  setPantalla(mockFlowId());
-  renderFlujo();
-  _diag("preview: menu de ejemplo '" + mockFlowId() + "' (?flujo=trunk|dealer|seller|pickup)");
+  CICLO_PREVIEW = cicloPreview();
+  previewVer(mockFlowId());
+  _diag("preview: pantallas = " +
+    CICLO_PREVIEW.map((id) => id || "inventario").join(", ") +
+    " — Ctrl+←/→ para recorrerlas, ?flujo=<id> para abrir una puntual");
 }
 
 if (bridgeReady) {

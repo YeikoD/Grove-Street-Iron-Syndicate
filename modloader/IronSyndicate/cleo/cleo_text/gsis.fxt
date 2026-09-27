@@ -5,7 +5,7 @@ SAVE_ER ~r~Error al guardar
 INV_FUL ~r~Inventario lleno
 INV_FR ~r~Inventario lleno (libre {free} kg, necesitas {need} kg)
 DBG_ITM ~g~+1 9mm, +5 chatarra, +1 cargador
-TRK_FUL ~r~Baul lleno (libre {free} kg, necesitas {need} kg)
+TRK_FUL ~r~Maletero lleno (libre {free} kg, necesitas {need} kg)
 TRK_NOG ~r~No se pudo guardar
 TRK_PUT ~g~Guardaste {qty}x {name}
 TRK_NON ~r~No se pudo sacar
@@ -42,7 +42,7 @@ BTN_PCK Recoger
 BTN_OPN Abrir
 BTN_ALL RECOGER TODO
 BTN_OFF Ofrecer
-BTN_CTB Cerrar Baul
+BTN_CTB Cerrar Maletero
 MONEY Dinero: ${n}
 MONEY2 Dinero: $?
 FRE_L Libre: {n} kg
@@ -87,12 +87,12 @@ TY_ALM almacen
 DLR_TTL Armeria Mayorista
 DLR_TOT Total carrito: ${n}
 CRT_UI Carrito vacio
-TRK_TTL Baul - {name} ({model})
-TRK_L Baul: {w}/{max} kg
-TRK_H BAUL
+TRK_TTL Maletero Vehiculo - {name} ({model})
+TRK_L Maletero: {w}/{max} kg
+TRK_H MALETERO
 TRK_EMI (inventario vacio)
-TRK_EMB (baul vacio)
-TRK_HNT B: menu | 3: cerrar baul | Alejarse cierra el menu
+TRK_EMB (maletero vacio)
+TRK_HNT B: menu | 3: cerrar maletero | Alejarse cierra el menu
 PKC_TTL Retiro de pedido
 PKC_ORD Pedido: ${n}  |  Peso: {w} kg
 SEL_TTL Trueque — Cliente local
