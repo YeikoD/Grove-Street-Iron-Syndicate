@@ -5,12 +5,14 @@
 // ============================================================================
 // GSIS DealerPickup - Punto de retiro de pedidos del dealer
 // ============================================================================
-// N esferas + blip SOLO existen mientras haya pedido en SaveManager "DealerOrders"
-// Esferas: data/gsis_spot_data → pickup (independiente de actores)
-// Tecla F abre menu retiro
+// Esferas: data/gsis_spot_data → pickup (independiente de actores). Existen solo
+//   mientras haya pedido en SaveManager "DealerOrders" Y la esfera no este apagada
+//   por la cooldown de un cierre reciente
+// Blip: existe solo mientras haya pedido (no depende de la cooldown, ver _syncBlips)
+// ESPACIO abre el menu del retiro parado dentro de la esfera; ESC lo cierra
 // Las acciones de la pagina (recoger / recoger todo) viven mas abajo, en este
 // archivo y no en la pagina: el peso libre lo sabe el juego, no el snapshot.
-// Depende de: Config, ModuleRegistry, SaveManager, EventBus, SpotRuntime, Items,
+// Depende de: Config, ModuleRegistry, SaveManager, SpotRuntime, Items,
 //             item_data, L10n, Notice
 // ============================================================================
 
@@ -18,18 +20,16 @@ import { MISC } from "../core/gsis_Config.js";
 import { register } from "../core/gsis_ModuleRegistry.js";
 import { registerMenuSource } from "../core/gsis_Input.js";
 import { getModuleData, setModuleData } from "../core/gsis_SaveManager.js";
-import { on } from "../core/gsis_EventBus.js";
 import { t } from "../core/gsis_L10n.js";
 import { setNotice } from "../core/gsis_Notice.js";
 import { getItemName, getItemWeight } from "../data/gsis_item_data.js";
 import { getSpots } from "../data/gsis_spot_data.js";
 import { addItem, getTotalWeight } from "./gsis_Items.js";
 import {
-    createSpotGate, updateSpotGate, createSpotSpheres,
-    destroySpotSpheres, updateSpotFKey
+    createSpotGate, updateSpotSpheres, updateSpotSpace,
+    spotHas, beginSpotCooldown
 } from "../core/gsis_SpotRuntime.js";
 
-var _spheres = []; // 1 sphere handle por spot pickup
 var _blips = [];   // 1 blip por spot pickup
 var _showPickupMenu = false;
 var _gate = createSpotGate(); // espera a exterior
@@ -53,10 +53,12 @@ export function getOrder() {
     return order;
 }
 
-// Vacia el pedido y destruye esferas. Devuelve true si habia pedido.
+// Vacia el pedido. El resto (esferas, blips, menu) lo resuelve el update de abajo
+// en el proximo frame: el pedido vacio es la causa, y el update es el unico que
+// mira la causa. Tocar las esferas desde aca seria tener dos caminos para la misma
+// decision, y ahi es donde se desincronizan.
 export function clearOrder() {
     setModuleData("DealerOrders", { items: [], total: 0, purchasedAt: 0 });
-    _destroySpheres();
     _showPickupMenu = false;
     return true;
 }
@@ -235,23 +237,22 @@ function _destroyBlips() {
     _blips = [];
 }
 
-function _destroySpheres() {
-    _destroyBlips();
-    destroySpotSpheres(_spheres);
-}
-
-function _syncSphere() {
-    if (_gate.pending) return; // gate interior activo
-
-    var order = getModuleData("DealerOrders");
-    var pending = !!(order && order.items && order.items.length > 0);
-    if (pending && _spheres.length === 0) {
-        _spheres = createSpotSpheres("pickup");
+// Los blips siguen al PEDIDO y no a la esfera.
+//
+// Es la unica diferencia con los otros tres modulos, y es a proposito: el blip es
+// la flecha del radar que dice "hay algo para recoger", y sigue siendo verdad
+// mientras haya pedido. Si el blip dependiera de la esfera, cada vez que el
+// jugador cerrara el menu del retiro la flecha desapareceria del mapa 30 s, sin
+// que el pedido haya cambiado. La esfera es la puerta del menu; el blip es un
+// aviso, y un aviso no se apaga porque el jugador ya estuvo ahi.
+//
+// O sea: pending && sin blips → crear, sin pedido && con blips → destruir. Nunca
+// al reves, y nunca por cooldown.
+function _syncBlips(pending) {
+    if (pending && _blips.length === 0) {
         _createBlips();
-        log("[DealerPickup] " + _spheres.length + " esferas de retiro creadas");
-    } else if (!pending && _spheres.length > 0) {
-        _destroySpheres();
-        log("[DealerPickup] Esferas de retiro destruidas (pedido vacio)");
+    } else if (!pending && _blips.length > 0) {
+        _destroyBlips();
     }
 }
 
@@ -260,24 +261,28 @@ function _syncSphere() {
 // ============================================================================
 
 function initDealerPickup() {
-    // Checkout del dealer (otro modulo) notifica pedido nuevo
-    on("dealer:orderReady", function () {
-        _syncSphere();
-    });
     log("[GSIS] DealerPickup: spots=" + getSpots("pickup").length +
-        " (esperar exterior si hay pedido)");
+        " (menu con esfera: ESPACIO para abrir, ESC para cerrar)");
     registerMenuSource("pickup", function () { return _showPickupMenu; });
 }
 
 function updateDealerPickupModule(now) {
-    if (_gate.pending && updateSpotGate(_gate)) {
-        log("[DealerPickup] Exterior — listo para esferas de retiro");
-    }
+    // El pedido manda: sin pedido no hay punto de retiro. Va antes que la esfera y
+    // que el menu, y es lo que les pasa a los dos.
+    var pending = !!getOrder();
+    _syncBlips(pending);
+    updateSpotSpheres("pickup", _gate, pending);
+
     try {
         var c = new Player(0).getChar();
-        if (!_gate.pending) _syncSphere();
-        _showPickupMenu = updateSpotFKey(
-            c, "pickup", _showPickupMenu, _spheres.length > 0);
+        var estaba = _showPickupMenu;
+        _showPickupMenu = updateSpotSpace(c, "pickup", estaba, spotHas("pickup")).visible;
+        // El menu se cerro → la esfera se apaga un rato. Solo si el pedido sigue:
+        // si se vacio, la esfera ya se apago por no hacer falta y volver a pedir la
+        // cooldown dejaria el punto de retiro sin esfera 30 s despues de comprar.
+        if (estaba && !_showPickupMenu && pending) {
+            beginSpotCooldown("pickup");
+        }
     } catch (e) { }
 }
 

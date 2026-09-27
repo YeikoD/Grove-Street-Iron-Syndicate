@@ -57,15 +57,33 @@
 //     agarro el teclado.
 //
 //  4. El cursor y el freeze no van juntos. El cursor lo necesita cualquier menu
-//     (sin el no se puede clickear una fila), pero el freeze es solo del menu
-//     que se abre a mano: los de proximidad se cierran alejandose, y congelado
-//     no se puede caminar. Ver la seccion CONGELAR.
+//     (sin el no se puede clickear una fila), pero el freeze se lo aplica el que
+//     llama. Hoy los llama el bridge con la misma condicion para todos: TODOS los
+//     menus son de pausa. Ver la seccion CONGELAR.
+//
+//  5. NOTA DE ESTADO — no queda ningun menu de proximidad.
+//
+//     El bridge sigue teniendo escrito el camino de proximidad (ancla,
+//     setMenuKeyPassthrough, setMenuGameMouse, updateProximityMove) y lo deja
+//     apagado a proposito: los cuatro menus de esfera se abren apretando ESPACIO
+//     y se cierran con ESC, igual que el inventario, asi que congelan al jugador
+//     y no hay nada que anclar ni teclas que dejar pasar. Las funciones quedan
+//     porque son el unico lugar donde se sabe como se le habla a la ASI para eso,
+//     y volverlas a encender es cambiar los argumentos que les pasa el bridge, no
+//     reescribirlas.
+//
+//     Lo que si quedo sin consumidor es updateProximityMove(): ya no lo llama
+//     nadie. Anclar existia para que el jugador pudiera CAMINAR con el menu
+//     abierto, y congelado no puede; y el otro problema que resolvia —la W
+//     fantasma del WndProc— no aparece con la lista de teclas apagada, porque la
+//     tecla se traba con el menu cerrado y no con el abierto.
 //
 // Sin imports de modulos: las fuentes de visibilidad se registran con
 // registerMenuSource desde el init de cada modulo, no se importan. Respeta la
 // misma regla que gsis_EventBus.js.
 // ============================================================================
 
+import { MOVE_KEYS } from "./gsis_Config.js";
 import SAWeb from "../../../../SAWebUI/cleo/SAWebUI/SAWeb.js";
 
 // --------------------------------------------------------------- ESTADO --
@@ -146,21 +164,21 @@ var _uiActive = null;  // null = todavia no se fijo en esta sesion
 
 // ---------------------------------------------------------- CONGELAR --
 //
-// Hay dos clases de menu y el estado del juego se les da distinto.
+// TODOS los menus son de pausa. Antes habia dos clases y cada una receive lo suyo:
+// el que se abria a mano (el inventario) congelaba, y los de proximidad no —se
+// cerraban alejandose, y congelado no se puede caminar, o sea que congelarlos era
+// un soft-lock: la tecla que los abria tambien esta suprimida mientras hay un menu
+// abierto. En vez de eso esos tenian el ancla de mas abajo.
 //
-// EL PRINCIPAL (el que se abre apretando I) es un menu de pausa: congela al
-// player y le vuelve a poner la camara detras. Es lo que hace el menu de pausa
-// de San Andreas, y es la diferencia entre "una pagina dibujada encima del
-// juego" y "un menu del juego". Sin esto el jugador ve a su personaje corriendo o
-// disparando al fondo mientras elige un item, y la camara se queda donde el
-// gameplay la dejo.
+// Los de esfera ahora se abren con una tecla (ESPACIO) y se cierran con ESC, o sea
+// que son exactamente el caso del inventario: se congelan. Por eso
+// setMenuGameState() recibe la misma condicion para todos y no tiene que
+// preguntarle a cada modulo de que clase es.
 //
-// LOS DE PROXIMIDAD (baul, armeria, retiro, trueque) NO se congelan. Se abren
-// al tocar la esfera y se cierran al alejarse, y congelado no hay forma de
-// alejarse: el menu se queda abierto y el player tampoco puede cerrarlo, porque
-// las teclas que lo abren estan suprimidas mientras hay un menu abierto. Es un
-// soft-lock, no una cuestion de estetica. Lo que si necesitan es el cursor, para
-// poder clickear una fila, y eso lo hace el otro setter.
+// Lo que sigue needing el freeze y no el ancla: el menu de pausa tiene que dejar
+// de hacer lo que estaba haciendo el gameplay. Sin esto el jugador ve a su
+// personaje corriendo o disparando al fondo mientras elige un item, y la camara se
+// queda donde el gameplay la dejo.
 //
 // No se usa SET_PLAYER_CONTROL para bloquear, sino para CONGELAR: el teclado no
 // se le quita a nadie. El teclado de la pagina se queda igual (lo maneja la ASI
@@ -169,21 +187,24 @@ var _uiActive = null;  // null = todavia no se fijo en esta sesion
 // en vez de medio partido.
 //
 // El freeze vive aca y no en el WebInterface para que valga para todos los menus
-// sin que el bridge tenga que acordarse de cada uno: el principal lo pide, los
-// de proximidad no, y cada modulo se registra solo con registerMenuSource.
+// sin que el bridge tenga que acordarse de cada uno: lo pide el unico menu que se
+// abre a mano, y cada modulo se registra solo con registerMenuSource.
 
 var _playerFrozen = null;  // null = todavia no se toco
 var _warnedNoFreeze = false;
 var _warnedNoPassthrough = false;
+var _warnedNoMouseBlock = false;
 
-// El estado del juego frente al menu que se abrio A MANO. Se llama desde el mismo
-// lugar que decide el cursor, y comparte su latch: una sola transicion, una sola
-// vez.
+// El estado del juego frente al menu abierto. Se llama desde el mismo lugar que
+// decide el cursor, y comparte su latch: una sola transicion, una sola vez.
+//
+// Hoy el que llama le pasa "hay algun menu visible", sin distinciones: con la
+// apertura por tecla no quedan menus que sean otra cosa.
 //
 // El cursor NO va aca. Va en su propio setter porque los dos ya no se apagan
-// juntos: con un menu de proximidad abierto el cursor tiene que seguir visible
-// (hay que clickear filas) mientras el freeze se levanta. Si los dos vivieran en el
-// mismo setter, cada frame uno apagaria lo que el otro acaba de prender.
+// juntos: asi fue cuando el menu de proximidad dejaba al jugador libre para
+// irse. Hoy los dos van juntos (los menus son de pausa), y siguen separados para
+// que volver a encender el camino de proximidad sea cambiar un argumento.
 export function setMenuGameState(frozen) {
     setPlayerFrozen(!!frozen);
 }
@@ -195,6 +216,10 @@ export function setMenuCursor(visible) {
 }
 
 // Las teclas que son del JUEGO aunque la pagina tenga el teclado.
+//
+// DORMIDA: el bridge la llama con null desde que no hay menus de proximidad. El
+// texto de abajo esta como estaba, y explica el problema que existia y que
+// volveria a existir el dia que un menu vuelva a cerrarse alejandose.
 //
 // Este es el pedazo que faltaba para que un menu de proximidad se pueda cerrar. No
 // alcanza con no congelar al player: mientras haya un panel abierto, la region de
@@ -268,10 +293,77 @@ export function setMenuKeyPassthrough(vks) {
     return true;
 }
 
-// El estado de control del player. Path defensivo por la misma razon que el
-// radar en el WebInterface: si la forma con namespace no existe, tiran
-// ReferenceError, que es catcheable, y el comando crudo por nombre es el
-// mismo opcode.
+// Que el JUEGO no vea el mouse, sin tocar el teclado.
+//
+// DORMIDO: el bridge la llama con false desde que no hay menus de proximidad. Con
+// el jugador congelado el click que se escapa a la pagina no hace nada, asi que
+// no hay nada que tapar.
+//
+// El sintoma que resuelve: con un menu de proximidad abierto, clickear a un personaje
+// lo golpeaba. La razon de que se cuele es que tragar el click en el WndProc no
+// alcanza — el teclado pasa por los mensajes de ventana y ahi un "return 0" lo frena,
+// pero el mouse lo lee GTA de DirectInput, que lo deposita en el estado del mouse del
+// pad sin pasar por el WndProc. Por eso el teclado se arreglo en la v4 y el mouse no:
+// son dos caminos distintos.
+//
+// Lo que el runtime pone a cero son los botones, la rueda y los deltas de camara. Los
+// deltas tambien, y no solo los botones: con la camara libre, apuntar a una fila
+// barre la mira por el mundo y el click sale sobre cualquier NPC que pase por abajo.
+//
+// El teclado NO se toca, y es lo importante: el menu de proximidad se cierra
+// alejandose, asi que W tiene que llegar al juego. El passthrough de arriba sigue
+// siendo lo que garantiza eso, y los dos van juntos por la misma razon: sin el
+// passthrough el menu es un soft-lock, sin el bloqueo del mouse cada click es un
+// golpe.
+//
+// El cursor tampoco se toca, y por eso esto no puede hacerse ocultando el cursor: el
+// del menu y el del juego son el mismo cursor del sistema. Las filas se siguen
+// clickeando porque el click le llega igual a la pagina por el WndProc.
+//
+// Va con su propio latch, como el cursor y el passthrough: se manda una vez por
+// cambio, no por frame. Y el estado inicial es null para no mandar nada en el primer
+// frame de la sesion, que no es un cambio.
+//
+// Devuelve true si el estado cambio.
+var _mouseBlock = null;
+
+export function setMenuGameMouse(block) {
+    var want = !!block;
+
+    if (_mouseBlock !== null && _mouseBlock === want) {
+        return false;
+    }
+    _mouseBlock = want;
+
+    if (typeof SAWeb.setGameMouseBlock !== "function") {
+        // ASI v4: el facade no tiene la funcion. No es un error — la v4 no tiene el
+        // export — asi que el mod sigue funcionando y lo unico que falta es que el
+        // click no golpee. El teclado NO se ve afectado, que es lo importante.
+        if (!_warnedNoMouseBlock) {
+            _warnedNoMouseBlock = true;
+            log("[Input] SAWeb.setGameMouseBlock no existe (facade v4): con un menu de " +
+                "proximidad abierto, clickear sigue llegando al juego y el jugador " +
+                "golpea a quien tenga enfrente. El teclado y el cursor del menu no se " +
+                "ven afectados. Actualizar la ASI a v5.");
+        }
+        return false;
+    }
+    if (!SAWeb.setGameMouseBlock(want)) {
+        // Dos causas con el mismo sintoma, y el aviso tiene que nombrarlas a las dos:
+        // el comando no esta declarado en cleo\.config\sa.json (que se edita a mano y
+        // es un archivo aparte del facade), o el valor no entra. La primera es MUCHAS
+        // veces mas probable, y es la que paso con el passthrough.
+        if (!_warnedNoMouseBlock) {
+            _warnedNoMouseBlock = true;
+            log("[Input] SAWeb.setGameMouseBlock devolvio false: el runtime no tomo el " +
+                "bloqueo. Si el facade es v5, casi seguro falta declarar " +
+                "SAWEB_SET_GAME_MOUSE_BLOCK en cleo\\.config\\sa.json — ese archivo se " +
+                "edita a mano, no se toma del mod. Sin esto el click sigue golpeando.");
+        }
+        return false;
+    }
+    return true;
+}
 //
 // OJO con la polaridad: el parametro de SET_PLAYER_CONTROL es "el jugador tiene
 // control", NO "esta congelado". Congelar es mandarle false. Por eso abajo se
@@ -283,10 +375,10 @@ function setPlayerFrozen(frozen) {
     var want = !!frozen;
 
     // El juego arranca sin congelar, asi que el primer "no congelar" no es una
-    // transicion: es el estado de partida. Sin esto, abrir el PRIMER menu de la
-    // sesion seria un menu de proximidad — que no congela — y la llamada pasaria
-    // por el camino de descongelar, que al final hace SET_CAMERA_BEHIND_CHAR.
-    // O sea: abrir un menu junto a una esfera le tiraria la camara al jugador.
+    // transicion: es el estado de partida. Sin esto, el PRIMER menu de la sesion
+    // (cualquiera: todos congelan) pasaria por el camino de descongelar, que al
+    // final hace SET_CAMERA_BEHIND_CHAR. O sea: el menu abriria bien pero con la
+    // camara del gameplay todavia, sin tirar al jugador.
     if (_playerFrozen === null) {
         _playerFrozen = false;
     }
@@ -349,6 +441,298 @@ function setPlayerFrozen(frozen) {
     return true;
 }
 
+// ------------------------------------------------------------- EL ANCLA --
+//
+// DORMIDO: el bridge la llama con false. Los menus se abren con una tecla y
+// congelan al jugador, y el ancla existia justo para lo contrario: dejarle
+// caminar con el menu abierto para que pudiera alejarse y cerrarlo. El texto de
+// abajo esta como estaba.
+//
+// El menu de proximidad es un toggle: se abre al tocar la esfera y se cierra al
+// salir caminando. Para que el toggle sirva, el jugador tiene que PODER
+// salir caminando —y al entrar tiene que QUEDARSE parado, que es lo que nunca
+// paso—.
+//
+// El bug: con la pagina tomando el teclado, el juego no ve el WM_KEYUP de la W
+// que el jugador solto (el WndProc lo enruto a la pagina y la tecla ya se
+// perdio), asi que el "W apretada" del juego queda trabada. El personaje sigue
+// derecho, se sale de la esfera y el menu se le cierra en la cara. La lista de
+// WASD (setMenuKeyPassthrough) NO lo arregla: esa lista sirve para que la tecla
+// LLEGUE al juego, no para soltar la que quedo pegada, y la v5 del runtime no
+// tiene ningun comando para mandarle un key-up.
+//
+// Y SET_PLAYER_CONTROL(0) tampoco lo arregla: congelado no se puede caminar, y
+// caminar es como se cierra el menu. Eso si es un soft-lock.
+//
+// Asi que lo que se le hace al ped es devolverle las coordenadas mientras el
+// jugador no este apretando una direccion de verdad:
+//
+//   - NO es un freeze. El player conserva el control entero: camara, clicks,
+//     armas, entrar a un auto. Lo unico que no puede es MOVERSE, y en el frame
+//     en que aprieta una direccion el ancla se suelta y camina normal.
+//   - El punto del ancla es donde estaba, no el centro de la esfera: el jugador
+//     tiene que poder quedarse donde entro.
+//   - El heading se vuelve a poner despues de cada correccion, porque
+//     SET_CHAR_COORDINATES no lo conserva y el ped giraria solo.
+//
+// Cuando se engancha, una sola vez, se borra la tarea del ped: si entro
+// caminando, sin eso se queda con la animacion de caminar puesta. Despues el
+// juego le vuelve a poner la tarea de caminar (por el input que el cree
+// apretado) y por eso esta el snap de cada frame; CLEAR_CHAR_TASKS por frame no
+// alcanza, porque la tarea se vuelve a crear en el mismo frame.
+var _anclaOn = false;
+var _anclaX = 0;
+var _anclaY = 0;
+var _anclaZ = 0;
+var _anclaHeading = 0;
+
+// Menos de esto es jitter de la fisica y no vale la pena un native. Dos
+// centimetros.
+var ANCLA_EPS = 0.02;
+
+// Un salto mayor no es drift del teclado: es otra cosa moviendo al ped (un
+// script, una explosion, un vehiculo). En ese caso el ancla se CORRE al lugar
+// nuevo en vez de teletransportarlo de vuelta, que ademas podria arruinarle una
+// cutscene al jugador.
+var ANCLA_SALTO = 3.0;
+
+var _warnedSalto = false;
+
+// Poner o quitar el ancla. La llama el WebInterface una vez por frame, y el
+// mantenimiento (el snap) va aca adentro: el que decide sigue siendo el bridge,
+// que es el que sabe de que clase de menu se trata.
+export function setMenuAnchor(on) {
+    var ped = null;
+    try {
+        ped = new Player(0).getChar();
+    } catch (e) {
+        ped = null;
+    }
+    if (!ped) {
+        _anclaOn = false;
+        return false;
+    }
+
+    if (!on) {
+        if (_anclaOn) {
+            log("[Input] ancla suelta: el jugador vuelve a tener el control del movimiento");
+        }
+        _anclaOn = false;
+        return false;
+    }
+
+    // En un auto el menu ya se cerro (updateSpotSpace), asi que
+    // esto es el caso raro de un script que mete al player en un vehiculo con el
+    // menu abierto. Tirarlo del ancla: el ancla existe para que no camine, y en un
+    // auto no hay nada que frenar.
+    try {
+        if (ped.isInAnyCar()) {
+            if (_anclaOn) {
+                log("[Input] ancla suelta: el player esta en un vehiculo");
+            }
+            _anclaOn = false;
+            return false;
+        }
+    } catch (e2) { }
+
+    if (!_anclaOn) {
+        var pos = null;
+        try {
+            pos = ped.getCoordinates();
+        } catch (e3) {
+            return false;
+        }
+        _anclaX = pos.x;
+        _anclaY = pos.y;
+        _anclaZ = pos.z;
+        try {
+            _anclaHeading = ped.getHeading();
+        } catch (e4) {
+            _anclaHeading = 0;
+        }
+        _anclaOn = true;
+
+        try {
+            native("CLEAR_CHAR_TASKS", ped);
+        } catch (e5) { }
+
+        log("[Input] ancla puesta: el menu de proximidad para al player en (" +
+            Math.round(_anclaX) + ", " + Math.round(_anclaY) + "). Una pulsacion de WASD la suelta.");
+        _avisarFantasma();
+        return true;
+    }
+
+    // Mantener: la correccion es por frame, pero solo cuando se movio de verdad.
+    var q = null;
+    try {
+        q = ped.getCoordinates();
+    } catch (e6) {
+        return true;
+    }
+    var dx = q.x - _anclaX;
+    var dy = q.y - _anclaY;
+    var dz = q.z - _anclaZ;
+    var d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    if (d <= ANCLA_EPS) {
+        return true;
+    }
+
+    if (d > ANCLA_SALTO) {
+        _anclaX = q.x;
+        _anclaY = q.y;
+        _anclaZ = q.z;
+        if (!_warnedSalto) {
+            _warnedSalto = true;
+            log("[Input] ancla: el player se movio " + d.toFixed(1) + " m de golpe, que no es " +
+                "el teclado. El ancla se corre al lugar nuevo en vez de teletransportarlo.");
+        }
+        return true;
+    }
+
+    try {
+        native("SET_CHAR_COORDINATES", ped, _anclaX, _anclaY, _anclaZ);
+        // El heading va aparte: SET_CHAR_COORDINATES no lo lleva, y sin esto el
+        // ped queda mirando al heading 0 (al norte) cada vez que se corrige.
+        native("SET_CHAR_HEADING", ped, _anclaHeading);
+    } catch (e7) { }
+    return true;
+}
+
+// ------------------------------------------------- PIDIO MOVERSE (LA SALIDA) --
+//
+// DORMIDO: ya no lo llama nadie (ver la nota 5 del header). Con los menus
+// congelando, anclar es al reves de lo que hacia falta.
+//
+// Con el ancla puesta, el jugador se para. Para irse tiene que APRETAR una tecla
+// de movimiento: ahi el ancla se suelta, camina con el menu abierto, se aleja de
+// la esfera y el menu se cierra solo, que es el contrato de la proximidad.
+//
+// Devuelve true desde el primer FLANCO de WASD hasta que el menu se cierra. Son
+// dos decisiones distintas y las dos importan:
+//
+//   - Flanco, no nivel: el caso que se arregla es entrar a la esfera con la W
+//     apretada. Con el nivel, esa W ya apretada contaria como "el jugador pide
+//     moverse" y el ancla no se pondria nunca: seria el bug original.
+//   - Latch: si dependiera del nivel, cada vez que el jugador suelta la direccion
+//     volveria a pararse en el medio de un paso, que se ve peor que el problema
+//     que arregla.
+//
+// El flanco se lee del TECLADO REAL (readDown, que va isKeyPressed → GetAsyncKeyState),
+// no del estado del juego. Es lo unico que no depende de lo que el juego creo que
+// el jugador tiene apretado, que es justamente lo que esta trabado: leido del
+// juego, la W fantasma contaria como "el jugador pide moverse" y el ancla no se
+// pondria nunca.
+//
+// Si este build no tiene lectura de teclado real, no se ancla: el ancla sin
+// forma de soltarse seria el soft-lock que este modulo no va a tener. Se avisa
+// una vez y el menu se comporta como antes (el jugador camina y se sale de la
+// esfera, que es el bug reportado).
+var _pideMover = false;
+var _prevMove = false;
+var _warnedNoReal = false;
+
+export function updateProximityMove(proxOpen) {
+    var down = moveKeyDown();
+    var flanco = down && !_prevMove;
+    _prevMove = down;
+
+    if (!proxOpen) {
+        // Sin menu de proximidad el latch se limpia, y el estado de la tecla se
+        // sigue leyendo igual: si el jugador entra a la esfera con la W
+        // apretada, el proximo frame tiene que ver que la W ya estaba apretada y
+        // NO contarla como flanco.
+        _pideMover = false;
+        return false;
+    }
+
+    if (!_movimientoConfiable()) {
+        return false;
+    }
+    if (flanco) {
+        if (!_pideMover) {
+            log("[Input] el jugador pidio moverse con el menu de proximidad abierto: " +
+                "se suelta el ancla y el menu se cierra alejandose");
+        }
+        _pideMover = true;
+    }
+    return _pideMover;
+}
+
+// Si la lectura sostenida viene del teclado real y no del estado del juego:
+function _movimientoConfiable() {
+    if (_downFuente === null) {
+        _probarFuenteSostenida();
+    }
+    if (_downFuente === "isKeyPressed") {
+        return true;
+    }
+    if (!_warnedNoReal) {
+        _warnedNoReal = true;
+        log("[Input] sin lectura de teclado REAL (la que hay es '" + _downFuente +
+            "'): el menu de proximidad NO va a parar al player. El flanco de " +
+            "movimiento no se puede leer sin confundir una tecla trabada en el " +
+            "juego con una pulsacion del jugador, y un ancla sin salida seria un " +
+            "soft-lock.");
+    }
+    return false;
+}
+
+function moveKeyDown() {
+    for (var i = 0; i < MOVE_KEYS.length; i++) {
+        if (readDown(MOVE_KEYS[i])) return true;
+    }
+    return false;
+}
+
+// ------------------------------------------------------- TECLA FANTASMA --
+//
+// El diagnostico del bug, y la unica forma de saberlo sin adivinar: en el
+// momento en que el ancla se engancha, se compara lo que el TECLADO dice con lo
+// que el JUEGO cree. Si no coinciden, hay una tecla que el juego tiene apretada y
+// que nadie esta apretando: el key-up se perdio en el WndProc.
+//
+// Se pregunta una sola vez por menu (dentro de setMenuAnchor) y con el estado del
+// juego, que es la unica fuente que puede mostrar la fantasma: Pad.IsKeyPressed
+// lee el pad del juego. Si la escalera de lectura sostenida ya cayo en un
+// Pad.*, esto no dice nada —no hay forma de distinguir las dos fuentes— y no
+// loguea nada, porque un "no hay fantasma" sin fuentes distintas seria mentira.
+//
+// Por que importa saberlo: la fantasma se limpia sola con la proxima pulsacion
+// de esa tecla que llegue al juego (el WndProc le pasa el WM_KEYDOWN y despues el
+// WM_KEYUP), asi que si el log dice que hay fantasma, el unico caso troublesome
+// es el de entrar a la esfera con la W apretada, soltarla con el menu abierto y
+// salirse apretando otra tecla: ahi la W fantasma sobrevive al menu y el
+// personaje puede seguir de largo despues. Con la W todavia apretada no hay nada
+// raro: al menu cerrarse, el WM_KEYUP llega al juego y la borra.
+var _fantasma = {};
+
+function _avisarFantasma() {
+    if (_downFuente !== null && _downFuente.indexOf("Pad") !== 0) {
+        return;  // la lectura sostenida no es el pad: no hay dos fuentes que comparar
+    }
+    for (var i = 0; i < MOVE_KEYS.length; i++) {
+        var vk = MOVE_KEYS[i];
+        if (_fantasma[vk]) continue;
+        var mio = readDown(vk);
+        var suyo = false;
+        try {
+            suyo = Pad.IsKeyPressed(vk) === true;
+        } catch (e) {
+            try {
+                suyo = Pad.IsKeyDown(vk) === true;
+            } catch (e2) {
+                suyo = false;
+            }
+        }
+        if (suyo && !mio) {
+            _fantasma[vk] = true;
+            log("[Input] tecla fantasma: el juego cree que la " + String.fromCharCode(vk) +
+                " esta apretada y el teclado no. El key-up se perdio en el WndProc; se " +
+                "limpia con la proxima pulsacion de esa tecla que llegue al juego. " +
+                "Por eso el ancla existe.");
+        }
+    }
+}
 // Fija el modo del cursor. Devuelve true si cambio, para que el que llama sepa
 // si hay algo que propagar. El latch evita llamar cada frame: es un native() y
 // ademas cada llamada resincroniza el puntero del sistema.
@@ -496,11 +880,57 @@ function readJustPressed(vk) {
     }
 }
 
+// ------------------------------------------------------- FLANCO DE TECLA REAL --
+//
+// La puerta de entrada de los menus de esfera (ESPACIO). Es un flanco, asi que
+// tiene que ser de una pulsacion y no de un nivel, y sale del TECLADO REAL
+// (readDown → GetAsyncKeyState), no del estado del juego.
+//
+// Por que no keyJustPressed(): keyJustPressed() suprime con "hay menu abierto" y
+// por lo tanto no sirve para ABRIR un menu —para cuando se abre todavia no hay
+// ninguno. Y el otro que queda, Pad.IsKeyJustPressed, lee el estado del juego, que
+// con la pagina tomando el teclado puede reportar el mismo flanco dos frames
+// seguidos: el sintoma es el menu abriendo y cerrando solo, cuatro transiciones de
+// pantalla de una pulsacion (el mismo bug que se documento en readJustPressed).
+// El teclado real no tiene ese problema: en cuanto el dedo suelta, GetAsyncKeyState
+// da false, haya pasado por el WndProc o no.
+//
+// "id" identifica al que pregunta, y no es decorativo: los cuatro menus de esfera
+// preguntan por la MISMA tecla en el MISMO frame (todos quieren abrirse con
+// ESPACIO). Si compartieran el estado del flanco, el primero que pregunta se lo
+// comeria del resto y, si el primero no tenia esfera cerca, los demas abririan con
+// la tecla que ya estaba apretada. El id le da a cada uno su propio flanco, y el
+// que decide es el que tiene la esfera cerca —o sea, el unico para el que la
+// pulsacion tenia sentido.
+//
+// El estado se actualiza SIEMPRE, incluso con un menu abierto, y el false sale
+// solo del final. Si se volviera temprano sin guardar el estado, una tecla
+// apretada mientras hay un menu en pantalla quedaria pegada como "ya apretada" y
+// la siguiente pulsacion no contaria como flanco: la puerta se trababa para
+// siempre.
+var _edge = {};
+
+export function keyEdge(id, vk) {
+    var k = id + ":" + vk;
+    var down = readDown(vk);
+    var prev = _edge[k] === true;
+    _edge[k] = down;
+
+    // Con un menu abierto no se abre otro. Es la REGLA 1 de una sola pantalla, y
+    // tambien evita que la tecla que abrio el menu lo reabra en el mismo instante
+    // en que la pagina empieza a tomar el teclado.
+    if (anyMenuVisible()) return false;
+
+    return down && !prev;
+}
+
 // ------------------------------------------------------------ LECTURA DE TECLA --
 //
 // Estas dos son las unicas del mod que se leen SIN supresion, y por eso tienen que
 // ser las mas cuidadas del archivo: el WebInterface arma su propio flanco con ellas
-// (justI = keyI && !_prevKeyI), o sea que espera ESTADO SOSTENIDO.
+// (justI = keyI && !_prevKeyI), o sea que espera ESTADO SOSTENIDO. La tercera
+// tambien las usa —keyEdge(), la puerta de los menus de esfera— pero esa si
+// suprime: sin menu abierto no se abre ninguno, y con uno abierto no se abre otro.
 //
 // El fallback anterior caia a IsKeyJustPressed, que es un FLANCO. Y un flanco
 // alimentado a otro detector de flancos produce pulsos dobles: al frame siguiente
@@ -570,9 +1000,10 @@ function readDown(vk) {
     if (!_warnedNoDown) {
         _warnedNoDown = true;
         log("[Input] NO hay lectura de tecla sostenida en este build (ni isKeyPressed, " +
-            "ni Pad.IsKeyPressed, ni Pad.IsKeyDown). La I y el Escape dejan de responder: " +
-            "no se puede abrir el inventario a mano. Los menus de proximidad se siguen " +
-            "cerrando solos por distancia, asi que no es un soft-lock.");
+            "ni Pad.IsKeyPressed, ni Pad.IsKeyDown). No se puede abrir NINGUN menu a " +
+            "mano: ni el inventario (I) ni los de esfera (ESPACIO). El Escape tampoco " +
+            "responde desde el mod —el menu sigue cerrandose con el boton de la pagina " +
+            "o con el Escape de la pagina—, asi que no es un soft-lock.");
     }
     return false;
 }

@@ -241,12 +241,17 @@ export var STRINGS = {
     CAT_MAT: { es: "Materiales", en: "Materials" },
     CAT_MAG: { es: "Cargadores", en: "Magazines" },
 
-    // Como se cierra un menu de proximidad. Va en el subtitulo de los cuatro, y
-    // no es opcional: sin el el jugador no tiene como enterarse de que puede
-    // alejarse. El panel se abre al tocar la esfera y el pointer puede haber
-    // quedado encima, y con el pointer encima las teclas son de la pagina —o sea
-    // que no puede caminar hasta sacarlo de ahi.
-    MENU_HNT: { es: "Alejate para cerrar el menu", en: "Walk away to close" },
+    // Como se cierra un menu con esfera. Va en el subtitulo de los cuatro, y no es
+    // opcional: el menu congela al jugador, asi que no hay forma de deducirlo, y el
+    // panel aparece en el medio de la pantalla con el pointer capaz de haber quedado
+    // encima — con el pointer encima las teclas son de la pagina.
+    //
+    // Ya no dice "alejate": los menus se abren apretando ESPACIO parada la esfera
+    // y se cierran con ESC, como el inventario. Lo que queda del contrato de
+    // proximidad es lo de despues: cerrada la esfera, el punto queda apagado un
+    // rato (TIMERS.SPHERE_COOLDOWN), asi que conviene que el jugador sepa que el
+    // menu se cerro y la esfera se va a volver sola.
+    MENU_HNT: { es: "ESC para cerrar el menu", en: "ESC to close the menu" },
 
     // --- UI Inventario ---
     GSIS_MENU: { es: "Grove Street Iron Syndicate", en: "Grove Street Iron Syndicate" },
@@ -300,7 +305,7 @@ export var STRINGS = {
     TRK_MOC: { es: "MOCHILA", en: "BACKPACK" },
     TRK_EMI: { es: "(inventario vacio)", en: "(inventory empty)" },
     TRK_EMB: { es: "(baul vacio)", en: "(trunk empty)" },
-    TRK_HNT: { es: "B: menu | 3: cerrar baul", en: "B: menu | 3: close trunk" },
+    TRK_HNT: { es: "ESPACIO: menu | 3: cerrar baul", en: "SPACE: menu | 3: close trunk" },
 
     // --- UI Retiro ---
     PKC_TTL: { es: "Retiro de pedido", en: "Order pickup" },

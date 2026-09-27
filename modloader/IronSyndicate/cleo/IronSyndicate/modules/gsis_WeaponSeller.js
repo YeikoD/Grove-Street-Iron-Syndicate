@@ -5,7 +5,8 @@
 // ============================================================================
 // GSIS WeaponSeller - Punto de venta (trueque con NPC)
 // ============================================================================
-// N esferas (data/gsis_spot_data → seller) + tecla F abre menu trueque
+// N esferas (data/gsis_spot_data → seller) + ESPACIO abre el menu del trueque
+//   parado dentro de la esfera; al cerrarlo la esfera se apaga un rato
 // Estado POR characterId (spot.characterId → CHARACTERS): cada NPC tiene
 // intereses/budget/techo propios (ch.seller en character_data, opcional).
 // Techo = sellPrice + rand del rango del personaje (o default 50-450 / 0-150)
@@ -25,12 +26,12 @@ import { getSellPrice, WEAPON_DATA } from "../data/gsis_weapon_data.js";
 import { getCharacter } from "../data/gsis_character_data.js";
 import { getItems, removeItem, isInstanced } from "./gsis_Items.js";
 import {
-    createSpotGate, updateSpotGate, createSpotSpheres, updateSpotFKeySpot
+    createSpotGate, updateSpotSpheres, updateSpotSpace,
+    spotHas, beginSpotCooldown
 } from "../core/gsis_SpotRuntime.js";
 
 var DEFAULT_CHAR = "seller_local";
 
-var _spheres = []; // 1 sphere handle por spot seller
 var _showSellMenu = false;
 var _gate = createSpotGate(); // espera a exterior
 var _activeCharId = null;     // personaje de la esfera que abrió el menú
@@ -393,19 +394,19 @@ function _checkFulfilled(st) {
 // ============================================================================
 
 function initWeaponSeller() {
-    log("[GSIS] WeaponSeller: esferas pendientes (esperar exterior)");
+    log("[GSIS] WeaponSeller: menu con esfera (ESPACIO para abrir, ESC para cerrar)");
     registerMenuSource("seller", function () { return _showSellMenu; });
 }
 
+// El orden importa: primero la esfera (si no hay esfera no hay menu), despues el
+// menu, y al final la cooldown por cierre. Ver _trasCerrar.
 function updateWeaponSellerModule(now) {
-    if (_gate.pending && updateSpotGate(_gate)) {
-        _spheres = createSpotSpheres("seller");
-        log("[WeaponSeller] " + _spheres.length + " esferas de trueque");
-    }
+    updateSpotSpheres("seller", _gate, true);
     try {
         var c = new Player(0).getChar();
-        var r = updateSpotFKeySpot(c, "seller", _showSellMenu, _spheres.length > 0);
-        if (r.visible && !_showSellMenu) {
+        var estaba = _showSellMenu;
+        var r = updateSpotSpace(c, "seller", estaba, spotHas("seller"));
+        if (r.visible && !estaba) {
             // Abre: fijar personaje de la esfera + generar estado si hace falta
             _activeCharId = (r.spot && r.spot.characterId) || DEFAULT_CHAR;
             var st = _state(_activeCharId);
@@ -413,7 +414,17 @@ function updateWeaponSellerModule(now) {
         }
         _showSellMenu = r.visible;
         if (!_showSellMenu) _activeCharId = null;
+        _trasCerrar(estaba);
     } catch (e) { }
+}
+
+// El menu se cerro → la esfera se apaga (TIMERS.SPHERE_COOLDOWN). Con la
+// TRANSICION, no con el estado: pedirla en cada frame sin menu la pediria al
+// abrirlo y no se podria volver a abrir nunca.
+function _trasCerrar(estaba) {
+    if (estaba && !_showSellMenu) {
+        beginSpotCooldown("seller");
+    }
 }
 
 register({

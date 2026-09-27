@@ -13,40 +13,79 @@ export var KEYS = {
     TRUNK: 51,          // 3 — abrir/cerrar baul
     REGISTER: 79,       // O — registrar vehiculo
     INVENTORY: 73,      // I — menu inventario
-    TRUNK_MENU: 66,     // B — menu baul
     SAVE: 116,          // F5 — guardar partida
     DEBUG_ITEM: 76,     // L — debug: agregar item
     BAG: 80,            // P — toggle bolso visual
-    DEALER: 70,         // F — menu dealer mayorista
     RELOAD: 82,         // R — swap de cargador (Ballistic)
-    ESC: 27             // ESC — cierra la UI web (modules/gsis_WebInterface.js)
+    ESC: 27,            // ESC — cierra la UI web (modules/gsis_WebInterface.js)
+
+    // SPACE — abre los menus que viven en una esfera (baul, armeria, retiro,
+    // trueque). Es la I de esos menus, con la condicion de que el jugador este
+    // parado adentro de la esfera. Se lee con keyEdge() de core/gsis_Input.js, no
+    // con keyJustPressed(): el flanco del juego (Pad.IsKeyJustPressed) puede
+    // repetirse dos frames seguidos y abriria dos veces el mismo menu.
+    //
+    // Antes cada menu tenia su tecla (B para el baul, F para los de esfera) y se
+    // abria al TOCAR la esfera. Ahora es una sola tecla para los cuatro, porque lo
+    // unico que cambia entre ellos es la esfera: el resto es el panel de inventario
+    // con otra lista.
+    FLOW: 32
 };
 
 // Las teclas de movimiento.
 //
-// Van aparte porque son las unicas que tienen que seguir llegando al juego con un
-// menu de proximidad abierto. Ese menu se cierra ALEJANDOSE, asi que sin W no hay
-// forma de alejarse: no congelar al player no alcanza, porque con un panel en
-// pantalla la pagina se queda con el teclado entero. Se las pasa al runtime con
-// setMenuKeyPassthrough (core/gsis_Input.js), que las saca del WndProc antes de
-// que las vea la pagina.
+// La lista existia para el menu de proximidad, que se cerraba ALEJANDOSE y no
+// congelaba al jugador: con un panel en pantalla la pagina se queda con el
+// teclado entero, asi que sin W no habia forma de alejarse. Se las pasaba al
+// runtime con setMenuKeyPassthrough (core/gsis_Input.js), que las saca del
+// WndProc antes de que las vea la pagina.
+//
+// Hoy ningun menu se cierra alejandose — todos congelan al jugador como el
+// inventario — asi que la lista ya no se pasa. Queda porque el runtime la
+// necesita igual: son las teclas cuyo estado se lee del teclado real
+// (GetAsyncKeyState) y no del estado del juego, que es lo que las hacia
+// utiles para detectar una pulsacion de verdad (ver updateProximityMove y
+// keyEdge de core/gsis_Input.js).
 //
 // Son codigos de teclado virtual, como los de KEYS. NO son los codigos de tecla de
 // GTA: los dos sistemas numeran distinto (VK_W es 87, y el codigo de tecla de GTA
 // viene de un scancode de DirectInput). Confundirlos produce una lista que no
-// matchea nada en el WndProc, y el sintoma es el soft-lock otra vez — con el
-// detalle de que la lista "se aplico" sin error.
+// matchea nada en el WndProc.
 export var MOVE_KEYS = [87, 65, 83, 68];  // W A S D
 
 // Distancias (unidades de juego)
 export var DIST = {
     PICKUP_RADIUS: 5.0,       // Radio del pickup de registro
     DOOR_LOCK: 30.0,          // Maxima distancia para lock/unlock
-    TRUNK_ACCESS: 3.0,        // Maxima distancia para tecla R (menu baul)
-    SPHERE: 0.75,             // Radio de la sphere del baul (auto-apertura menu)
-    MENU_CLOSE: 1.5,          // Distancia para auto-cerrar menu baul
-    DEALER_ACCESS: 1.5,       // Radio para tecla F / auto-apertura menu dealer/seller/pickup
-    DEALER_CLOSE: 1.5         // Auto-cierre por distancia al alejarse de la esfera (igual que baul)
+
+    // "Estar dentro de la esfera" para poder ABRIR el menu con SPACE. Es el radio
+    // de acceso de cada tipo, no DIST.SPHERE: el objeto esfera mide 0.75 m, que
+    // es el radio del marcador, no una zona donde una persona pueda clavarse a
+    // apretar una tecla. O sea que la esfera sigue midiendo lo que mide — la
+    // cooldown la apaga y la enciende de verdad — pero la puerta de entrada se
+    // mide con estos.
+    //
+    // Y tiene que ser MENOR O IGUAL que el radio de cierre de abajo. Si el de
+    // apertura fuera mayor, el menu abriria y se cerraria en el mismo frame: se
+    // abre porque estas a 2 m, y el auto-cierre ve que ya estas fuera del radio de
+    // cierre y lo baja. Eso es un menu que se abre solo para no existir, y es
+    // justo el bug que hizo que el baul no abriera con la B.
+    //
+    // El del baul era 3.0 porque lo tomaba la B con el menu sin congelar al
+    // jugador: 3 m era "estoy al lado del auto", no "estoy en el baul". Con el menu
+    // congelando, 3 m no sirve de nada y el punto de mira del baul esta en la
+    // parte de atrás: 1.5 m del punto es estar en el baul.
+    TRUNK_ACCESS: 1.5,        // Apertura con SPACE del menu baul
+    DEALER_ACCESS: 1.5,       // Apertura con SPACE de dealer/seller/pickup
+
+    // El radio del objeto Sphere.Create. Lo que se apaga en la cooldown.
+    SPHERE: 0.75,
+
+    // Auto-cierre por distancia. Importa aunque el menu congele al jugador: es la
+    // red de seguridad para el caso de que el menu se abra justo cuando algo lo
+    // teletransporta (un vehiculo, un script), donde el freeze no alcanza.
+    MENU_CLOSE: 1.5,          // Auto-cierre del menu baul
+    DEALER_CLOSE: 1.5         // Auto-cierre de dealer/seller/pickup
 };
 
 // Timers (milisegundos / frames)
@@ -57,7 +96,17 @@ export var TIMERS = {
     TRUNK_SPHERE: 200,            // Update de sphere del baul
     AUTO_SAVE_FRAMES: 18000,      // Auto-save (~5 min a 60fps)
     RELOAD_GRACE: 1000,           // Watchdog recarga (Ballistic): margen tras el deadline
-    CHUNK_SIZE: 120               // Tamanio de chunk JSON en INI
+    CHUNK_SIZE: 120,              // Tamanio de chunk JSON en INI
+
+    // Cuanto queda apagada la esfera de un menu recien cerrado.
+    //
+    // La esfera es la condicion para abrir el menu, asi que apagarla es lo que
+    // impide que el menu se reabra solo en el mismo frame en que se cerro: el
+    // jugador sigue parado adentro, el juego no lo movio, y sin este tiempo la
+    // condicion "estoy en la esfera" seguiria dando true al frame siguiente. Con
+    // el menu congelando al jugador, el caso de verdad es el cierre por comando
+    // (Escape) o por una accion que vacia el menu, no el alejarse.
+    SPHERE_COOLDOWN: 30000
 };
 
 // Otros
@@ -72,7 +121,7 @@ export var MISC = {
     PICKUP_Z: 13.4925,
     PICKUP_MODEL: 1254,           // Modelo del pickup
     PICKUP_DEALER_BLIP: 18,       // Sprite radar del punto de retiro
-    HIDE_RADAR_WHEN_MENU: true    // Radar con el menu principal (el que congela). Los de proximidad no: el jugador sigue en el mundo
+    HIDE_RADAR_WHEN_MENU: true    // Esconder el radar con CUALQUIER menu. Antes era solo con el que congela, porque los de proximidad no congelaban y el jugador seguia en el mundo; ahora todos son de pausa.
 };
 
 // Actores permanentes: dormancy por radio + budgets de spawn/check

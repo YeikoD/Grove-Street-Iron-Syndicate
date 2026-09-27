@@ -5,18 +5,23 @@
 // ============================================================================
 // GSIS Trunk - Sistema de baules (abrir/cerrar, spheres, menu)
 // ============================================================================
-// Depende de: SaveManager, Config, ModuleRegistry, EventBus, Items, L10n, Notice
+// El menu del baul se abre con ESPACIO parado al lado de un baul abierto, igual
+// que el inventario (congelando, ESC para cerrar) pero con la condicion de la
+// esfera. Al cerrarlo la esfera se apaga TIMERS.SPHERE_COOLDOWN (core/gsis_SpotRuntime).
+// Depende de: SaveManager, Config, ModuleRegistry, EventBus, Items, L10n, Notice,
+//             Input, SpotRuntime
 // Usa query("spawner:*") para handles (sin importar Spawner)
 // ============================================================================
 
 import { getModuleData, setModuleData } from "../core/gsis_SaveManager.js";
 import { KEYS, DIST, TIMERS, MISC } from "../core/gsis_Config.js";
-import { keyJustPressed, registerMenuSource } from "../core/gsis_Input.js";
+import { keyJustPressed, keyEdge, registerMenuSource } from "../core/gsis_Input.js";
 import { register } from "../core/gsis_ModuleRegistry.js";
 import { on, query } from "../core/gsis_EventBus.js";
 import { t } from "../core/gsis_L10n.js";
 import { setNotice } from "../core/gsis_Notice.js";
 import { ITEMS, getItemName } from "../data/gsis_item_data.js";
+import { beginSpotCooldown, spotOff } from "../core/gsis_SpotRuntime.js";
 import {
     addToTrunk,
     removeFromTrunk,
@@ -124,9 +129,19 @@ function handleTrunkKey(c) {
     } catch (e) { }
 }
 
-// Update por frame: tecla 3, pending sync, spheres, proximidad, menu, tecla B
+// Update por frame: tecla 3, pending sync, esferas, menu por tecla, cooldown
+//
+// El menu del baul se abre como el del inventario (una tecla, congelando, ESC
+// para cerrar) con la condicion de que haya un baul abierto a DIST.TRUNK_ACCESS.
+// Antes se abria solo al tocar la esfera y se cerraba alejandose; ver el comentario
+// de la cooldown abajo para por que se dio vuelta.
 export function updateTrunk(c, now, spawning) {
     handleTrunkKey(c);
+
+    // El flanco de ESPACIO se lee TODOS los frames, aunque no se llegue a la parte
+    // que lo usa: si el estado queda viejo mientras el jugador camina hacia el auto,
+    // al entrar en rango contaria como pulsacion la tecla que ya venia apretada.
+    var abrio = keyEdge("trunk", KEYS.FLOW);
 
     // Sincronizar estado pendiente (diferido tras closeTrunk)
     if (_pendingTrunkStateSync !== -1) {
@@ -136,8 +151,18 @@ export function updateTrunk(c, now, spawning) {
 
     if (spawning) return;
 
-    // --- Spheres: seguir al auto + destruir si auto destruido ---
+    var estaba = _showTrunkMenu;
+
+    // --- Esferas: seguir al auto + destruir si auto destruido ---
+    //
+    // La cooldown manda sobre el seguimiento: mientras la esfera esta apagada no se
+    // crea una ni aunque el auto se mueva, porque la esfera ES la condicion para
+    // abrir el menu. Si se dejara, un auto en marcha la volveria a prender en medio
+    // del apagado y el menu se podria abrir antes de tiempo.
     if (_openTrunkCount > 0) {
+        var apagadas = spotOff("trunk");
+        if (apagadas) _dropTrunkSpheres("cooldown");
+
         var vehicleIds = Object.keys(_openTrunks);
         for (var i = vehicleIds.length - 1; i >= 0; i--) {
             var vid = parseInt(vehicleIds[i]);
@@ -154,7 +179,7 @@ export function updateTrunk(c, now, spawning) {
                 _openTrunkCount--;
                 _updateTrunkStateInDataById(vid, false);
                 log("[Trunk] Baul cerrado automaticamente (vehiculo destruido) id=" + vid);
-            } else {
+            } else if (!apagadas) {
                 var now2 = Date.now();
                 if (now2 - trunkData.lastUpdate > TIMERS.TRUNK_SPHERE) {
                     trunkData.lastUpdate = now2;
@@ -164,32 +189,26 @@ export function updateTrunk(c, now, spawning) {
         }
     }
 
-    // --- Auto-abrir menu al tocar la sphere ---
-    if (!c.isInAnyCar() && !_showTrunkMenu && _openTrunkCount > 0) {
-        var pPos = c.getCoordinates();
-        var ids = Object.keys(_openTrunks);
-        for (var j = 0; j < ids.length; j++) {
-            var id = parseInt(ids[j]);
-            var td = _openTrunks[id];
-            if (!td) continue;
-            var exists = false;
-            try { exists = native("DOES_VEHICLE_EXIST", td.handle); } catch (e) { }
-            if (!exists) continue;
-            var trunkPos = _getTrunkPos(td.handle);
-            var dx = pPos.x - trunkPos.x;
-            var dy = pPos.y - trunkPos.y;
-            var dist = Math.sqrt(dx * dx + dy * dy);
-            if (dist < DIST.SPHERE) {
-                _trunkCar = td.handle;
-                _trunkVehicleId = id;
-                _trunkOpen = true;
-                _showTrunkMenu = true;
-                break;
-            }
+    // --- Abrir el menu con ESPACIO, al lado de un baul abierto ---
+    //
+    // La distancia es DIST.TRUNK_ACCESS y no DIST.SPHERE: el objeto esfera mide
+    // 0.75 m, que es el radio del marcador, no una zona donde se pueda apretar una
+    // tecla. Ver la nota de KEYS.FLOW en core/gsis_Config.js.
+    if (abrio && !_showTrunkMenu && !c.isInAnyCar() && !spotOff("trunk") && _openTrunkCount > 0) {
+        var cerca = _nearestTrunk(c, DIST.TRUNK_ACCESS);
+        if (cerca !== null) {
+            _trunkCar = _openTrunks[cerca].handle;
+            _trunkVehicleId = cerca;
+            _trunkOpen = true;
+            _showTrunkMenu = true;
         }
     }
 
     // --- Auto-cerrar menu al salirse de la sphere ---
+    //
+    // Con el jugador congelado mientras el menu esta abierto, esto solo se da si
+    // algo lo movio (un vehiculo, un script). Queda igual: congelado no alcanza
+    // para un menu que se quedaria puesto en un sitio del que el ped ya no esta.
     if (_showTrunkMenu && _trunkCar) {
         var pPos2 = c.getCoordinates();
         var tPos = _getTrunkPos(_trunkCar);
@@ -201,46 +220,55 @@ export function updateTrunk(c, now, spawning) {
         }
     }
 
-    // --- B: toggle menu del baul mas cercano ---
-    // La segunda mitad del toggle (volver a cerrarlo) es inalcanzable:
-    // keyJustPressed devuelve false mientras haya un menu abierto, y este menu
-    // es una registerMenuSource mas. Se cierra con la 3, alejandose 1.5 m, o
-    // con Escape desde la pagina (que va por "ui:close" y llega a closeFlow()).
-    if (keyJustPressed(KEYS.TRUNK_MENU)) {
-        if (!c.isInAnyCar() && _openTrunkCount > 0) {
-            var closestTrunkId = null;
-            var closestDist = DIST.TRUNK_ACCESS;
-            var pPos3 = c.getCoordinates();
+    // --- Cerrar el menu apaga la esfera ---
+    //
+    // Con la TRANSICION, no con el estado: la cooldown es por cierre. Pedirla en
+    // cada frame sin menu la pediria en el frame en que se abre, y el menu no se
+    // podria volver a abrir nunca —la esfera no llega a existir—.
+    //
+    // Y el caso de verdad no es el de antes: el menu congela al jugador, asi que
+    // al cerrarlo sigue parado ADENTRO de la esfera, en el mismo lugar. Sin el
+    // apagado, cualquier cosa que vuelva a mirar "estoy en la esfera" en el frame
+    // siguiente daria true (ver TIMERS.SPHERE_COOLDOWN).
+    if (estaba && !_showTrunkMenu) {
+        beginSpotCooldown("trunk");
+        _dropTrunkSpheres("menu cerrado");
+    }
+}
 
-            var rIds = Object.keys(_openTrunks);
-            for (var k = 0; k < rIds.length; k++) {
-                var rVid = parseInt(rIds[k]);
-                var rTd = _openTrunks[rVid];
-                if (!rTd) continue;
+// El baul abierto mas cerca, o null si no hay ninguno dentro de maxDist.
+//
+// No se busca el auto mas cercano sino el auto con el baul ABIERTO: un baul
+// cerrado no tiene esfera, y al que no tiene esfera no se le abre menu. Un auto
+// con el baul abierto y otro con el baul cerrado al lado no son la misma cosa.
+function _nearestTrunk(c, maxDist) {
+    if (_openTrunkCount <= 0) return null;
 
-                var rExists = false;
-                try { rExists = native("DOES_VEHICLE_EXIST", rTd.handle); } catch (e) { }
-                if (!rExists) continue;
+    var p = c.getCoordinates();
+    var mejor = null;
+    var mejorDist = maxDist;
 
-                var rPos = _getTrunkPos(rTd.handle);
-                var rDx = pPos3.x - rPos.x;
-                var rDy = pPos3.y - rPos.y;
-                var rDist = Math.sqrt(rDx * rDx + rDy * rDy);
+    var ids = Object.keys(_openTrunks);
+    for (var i = 0; i < ids.length; i++) {
+        var vid = parseInt(ids[i]);
+        var td = _openTrunks[vid];
+        if (!td) continue;
 
-                if (rDist < closestDist) {
-                    closestDist = rDist;
-                    closestTrunkId = rVid;
-                }
-            }
+        var existe = false;
+        try { existe = native("DOES_VEHICLE_EXIST", td.handle); } catch (e) { }
+        if (!existe) continue;
 
-            if (closestTrunkId !== null) {
-                _trunkCar = _openTrunks[closestTrunkId].handle;
-                _trunkVehicleId = closestTrunkId;
-                _trunkOpen = true;
-                _showTrunkMenu = !_showTrunkMenu;
-            }
+        var pos = _getTrunkPos(td.handle);
+        var dx = p.x - pos.x;
+        var dy = p.y - pos.y;
+        var d = Math.sqrt(dx * dx + dy * dy);
+
+        if (d < mejorDist) {
+            mejorDist = d;
+            mejor = vid;
         }
     }
+    return mejor;
 }
 
 // ============================================================================
@@ -408,8 +436,37 @@ function _getTrunkPos(car) {
     return car.getOffsetInWorldCoords(0, -3.6, 0.5);
 }
 
+// Todas las esferas de baul apagadas de una.
+//
+// La cooldown vive en core/gsis_SpotRuntime.js (beginSpotCooldown) porque es la
+// misma para los cuatro menus, pero las esferas del baul son de este archivo: las
+// suyas cuelgan del auto y hay que seguirlas, no salen de un catalogo estatico.
+//
+// Ademas borra la posicion de la esfera, y no es un detalle: el seguimiento solo
+// recrea cuando el auto se movio (ver _updateTrunkPickupForVehicle), asi que con
+// el auto quieto y la posicion guardada, una esfera apagada no volveria nunca.
+function _dropTrunkSpheres(porQue) {
+    var n = 0;
+    for (var vid in _openTrunks) {
+        if (!_openTrunks.hasOwnProperty(vid)) continue;
+        var td = _openTrunks[vid];
+        if (td.pickup !== null) n++;
+        _destroyTrunkPickupForVehicle(parseInt(vid));
+        td.sphereX = null;
+        td.sphereY = null;
+        td.sphereZ = null;
+    }
+    if (n > 0) {
+        log("[Trunk] " + n + " esfera(s) de baul apagada(s) (" + porQue + ")");
+    }
+}
+
 function _createTrunkPickupForVehicle(vehicleId, car) {
     _destroyTrunkPickupForVehicle(vehicleId);
+    // Con la cooldown armada no se crea. La esfera es la condicion para abrir el
+    // menu, y durante el apagado no hay menu: crearla seria una esfera que no abre
+    // nada, y que ademas el seguimiento del auto volveria a prender.
+    if (spotOff("trunk")) return;
     try {
         var pos = _getTrunkPos(car);
         var sphere = Sphere.Create(pos.x, pos.y, pos.z, DIST.SPHERE);
@@ -433,6 +490,11 @@ function _updateTrunkPickupForVehicle(vehicleId, car) {
         var distSq = dx * dx + dy * dy + dz * dz;
         if (distSq < 0.25) return;
 
+        // La esfera no estaba: es el reencendido (fin de la cooldown) y no el
+        // seguimiento de un auto que se movio. Se loguea porque es el evento que
+        // el jugador no ve y del que depende que el menu vuelva a poder abrirse.
+        var reencendido = trunkData.pickup === null;
+
         _destroyTrunkPickupForVehicle(vehicleId);
         var sphere = Sphere.Create(pos.x, pos.y, pos.z, DIST.SPHERE);
         if (_openTrunks[vehicleId]) {
@@ -440,6 +502,9 @@ function _updateTrunkPickupForVehicle(vehicleId, car) {
             _openTrunks[vehicleId].sphereX = pos.x;
             _openTrunks[vehicleId].sphereY = pos.y;
             _openTrunks[vehicleId].sphereZ = pos.z;
+        }
+        if (reencendido) {
+            log("[Trunk] esfera del baul id=" + vehicleId + " encendida de nuevo: el menu se puede abrir");
         }
     } catch (e) { }
 }
@@ -471,7 +536,7 @@ function _updateTrunkStateInDataById(vehicleId, trunkOpen) {
 // ============================================================================
 
 function initTrunk() {
-    log("[GSIS] Trunk inicializado");
+    log("[GSIS] Trunk inicializado (menu con esfera: ESPACIO para abrir, ESC para cerrar)");
     // El menu del baul es un menu: mientras este abierto, el teclado es de la UI
     // y ningun hotkey del mod tiene que disparar. Antes no se registraba y el
     // interruptor de teclado solo miraba el menu principal, asi que la R del

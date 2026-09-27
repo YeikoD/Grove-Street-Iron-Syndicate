@@ -5,10 +5,16 @@
 // ============================================================================
 // GSIS FlowSerialization - los view models de los menus de proximidad
 //
-// Los cuatro menus que no son el inventario (baul, armeria, retiro, trueque) se
-// abren por proximidad y son del mismo material: una lista de items y un pie con
-// dos numeros. La pagina los dibuja con la misma tabla, asi que lo unico que
-// cambia entre ellos es QUE se muestra, y eso es lo que hay aca.
+// Los cuatro menus que no son el inventario (baul, armeria, retiro, trueque) son
+// del mismo material: una lista de items y un pie con dos numeros. La pagina los
+// dibuja con la misma tabla, asi que lo unico que cambia entre ellos es QUE se
+// muestra, y eso es lo que hay aca.
+//
+// "De proximidad" es el nombre que viene de antes, cuando se abrian al tocar la
+// esfera y se cerraban alejandose. Ahora se abren con ESPACIO parado adentro de la
+// esfera (core/gsis_SpotRuntime.js) y se cierran con ESC, como el inventario: lo
+// que queda de la proximidad es la condicion para abrir y la cooldown de la
+// esfera, no el cierre.
 //
 // Un archivo para los cuatro, y no uno por menu, por dos razones:
 //
@@ -102,6 +108,13 @@ export function currentFlow() {
 
 // Cierra el flujo abierto. Devuelve el id del que cerro, o "" si no habia
 // ninguno: es lo que la pagina necesita para saber si su Escape hizo algo.
+//
+// NO es lo que apaga la esfera. La cooldown la pide el modulo dueño, en su update,
+// al ver la transicion de abierto a cerrado (beginSpotCooldown de
+// gsis_SpotRuntime.js). Que sea el modulo y no esta funcion es lo que hace que
+// TODOS los caminos de cierre la disparen —el Escape de la pagina, el Escape del
+// mod, el auto-cierre por distancia, la 3 del baul— sin que este archivo tenga que
+// saber que existen: el unico que ve el menu cerrarse es el que lo tiene.
 export function closeFlow() {
     var id = currentFlow();
     if (!id) return "";
@@ -305,12 +318,11 @@ function _snapPickup() {
 
 // La segunda linea del panel, con el cierre siempre al final.
 //
-// No es cosmetico: estos menus se abren al tocar la esfera y se cierran al
-// alejarse, y el player NO esta congelado (ver setMenuGameState). El panel
-// aparece en el medio de la pantalla y el pointer puede haber quedado encima, y
-// con el pointer encima las teclas son de la pagina — o sea que el jugador no
-// puede caminar hasta sacarlo de ahi. Sin esta linea, la unica forma de cerrar
-// seria adivinar que hay que mover el mouse.
+// No es cosmetico: estos menus congelan al jugador —son menus de pausa, como el
+// inventario— asi que la unica forma de salir es el Escape (o el boton de cerrar de
+// la pagina). El panel aparece en el medio de la pantalla y el pointer puede haber
+// quedado encima, y con el pointer encima las teclas son de la pagina: sin esta
+// linea, un menu congelado al jugador sin decir por que parece trabado.
 function _subtitulo(texto) {
     return texto ? texto + "  |  " + t("MENU_HNT") : t("MENU_HNT");
 }

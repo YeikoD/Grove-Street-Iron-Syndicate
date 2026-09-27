@@ -26,8 +26,18 @@
 //
 // Orden de imports: este archivo va DESPUES de Trunk / WeaponDealer /
 // DealerPickup / WeaponSeller en gsis_index.js, porque el orden de imports es
-// el orden de updateAll(). Asi los flags de proximidad de este frame ya estan
-// calculados cuando el bridge los lee.
+// el orden de updateAll(). Asi los flags de este frame ya estan calculados
+// cuando el bridge los lee.
+//
+// QUE TECLA ABRE QUE. El inventario, con I. Los cuatro menus de esfera (baul,
+// armeria, retiro, trueque), con ESPACIO y solo parado adentro de su esfera —
+// cada modulo abre el suyo en su update, con keyEdge() de core/gsis_Input.js.
+// La I con un menu de esfera abierto no abre el inventario (REGLA 1), y la
+// pagina manda "ui:toggle" con la I, o sea que los dos caminos pasan por la
+// misma funcion.
+//
+// Todos se cierran con ESC, y todos se comportan igual: congelan al jugador,
+// esconden el radar y le dan el teclado a la pagina.
 //
 // ============================================================================
 // ACCIONES — functioning (SAWeb v2)
@@ -46,7 +56,7 @@
 // ============================================================================
 
 import { register } from "../core/gsis_ModuleRegistry.js";
-import { KEYS, MISC, MOVE_KEYS } from "../core/gsis_Config.js";
+import { KEYS, MISC } from "../core/gsis_Config.js";
 import {
     setMenuVisible,
     anyMenuVisible,
@@ -55,7 +65,9 @@ import {
     rawKeyDown,
     setMenuCursor,
     setMenuGameState,
-    setMenuKeyPassthrough
+    setMenuAnchor,
+    setMenuKeyPassthrough,
+    setMenuGameMouse
 } from "../core/gsis_Input.js";
 import { snapInventory, snapCatalog } from "./gsis_InventorySerialization.js";
 import { currentFlow, closeFlow, snapFlow } from "./gsis_FlowSerialization.js";
@@ -110,25 +122,28 @@ var _radarFallo = false;
 
 // ------------------------------------------------------------------ ESTADO --
 //
-// El estado del juego NO se toca aca: eso es gsis_Input.js, y son dos llamadas
-// porque el cursor y el freeze ya no se apagan juntos.
+// El estado del juego NO se toca aca: eso es gsis_Input.js, y son varias llamadas
+// porque el cursor, el freeze y el teclado ya no se apagan juntos.
 //
 //   setMenuCursor(anyVisible)      el cursor, con cualquier menu. Sin el no se
-//                                  puede clickear una fila, y eso vale tambien
-//                                  para los menus de proximidad
-//   setMenuGameState(congelar)     SET_PLAYER_CONTROL invertido (congelar al
-//                                  player) + SET_CAMERA_BEHIND_CHAR, solo para
-//                                  el panel que se abre a mano
+//                                  puede clickear una fila
+//   setMenuGameState(anyVisible)   SET_PLAYER_CONTROL invertido (congelar al
+//                                  player) + SET_CAMERA_BEHIND_CHAR
+//   setMenuKeyPassthrough(null)    sin teclas para el juego: el menu congela y
+//                                  no se sale caminando
+//   setMenuGameMouse(false)        el click llega a la pagina: con el jugador
+//                                  congelado no hay nada a quien pegarle
+//   setMenuAnchor(false)           sin ancla: el ancla era para el menu que
+//                                  dejaba caminar, y este congela
 //
-// La razon de que esten separadas es el freeze: los cuatro menus de proximidad
-// se abren al tocar la esfera y se cierran al alejarse, asi que congelar al player
-// los dejaria sin forma de cerrarse (la tecla que los abre esta suprimida
-// mientras hay un menu abierto). El player sigue en el mundo, no congelado.
-//
-// Que el que decide sea el modulo y no este archivo es lo que hace que no haya
-// que acordarse de cada menu: anyMenuVisible() ya Orea el principal con las cuatro
-// fuentes que cada modulo registro, y currentFlow() dice de que clase es el que
-// esta abierto ahora.
+// TODOS los menus son de pausa. Antes habia dos clases —el inventario, que se
+// abria con I, y los cuatro de esfera, que se abrian al tocarlas y se cerraban
+// alejandose— y por eso el estado se daba distinto a cada una: congelar al
+// primero, anclar al segundo. Los de esfera ahora se abren con una tecla
+// (ESPACIO) y se cierran con ESC, o sea que son el mismo caso que el
+// inventario. Por eso lo que decide ya no es "que clase de menu es" sino "hay
+// alguno": las tres llamadas de proximidad se pasan en false y quedan apagadas
+// (ver la nota 5 del header de gsis_Input.js).
 //
 // Lo que cambio con la v3 del runtime es que ahora SE PUEDE SABER por donde va.
 // Antes el bridge suponia: si el menu esta visible, el cursor es visible y el
@@ -218,15 +233,16 @@ function broadcast() {
 
     // Lo que broadcast() decidio este frame sobre "hay algo que mirar". Lo leen los
     // dos pushes de abajo, y es distinto de _uiState.menuVisible: ese es el flag
-    // del panel principal, y un menu de proximidad abre sin apretar I.
+    // del panel principal, y un menu de esfera se abre con ESPACIO sin apretar I.
     _anyVisible = anyVisible;
 
-    // Que clase de menu esta abierto, porque el estado del juego depende de eso.
+    // Que pantalla se esta viendo, porque el estado del juego y el push dependen
+    // de eso.
     //
     // REGLA 1: la pantalla visible es una sola. Si el panel principal esta
-    // abierto, ningun menu de proximidad toma la pantalla —el flujo sigue
-    // "abierto" del lado del modulo, pero espera su turno— y al cerrarse el panel
-    // aparece. Ver pantallaVisible().
+    // abierto, ningun menu de esfera toma la pantalla —el flujo sigue "abierto"
+    // del lado del modulo, pero espera su turno— y al cerrarse el panel aparece.
+    // Ver pantallaVisible().
     var visible = pantallaVisible();
     var flow = visible === "inventario" ? "" : visible;
 
@@ -236,44 +252,42 @@ function broadcast() {
     // el flujo mostrado no son lo mismo.
     _flowVisible = flow;
 
-    // REGLA 2: el freeze es del panel principal y de nadie mas. Un menu de
-    // proximidad se cierra alejandose, y congelado no se puede caminar: sin poder
-    // caminar no se sale de la esfera, sin salir de la esfera no se cierra, y la
-    // tecla que lo abre esta suprimida mientras hay un menu abierto. Soft-lock.
+    // REGLA 2: TODOS los menus son de pausa, asi que el estado del juego es el
+    // mismo para los cinco.
     //
-    // El cursor es otra cosa: lo necesita CUALQUIER menu, porque sin el no se
-    // puede clickear una fila. Por eso no va con el freeze: con un menu de
-    // proximidad abierto el cursor se ve y el player se mueve.
-    var congelar = _uiState.menuVisible;
-
+    // El cursor lo necesita cualquiera de los cinco, porque sin el no se puede
+    // clickear una fila, y por eso va con su propia llamada y no con el freeze.
+    //
+    // El freeze es lo que hace que esto sea "exactamente como el inventario":
+    // SET_PLAYER_CONTROL al reves + la camara detras del personaje. Sin esto el
+    // jugador ve a su personaje corriendo o disparando al fondo mientras elige un
+    // item, y la camara se queda donde el gameplay la dejo.
+    //
+    // Lo que se apaga, y por que:
+    //
+    //   - el ancla (setMenuAnchor) era para el menu que dejaba caminar al jugador
+    //     para que se alejara y lo cerrara. Acá el menu congela, y con el jugador
+    //     parado adentro de la esfera el menu se cierra con ESC.
+    //   - el passthrough de WASD (setMenuKeyPassthrough) existia por lo mismo: con
+    //     un panel en pantalla la pagina se queda con el teclado entero, y sin la
+    //     lista el juego no veia la W con la que el jugador se iba.
+    //   - el bloqueo del mouse (setMenuGameMouse) era porque con el menu de
+    //     proximidad el mundo seguia vivo y un click que se escapaba golpeaba a
+    //     quien estuviera enfrente. Congelado no hay a quien pegarle.
+    //
+    // Las tres se pasan en false, y cada una tiene su latch: mandan una vez el
+    // cambio y despues no vuelven a tocar la ASI.
     setMenuCursor(anyVisible);
-    setMenuGameState(congelar);
+    setMenuGameState(anyVisible);
+    setMenuKeyPassthrough(null);
+    setMenuGameMouse(false);
+    setMenuAnchor(false);
 
-    // REGLA 2, la otra mitad: las teclas que se llevan el juego.
-    //
-    // No congelar NO alcanza para que un menu de proximidad se pueda cerrar, y
-    // esto es lo que faltaba. Con un panel abierto, la pagina se queda con TODAS
-    // las teclas: la region de input de la UI en la ASI es la pantalla completa
-    // (el panel se dibuja como un quad de pantalla completa y ese rect es el que
-    // decide a quien le llega la tecla), asi que "el puntero esta encima de la UI"
-    // es cierto en cualquier punto. Al primer movimiento de mouse, el juego deja
-    // de ver W y no lo vuelve a ver hasta que el panel cierra.
-    //
-    // Y el menu se cierra alejandose. O sea, que sin esto no habria forma de
-    // alejarse: soft-lock, con el Escape de la pagina como unica puerta.
-    //
-    // La lista va con "!congelar" y no con "hay menu": con el panel principal
-    // abierto el player esta congelado, y ahi las teclas tienen que ir a la pagina
-    // — es un menu de pausa, no se camina. Mandar la lista en los dos casos
-    // dejaria el panel principal con el teclado en el juego.
-    setMenuKeyPassthrough(anyVisible && !congelar ? MOVE_KEYS : null);
-
-    // radar: mismo interruptor que el freeze y por la misma razon. Un menu de
-    // proximidad no esconde el radar porque el jugador sigue en el mundo: lo
-    // esconde el panel que se abre a mano.
-    if (MISC.HIDE_RADAR_WHEN_MENU && _lastRadar !== congelar) {
-        _lastRadar = congelar;
-        setRadar(!congelar);
+    // radar: mismo interruptor que el freeze y por la misma razon. Con cualquier
+    // menu en pantalla el radar no se ve.
+    if (MISC.HIDE_RADAR_WHEN_MENU && _lastRadar !== anyVisible) {
+        _lastRadar = anyVisible;
+        setRadar(!anyVisible);
     }
 
     // uistate: un solo evento con todo el estado, en vez de "input" y "panels"
@@ -283,7 +297,7 @@ function broadcast() {
     // recibiendo teclas" — que son cosas distintas, y la segunda es la que
     // importa. Ahora la respuesta llega hecha y con la fuente etiquetada.
     //
-    // flow es cual de los cuatro menus de proximidad esta abierto ("", "trunk",
+    // flow es cual de los cuatro menus de esfera esta abierto ("", "trunk",
     // "dealer", "seller", "pickup"). Sin el, la pagina solo sabia que ALGUN menu
     // estaba abierto, y no puede dibujar un panel sin saber de que tipo es. Va
     // en uistate y no en el snapshot de "screen" a proposito: uistate va
@@ -422,29 +436,32 @@ var _sinSnapDe = null;
 //
 // REGLA 1 — una sola pantalla a la vez.
 //
-// El inventario y los cuatro menus de proximidad son ventanas que ocupan el
-// mismo lugar. Si hubiera dos abiertas, se taparian entre si y el jugador no
-// sabria cual esta leyendo: el inventario abajo se apagaria solo al cerrarse el
-// flujo, y la tecla que abria uno cerraria el otro sin querer.
+// El inventario y los cuatro menus de esfera son ventanas que ocupan el mismo
+// lugar. Si hubiera dos abiertas, se taparian entre si y el jugador no sabria
+// cual esta leyendo: el inventario abajo se apagaria solo al cerrarse el flujo, y
+// la tecla que abria uno cerraria el otro sin querer.
 //
 // El que gana es el que YA esta abierto, por dos razones distintas:
 //
-//   - El panel principal se abre con una tecla. Si el jugador aprieta I, quiere
-//     el inventario; que le aparezca una armeria porque esta parado en la
-//     esfera seria lo contrario de lo que pidio.
-//   - Un menu de proximidad se abre solo (el jugador toco la esfera). No puede
-//     "cancelarse" sin romper el contrato de la proximidad, asi que no compite:
-//     espera su turno. Cuando el panel se cierra, aparece.
+//   - El panel principal se abre con una tecla y en cualquier parte. Si el
+//     jugador aprieta I, quiere el inventario; que le aparezca una armeria
+//     porque esta parado en la esfera seria lo contrario de lo que pidio.
+//   - Un menu de esfera se abre con ESPACIO y solo con la esfera prendida. No
+//     puede abrirse "desde arriba" —no hay I para sacarlo de arriba— y una vez
+//     abierto tampoco se cancela desde el inventario: espera su turno, y cuando
+//     el panel se cierra aparece.
 //
 // O sea: el panel principal tapa a los flujos, y con un flujo abierto el panel
 // principal no se puede abrir. Las dos mitades estan en pantallaVisible() y en
 // togglePanel().
 //
-// REGLA 2 — el freeze es solo del panel principal.
+// REGLA 2 — todos los menus son de pausa.
 //
-// Un menu de proximidad se cierra alejandose de la esfera, y el player
-// congelado no se puede mover. Ademas la tecla que lo abre esta suprimida
-// mientras hay un menu abierto, asi que tampoco lo cierra: soft-lock. Ver
+// El panel principal congela porque es un menu de pausa, y los de esfera
+// ahora tambien: se abren con la tecla, se cierran con el Escape, y el jugador
+// no se aleja para cerrar. Antes un menu de esfera NO congelaba —se cerraba
+// alejandose, y congelado no se puede caminar— y en vez de congelar se le
+// ponia el ancla. Ver la nota de REGLA 2 en broadcast() y el header de
 // gsis_Input.js.
 //
 // Devuelve "inventario", el id del flujo, o "" si no hay nada en pantalla.
@@ -519,9 +536,16 @@ function pollKeys() {
 
     if (justI) {
         togglePanel(now, "tecla I");
-    } else if (justEsc && _uiState.menuVisible) {
-        if (now - _uiState.keyDebounce > DEBOUNCE_MS) {
+    } else if (justEsc && now - _uiState.keyDebounce > DEBOUNCE_MS) {
+        // El Escape cierra lo que se ESTA VIENDO, como el "ui:close" de la pagina:
+        // el panel si esta abierto, y si no el menu de esfera. Los dos casos con el
+        // mismo debounce, porque si no un Escape cerraria el panel en el frame en
+        // que se abrio.
+        if (_uiState.menuVisible) {
             closeMenu();
+        } else {
+            var cerrado = closeFlow();
+            if (cerrado) log("[WebInterface] Escape cerro el menu de " + cerrado);
         }
     }
 
@@ -835,6 +859,8 @@ function handleCommand(cmd) {
 function initWebInterface() {
     log("[WebInterface] Bridge CLEO <-> " + UI_ID + " inicializado");
     log("[WebInterface] Tecla " + String.fromCharCode(KEYS.INVENTORY) + " abre/cierra, ESC cierra");
+    log("[WebInterface] Tecla " + String.fromCharCode(KEYS.FLOW) +
+        " (espacio) abre los menus de esfera, parado adentro de la esfera");
     try {
         log("[WebInterface] isOpen('" + UI_ID + "') -> " + SAWeb.ui.isOpen(UI_ID));
     } catch (e) {

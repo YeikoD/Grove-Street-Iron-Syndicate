@@ -247,7 +247,7 @@ const MOCK = {
 const MOCK_FLUJOS = {
   trunk: {
     titulo: "Baul - Infernus (411)",
-    subtitulo: "B: menu | 3: cerrar baul | Alejarse cierra el menu",
+    subtitulo: "ESPACIO: menu | 3: cerrar baul | ESC para cerrar el menu",
     panes: [
       {
         key: "mochila",

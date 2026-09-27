@@ -29,9 +29,10 @@ import "./IronSyndicate/modules/gsis_WeaponDealer.js";
 import "./IronSyndicate/modules/gsis_DealerPickup.js";
 import "./IronSyndicate/modules/gsis_WeaponSeller.js";
 // El bridge va aca, y no en cualquier lado: tiene que leer los flags de
-// proximidad de este frame, asi que va despues de los modulos que los
-// calculan (Trunk / WeaponDealer / DealerPickup / WeaponSeller) y antes de
-// Ballistic / FireButton, que dependen de Items.
+// visibilidad de este frame (los menus de esfera ya decididos por sus modulos),
+// asi que va despues de los modulos que los calculan (Trunk / WeaponDealer /
+// DealerPickup / WeaponSeller) y antes de Ballistic / FireButton, que dependen
+// de Items.
 import "./IronSyndicate/modules/gsis_WebInterface.js";
 import "./IronSyndicate/modules/gsis_Ballistic.js";
 import "./IronSyndicate/modules/gsis_FireButton.js";
