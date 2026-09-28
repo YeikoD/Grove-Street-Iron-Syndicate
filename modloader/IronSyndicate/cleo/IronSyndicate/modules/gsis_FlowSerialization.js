@@ -58,7 +58,7 @@ import { MISC } from "../core/gsis_Config.js";
 import { t, money } from "../core/gsis_L10n.js";
 import { query } from "../core/gsis_EventBus.js";
 import { getModuleData } from "../core/gsis_SaveManager.js";
-import { getItemWeight } from "../data/gsis_item_data.js";
+import { getItemWeight, getItemType } from "../data/gsis_item_data.js";
 import { WEAPON_DATA, getSellPrice } from "../data/gsis_weapon_data.js";
 import { getVehicleName } from "../data/gsis_vehicle_data.js";
 import { itemRow } from "./gsis_ItemRow.js";
@@ -337,6 +337,13 @@ function _snapSeller() {
     for (var i = 0; i < items.length; i++) {
         var base = getSellPrice(items[i].id);
         if (!base) continue; // el NPC no compra esto
+        // El trueque es de ARMAS. Los cargadores tienen precio (lo necesitan para
+        // el dealer y la columna Valor) asi que getSellPrice no los descarta, y
+        // sin este filtro el panel ofreceria cargadores: el NPC tiene su propio
+        // filtro por type (gsis_WeaponSeller._esArmaVendible) y rechazaria la
+        // oferta con un error, o peor, la pagaria. La misma regla en los dos
+        // lados: el que ofrece y el que acepta.
+        if (getItemType(items[i].id) !== "weapon") continue;
         var fila = itemRow(items[i]);
         fila.base = base;
         // La oferta arranca en el valor base, que es lo unico que el jugador

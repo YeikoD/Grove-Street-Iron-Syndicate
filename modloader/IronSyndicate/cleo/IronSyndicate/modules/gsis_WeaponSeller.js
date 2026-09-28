@@ -24,6 +24,7 @@ import { setNotice } from "../core/gsis_Notice.js";
 import { emit } from "../core/gsis_EventBus.js";
 import { getSellPrice, WEAPON_DATA } from "../data/gsis_weapon_data.js";
 import { getCharacter } from "../data/gsis_character_data.js";
+import { getItemType } from "../data/gsis_item_data.js";
 import { getItems, removeItem, isInstanced } from "./gsis_Items.js";
 import {
     createSpotGate, updateSpotSpheres, closeSpotFlow, spotCanOpen,
@@ -314,12 +315,30 @@ function _ownedQty(itemId) {
 // INTERNAS
 // ============================================================================
 
+// El NPC solo compra ARMAS. El filtro es el type de ITEMS, no un flag por item.
+//
+// Hace falta porque WEAPON_DATAGrowing contiene tambien los CARGADORES (tienen
+// precio, y el precio es lo que los hace comprables en el dealer y valiosos en
+// la columna Valor), y con el filtro de antes —precio + categoría— un NPC podia
+// pedir cargadores. No es solo un detalle: el cargador de 9mm se revalúa a 254
+// lleno contra una base de trueque de 130, y un NPC con presupuesto alto
+// pagaria la municion de un jugador.
+//
+// La regla es la que ya vale: el trueque es de armas, y un cargador no es un
+// arma (type "magazine" en ITEMS, weaponId null aca). Asi que se pregunta el
+// type en vez de agregar un `noTrade: true` que cada item nuevo tendria que
+// acordarse de poner.
+function _esArmaVendible(w) {
+    if (!w.price || !w.category) return false;
+    return getItemType(w.itemId) === "weapon";
+}
+
 function _allCategories() {
     var seen = {};
     var cats = [];
     for (var i = 0; i < WEAPON_DATA.length; i++) {
         var w = WEAPON_DATA[i];
-        if (!w.price || !w.category) continue;
+        if (!_esArmaVendible(w)) continue;
         if (!seen[w.category]) {
             seen[w.category] = true;
             cats.push(w.category);
@@ -332,7 +351,7 @@ function _weaponsInCategory(cat) {
     var list = [];
     for (var i = 0; i < WEAPON_DATA.length; i++) {
         var w = WEAPON_DATA[i];
-        if (w.category === cat && w.price) list.push(w);
+        if (w.category === cat && _esArmaVendible(w)) list.push(w);
     }
     return list;
 }

@@ -467,6 +467,225 @@ export const WEAPON_DATA = [
         weight: 2.0,
         isLong: false,
         price: 1200
+    },
+
+    // ==========================================================================
+    // CARGADORES (type magazine en ITEMS)
+    // ==========================================================================
+    // Viven en WEAPON_DATA y no en ITEMS porque el PRECIO tiene que ser legible
+    // por el dealer (getDealerPrice) y por la columna Valor (getSellPrice /
+    // getMagValue), y los dos leen de aca. Si el precio estuviera en ITEMS habria
+    // que duplicar la regla de "de donde sale el precio de las cosas" en dos
+    // lugares, que es exactamente la duplicacion que la casa prohibe.
+    //
+    // LAS TRES NULIDADES SON LO IMPORTANTE — es lo que mantiene estos cargadores
+    // fuera de todas las rutas de arma:
+    //
+    //   weaponId: null  → getMagIdByWeaponId y _itemIdByWeaponId no los matchean
+    //                    contra un numero; syncClipSizes los saltea
+    //   slot: null      → _weaponDefByItemId los rechaza, o sea no son equipables
+    //   magId: null     → un cargador no es "un arma con cargador": el vinculo va al
+    //                    reves, y es el ARMA la que declara su magId. Ponerlo aca
+    //                    seria una segunda fuente de la misma relacion.
+    //   sin clipSize    → (ver abajo)
+    //
+    // SIN `clipSize` a proposito. La capacidad de un cargador ES el clipSize de su
+    // arma: getClipSizeByItemId("mag_9mm") hace strip del prefijo "mag_" y lee el
+    // de "9mm". Copiarlo aca crearia un segundo valor que puede divergir del arma
+    // sin que nada avise — y la capacidad de un cargador no es una propiedad del
+    // cargador, es de la boca del arma que alimenta.
+    //
+    // OJO con los nombres: el catalogo de ITEMS llama "Cartucho ..." a los de
+    // escopeta, rifle y francotirador, no "Cargador". No es un descuido, es que en
+    // el mod son TUBOS (clipSize 1 en el rifle y el francotirador, y la escopeta
+    // recarga cartucho a cartucho). El precio lo ancla la pieza real equivalente:
+    // un tubo de extension, no una caja desmontable.
+    {
+        itemId: "mag_9mm",
+        magId: null,
+        name: "Cargador 9mm",
+        weaponId: null,
+        slot: null,
+        category: "Cargadores",
+        realWorldName: "Glock 17 OEM 17 Fairbanks",
+        isLong: false,
+        price: 220
+    },
+    {
+        itemId: "mag_silenced_9mm",
+        magId: null,
+        name: "Cargador 9mm con silenciador",
+        weaponId: null,
+        slot: null,
+        category: "Cargadores",
+        realWorldName: "Beretta 92FS 15/17",
+        isLong: false,
+        price: 250
+    },
+    {
+        itemId: "mag_desert_eagle",
+        magId: null,
+        name: "Cargador Desert Eagle",
+        weaponId: null,
+        slot: null,
+        category: "Cargadores",
+        realWorldName: "IWI .50 AE 7/8 acero",
+        isLong: false,
+        price: 480
+    },
+    {
+        itemId: "mag_shotgun",
+        magId: null,
+        name: "Tubo extension Remington",
+        weaponId: null,
+        slot: null,
+        category: "Cargadores",
+        realWorldName: "Tubo de deposito Remington 870",
+        isLong: false,
+        price: 330
+    },
+    {
+        itemId: "mag_sawed_off",
+        magId: null,
+        name: "Tubo recortada",
+        weaponId: null,
+        slot: null,
+        category: "Cargadores",
+        realWorldName: "Doble cañón recortado, 2 tiros",
+        isLong: false,
+        price: 180
+    },
+    {
+        itemId: "mag_combat_shotgun",
+        magId: null,
+        name: "Tubo completo SPAS 12",
+        weaponId: null,
+        slot: null,
+        category: "Cargadores",
+        realWorldName: "Franchi SPAS-12 tubo 8 cartuchos",
+        isLong: false,
+        price: 620
+    },
+    {
+        itemId: "mag_micro_uzi",
+        magId: null,
+        name: "Cargador Micro Uzi",
+        weaponId: null,
+        slot: null,
+        category: "Cargadores",
+        realWorldName: "IMI Micro Uzi 20/32 9mm acero",
+        isLong: false,
+        price: 260
+    },
+    {
+        itemId: "mag_tec9",
+        magId: null,
+        name: "Cargador Tec9",
+        weaponId: null,
+        slot: null,
+        category: "Cargadores",
+        realWorldName: "Intratec DC-9 20/30 acero",
+        isLong: false,
+        price: 280
+    },
+    {
+        itemId: "mag_mp5",
+        magId: null,
+        name: "Cargador MP5",
+        weaponId: null,
+        slot: null,
+        category: "Cargadores",
+        realWorldName: "H&K MP5 30 original",
+        isLong: false,
+        price: 540
+    },
+    {
+        itemId: "mag_ak47",
+        magId: null,
+        name: "Cargador AK-47",
+        weaponId: null,
+        slot: null,
+        category: "Cargadores",
+        realWorldName: "AKM 30 balas acero surplus",
+        isLong: false,
+        price: 300
+    },
+    {
+        itemId: "mag_m4_assembled",
+        magId: null,
+        name: "Cargador M4",
+        weaponId: null,
+        slot: null,
+        category: "Cargadores",
+        realWorldName: "STANAG 30 USGI",
+        isLong: false,
+        price: 320
+    },
+    {
+        itemId: "mag_country_rifle",
+        magId: null,
+        name: "Tubo Marlin 336",
+        weaponId: null,
+        slot: null,
+        category: "Cargadores",
+        realWorldName: "Marlin 336, 5-6 en el tubo",
+        isLong: false,
+        price: 400
+    },
+    {
+        itemId: "mag_sniper_rifle",
+        magId: null,
+        name: "Cargador AICS",
+        weaponId: null,
+        slot: null,
+        category: "Cargadores",
+        realWorldName: "AICS desmontable 5-10",
+        isLong: false,
+        price: 450
+    },
+    {
+        itemId: "mag_rpg",
+        magId: null,
+        name: "Cohete RPG",
+        weaponId: null,
+        slot: null,
+        category: "Cargadores",
+        realWorldName: "PG-7 V2, 1 cohete",
+        isLong: true,
+        price: 900
+    },
+    {
+        itemId: "mag_heat_seeker",
+        magId: null,
+        name: "Misil heat seeker",
+        weaponId: null,
+        slot: null,
+        category: "Cargadores",
+        realWorldName: "SA-7 Grail, 1 misil guiado",
+        isLong: true,
+        price: 1200
+    },
+    {
+        itemId: "mag_flamethrower",
+        magId: null,
+        name: "Deposito flamethrower",
+        weaponId: null,
+        slot: null,
+        category: "Cargadores",
+        realWorldName: "Deposito de napalm M2",
+        isLong: true,
+        price: 700
+    },
+    {
+        itemId: "mag_minigun",
+        magId: null,
+        name: "Caja de municion minigun",
+        weaponId: null,
+        slot: null,
+        category: "Cargadores",
+        realWorldName: "Caja alimentadora M134",
+        isLong: true,
+        price: 900
     }
 ];
 
@@ -504,6 +723,60 @@ export function getClipSizeByItemId(itemId) {
     var weapon = getWeaponByItemId(base);
     if (!weapon || weapon.clipSize === null || weapon.clipSize === undefined) return null;
     return weapon.clipSize;
+}
+
+// ============================================================================
+// CARGADORES - valor de mercado con la municion adentro
+// ============================================================================
+// PRECIO_BALA es el valor de UNA bala. Es la unica pieza que hace que un
+// cargador lleno valga mas que uno vacio, y la unica que hay que calibrar para
+// que el conjunto tenga sentido.
+//
+// $2 y no mas por una razon que solo se ve con los datos de ESTE mod: el
+// clipSize de un cargador es el del arma, y dos de ellos traen 500 "balas"
+// (flamethrower y minigun). A $5, un cargador de minigun valdria 900 + 2.500 =
+// $3.400, un 23% del minigun entero, y el lanzallamas casi lo mismo. A $2:
+//
+//   mag_9mm        220 +  17x2 =  254   (46% de la 9mm,     el mas caro en ratio)
+//   mag_mp5        540 +  30x2 =  600   (55% del MP5)
+//   mag_minigun    900 + 500x2 = 1.900  (13% del minigun)
+//   mag_flameth.   700 + 500x2 = 1.700  (28% del lanzallamas)
+//
+// El tope real es 57% (Tec-9 y MP5) y el mas bajo 11% (heat seeker). Que la
+// municion sea siempre la MINORIA del valor del par (cargador+arma) es lo que
+// mantiene esta economia: el cargador es la primera compra util del juego —el
+// arma llega sin cargador— pero nunca es el objeto mas caro.
+export var PRECIO_BALA = 2;
+
+// Valor de mercado de un CARGADOR: precio del cargador + una bala por cada
+// bala que le queda.
+//
+// Recibe la INSTANCIA ({ id, ammo }), no el id, porque el ammo es estado de la
+// fila y no del catalogo: un cargador a medias vale menos que uno lleno, y eso
+// no se puede derivar de un id. Por eso NO reemplaza a getSellPrice, que es el
+// "valor de trueque" (price x 0.6, sin municion) y sirve para armas.
+//
+// Para lo que no es cargador devuelve getSellPrice, asi que un solo call site
+// alcanza para pintar la columna Valor entera.
+export function getMagValue(instancia) {
+    if (!instancia) return 0;
+    var id = (typeof instancia === "string") ? instancia : instancia.id;
+    if (ITEMS_MAG(id)) {
+        var w = getWeaponByItemId(id);
+        if (!w || !w.price) return 0;
+        var ammo = (typeof instancia === "string") ? 0 : (instancia.ammo || 0);
+        return w.price + (ammo > 0 ? ammo * PRECIO_BALA : 0);
+    }
+    return getSellPrice(id);
+}
+
+// Un id es cargador si su entrada en WEAPON_DATA tiene category "Cargadores".
+// Preguntar por la CATEGORIA y no por el prefijo "mag_" a proposito: el prefijo
+// es una convencion de nombres, y el catalogo ya rompio esa convencion (el
+// francotirador se llama "Cartucho" en ITEMS). La categoria es el dato.
+function ITEMS_MAG(id) {
+    var w = getWeaponByItemId(id);
+    return !!(w && w.category === "Cargadores");
 }
 
 // Helper: precio de venta mayorista (0 si no existe)

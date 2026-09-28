@@ -26,7 +26,7 @@
 // ============================================================================
 
 import { getItemName, getItemWeight, getItemType, clampSalud, isInstanced } from "../data/gsis_item_data.js";
-import { getClipSizeByItemId, getSellPrice } from "../data/gsis_weapon_data.js";
+import { getClipSizeByItemId, getMagValue } from "../data/gsis_weapon_data.js";
 
 // --------------------------------------------------------------------------- //
 
@@ -79,10 +79,18 @@ export function ammoCell(it, esVivo) {
     return String(total) + "/" + String(cap);
 }
 
-// Valor de reventa. Solo las armas tienen precio en WEAPON_DATA, asi que
-// materiales y cargadores devuelven null y no un 0 que se lee como "gratis".
-export function valueCell(id) {
-    var v = getSellPrice(id);
+// Valor de reventa: lo que la fila vale.
+//
+// Recibe la INSTANCIA y no el id, porque un cargador vale mas lleno que vacio y
+// esa parte del valor sale del `ammo` de la fila, que no se puede derivar del
+// id. Para un cargador delega en getMagValue (precio + balas); para todo lo
+// demas, getSellPrice como antes, asi que ninguna celda de material ni de arma
+// cambia de numero.
+//
+// Materiales y body_armor devuelven null y no un 0: un 0 en la columna Valor se
+// lee como "gratis", y no saber el valor es otra cosa.
+export function valueCell(it) {
+    var v = getMagValue(it);
     return v ? v : null;
 }
 
@@ -107,7 +115,7 @@ export function itemRow(it, esVivo) {
         ammo: ammoCell(it, esVivo),
         salud: clampSalud(it.salud),
         weight: Math.round(w * 100) / 100,
-        value: valueCell(it.id),
+        value: valueCell(it),
         tip: tipFor(it)
     };
 }
