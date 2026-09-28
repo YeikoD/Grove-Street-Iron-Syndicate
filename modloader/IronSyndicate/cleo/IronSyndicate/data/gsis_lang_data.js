@@ -314,7 +314,7 @@ export var STRINGS = {
     TY_ALM: { es: "almacen", en: "warehouse" },
 
     // --- UI Dealer ---
-    DLR_TTL: { es: "Armeria Mayorista", en: "Wholesale Arms" },
+    DLR_TTL: { es: "Contrabandista", en: "Contrabandist" },
     DLR_TOT: { es: "Total carrito: ${n}", en: "Cart total: ${n}" },
     DLR_CAT: { es: "Catalogo", en: "Catalog" },
     DLR_CRT: { es: "Carrito", en: "Cart" },

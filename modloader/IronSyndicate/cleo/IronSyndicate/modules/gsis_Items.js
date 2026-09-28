@@ -10,8 +10,8 @@ import { register } from "../core/gsis_ModuleRegistry.js";
 import { on } from "../core/gsis_EventBus.js";
 import { t } from "../core/gsis_L10n.js";
 import { getVehicleTrunkCapacity } from "../data/gsis_vehicle_data.js";
-import { ITEMS, getItemDef, getItemName, getItemWeight, getItemType, SALUD_MAX, clampSalud } from "../data/gsis_item_data.js";
-import { getClipSizeByItemId, getWeaponByItemId } from "../data/gsis_weapon_data.js";
+import { ITEMS, getItemDef, getItemName, getItemWeight, getItemType, SALUD_MAX, clampSalud, isInstanced } from "../data/gsis_item_data.js";
+import { getClipSizeByItemId } from "../data/gsis_weapon_data.js";
 
 // Catalogo re-exportado (compat con UI)
 export { ITEMS };
@@ -22,19 +22,12 @@ function isMagazine(id) {
     return !!(def && def.type === "magazine");
 }
 
-// true si el item es instancia (no apila): cargador o arma con weaponId.
-// El arma instancia guarda su estado: { id, qty:1, hasMag, ammo }
-//
-// Exportada porque es una regla de conteo, no de guardado: el baul la necesita
-// para saber si "3" son tres filas o tres unloaded de un apilado. Copiarla
-// aca seria la mitad de una regla que decide si las cosas se multiplican.
-export function isInstanced(id) {
-    if (isMagazine(id)) return true;
-    var def = ITEMS[id];
-    if (!def || def.type !== "weapon") return false;
-    var wd = getWeaponByItemId(id);
-    return !!(wd && wd.weaponId !== null && wd.weaponId !== undefined);
-}
+// isInstanced — la definicion vive en data/gsis_item_data.js, porque es una
+// pregunta del catalogo y no de este modulo: la fila de la tabla
+// (gsis_ItemRow.js) la necesita igual y ese archivo no depende de ningun
+// modulo. Se re-exporta porque gsis_Trunk.js y gsis_WeaponSeller.js ya la
+// importan de aca, y cambiarles el import no es parte de este cambio.
+export { isInstanced };
 
 // Instancia de cargador: qty=1, ammo=capacidad, salud=100 (no stack)
 function makeMagazineInstance(id, ammo, salud) {
@@ -67,6 +60,31 @@ function makeInstance(id, opts) {
     }
     return makeWeaponInstance(id, opts ? opts.hasMag : undefined, opts ? opts.ammo : undefined,
         opts ? opts.salud : undefined);
+}
+
+// entregaOpts — que estado trae un item QUE SE ENTREGA (compra, retiro, premio).
+// undefined = usar el default de addItem.
+//
+// La regla: un arma se entrega DESNUDA, sin cargador montado y con el total en
+// 0 ({ hasMag: false, ammo: 0 }). Antes llegaba con cargador puesto y lleno,
+// porque el addItem sin opts caía en el default de makeWeaponInstance — y eso
+// hacia que el arma counterproductive.traia municion de regalo, y que la
+// municion no tuviera un canal propio.
+//
+// Un cargador, en cambio, se entrega NUEVO y lleno: es lo unico que hace un
+// cargador nuevo, y el `salud` no se pasa (nace a SALUD_MAX).
+//
+// Materiales y body_armor caen en undefined: no son instanciados y siguen
+// apilándose con el default.
+//
+// Vive aca y no en el modulo del dealer porque el preview del pedido necesita
+// EXACTAMENTE la misma regla: si el panel dice una cosa y la entrega otra, el
+// jugador cobra por una promesa. Dos copias de "que llega vacio" divergen
+// calladas, que es la falla que la casa ya marca para itemRow.
+export function entregaOpts(id) {
+    if (isMagazine(id)) return { ammo: getClipSizeByItemId(id) || 0 };
+    if (isInstanced(id)) return { hasMag: false, ammo: 0 };
+    return undefined;
 }
 
 // Saves viejos: { id, qty > 1 } de un item instanciado → una entrada por unidad
@@ -156,11 +174,16 @@ export function initItemManager() {
 }
 
 // Debug: tecla L agrega 9mm, chatarra y 1 cargador (probar inventario/baul)
+//
+// entregaOpts en los tres, para que el camino de prueba diga lo mismo que el de
+// la entrega real: el 9mm llega sin cargador y el cargador llega lleno. Si el
+// debug cuelgue del default de addItem, probar el inventario da un arma con
+// municion que en el juego nunca se ve.
 export function updateItemManager() {
     if (keyJustPressed(KEYS.DEBUG_ITEM)) {  // Detecta tecla L
-        var ok9 = addItem("9mm", 1);  // Agrega arma de prueba
+        var ok9 = addItem("9mm", 1, entregaOpts("9mm"));  // Arma de prueba, DESNUDA
         var okScrap = addItem("scrap_metal", 5);  // Agrega material de prueba
-        var okMag = addItem("mag_9mm", 1);  // Agrega cargador de prueba
+        var okMag = addItem("mag_9mm", 1, entregaOpts("mag_9mm"));  // Cargador nuevo, lleno
         if (ok9 || okScrap || okMag) {
             showTextBox(t("DBG_ITM"));  // Muestra mensaje de exito
         } else {

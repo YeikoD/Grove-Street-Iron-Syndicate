@@ -49,10 +49,23 @@ export var CHARACTERS = [
         actorId: "weapon_dealer",  // Referencia al actor visual
         lines: {},  // Topics TBD (checkout dealer)
         dealer: {  // Configuracion del dealer
-            items: ["9mm", "desert_eagle", "micro_uzi"],  // Catalogo que vende
-            prices: { "9mm": 100, "desert_eagle": 300, "micro_uzi": 200 }  // Precios fijos
+            // Sin `items`: el dealer vende TODO el catalogo de WEAPON_DATA. Y sin
+            // `prices`: el precio sale de WEAPON_DATA.price × markup.
+            //
+            // Antes eran 3 armas con precio FIJO (9mm 100, desert_eagle 300,
+            // micro_uzi 200), y `prices` gana sobre la base en getDealerPrice: el
+            // precio base no participaba en NINGUNA compra. Con eso, calibrar
+            // price no habria movido un peso de lo que el jugador paga. Ver la
+            // nota de calibracion al pie de WEAPON_DATA.
+            //
+            // Los que quedan fuera sin tocar `items`: los que price 0
+            // (pistol_assembled, duplicado del 9mm), porque getDealerPrice
+            // devuelve 0 antes de mirar la config.
+            //
+            // `items` sigue disponible si algun dia hay que acotar el catalogo a
+            // un subconjunto: con el puesto, es solo la lista de itemId.
+            markup: 1.2
         }
-        // markup: number  // 1.15 = +15% (si no hay items/prices)
     }
 ];
 

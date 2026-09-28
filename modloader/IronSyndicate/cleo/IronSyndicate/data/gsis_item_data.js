@@ -2,6 +2,8 @@
 // Copyright (C) 2026  YeikoD
 // License: GNU GPL v3 or later (full text in LICENSE).
 
+import { getWeaponByItemId } from "./gsis_weapon_data.js";
+
 // GSIS Item Data - Catalogo de items (pesos en kg/unidad)
 // Fuente: docs/gsis_INVENTORY.md
 //
@@ -101,6 +103,30 @@ export function getItemWeight(id) {
 export function getItemType(id) {
     var def = ITEMS[id];
     return def ? def.type : "material";  // Retorna tipo del item o default
+}
+
+// isInstanced — true si el item NO se apila: cada unidad es una fila con su
+// propio estado. Un cargador (type magazine) siempre, y un arma solo si tiene
+// weaponId, o sea una de las de catalogo equipables.
+//
+// Vive en la capa de datos, no en gsis_Items.js, porque NO es una regla de
+// guardado: es una pregunta del catalogo —"¿esta entrada se cuenta de a uno?"—
+// y la responden tanto el modulo (que guarda una fila por unidad) como la fila
+// de la tabla (que tiene que decir "instanciado" y no "1 unidad" para un arma,
+// y al reves para una sola chatarra). gsis_Items.js la re-exporta para los que
+// ya la importaban de ahi; los dos caminos son el mismo codigo.
+//
+// El que la consulta tiene que ser el mismo en todas partes porque de eso
+// depende que las cosas se multipliquen o no: el baul la usa para saber si "3"
+// son tres filas o tres unidades de un apilado, y el modulo para saber si una
+// fila con qty > 1 hay que partirla.
+export function isInstanced(id) {
+    var def = ITEMS[id];
+    if (!def) return false;  // id fuera de catalogo: no hay nada que contar
+    if (def.type === "magazine") return true;
+    if (def.type !== "weapon") return false;  // material: se apila
+    var wd = getWeaponByItemId(id);
+    return !!(wd && wd.weaponId !== null && wd.weaponId !== undefined);
 }
 
 // No hay getMagazineDisplayName. Antes el nombre del cargador llevaba el estado

@@ -7,6 +7,72 @@
 //          gta.fandom.com/es (nombres HUD ES), gtabase (realWorldName)
 // isLong: arma larga (escopeta completa, fusil, pesada) → habilita Bag si hay >=1 en inventario
 // magId: cargador (ITEMS type magazine) que consume esa arma al recargar
+//
+// ============================================================================
+// price — COMO ESTA CALIBRADO (leer antes de tocar un numero)
+// ============================================================================
+// El precio es de dos cosas a la vez, y conviene no confundirlas:
+//
+//   1. Base de catálogo: la que paga el jugador en el dealer (getDealerPrice =
+//      price × markup del personaje) cuando el dealer no tiene precio fijo.
+//   2. Base de revalorización: el "Valor" de la fila del inventario y el punto
+//      de partida del trueque (getSellPrice = price × 0.6, redondeado a 10).
+//
+// NO es la "Venta" de la calle del doc de economía (gsis_ECONOMY.md §2), que es
+// otro canal: ahí se venden productos de crafteo por muy arriba del costo de sus
+// materiales (5x a 29x sobre materiales de $50-$200). Ese canal no lee estos
+// numeros, asi que este precio se puede mover sin tocar los margenes del crafteo.
+//
+// Que la cifra se parezca al mundo real significa el ORDEN y la MAGNITUD
+// RELATIVA, no el dolar 1:1. Tomar los dolares reales al pie de la letra daria
+// una 9mm silenciada a $1.900 y un chaleco a $450, o sea el chaleco mas barato
+// del juego y la pistola mas cara que un AK-47: el precio de un arma con
+// silenciador incluye el impuesto NFA y el papeleo, y en un mundo sin eso el
+// orden se da vuelta. Asi que la tabla real se usa como PESO y se la lleva a la
+// banda que la economia ya soporta (~$450 el arma mas barata, $15.000 la mas
+// cara), con la 9mm a $550 como ancla.
+//
+// Referencia real (USD, EE.UU.) → price:
+//
+//   id                 real                         price   nota
+//   9mm                500 - 650                    550      ancla
+//   silenced_9mm       1.600 - 2.200                1.800    +NFA tax y papeleo
+//   desert_eagle       1.800 - 2.200                1.950
+//   tec9                 500 - 800                    600    descontinuada, mas cara por antiguedad
+//   micro_uzi         1.500 - 2.500                  1.900    version civil semiautomatica
+//   mp5                 700 - 1.000                    800    sin dato del usuario: Propuesto
+//   shotgun             400 - 550                    450    Remington 870: el arma mas barata
+//   sawed_off           300 - 500 + 200 tax            500    sin dato: Propuesto
+//   combat_shotgun    2.500 - 4.000                  3.100    SPAS-12, rara y descontinuada
+//   country_rifle       700 - 1.100                    850    Marlin 336
+//   ak47                800 - 1.200                    950    AKM/WASR-10 semiautomatico
+//   m4_assembled        800 - 1.500                  1.100    AR-15 civil
+//   sniper_rifle     1.800 - 3.500                  2.500    Rem 700 / M24 segun el visor
+//   body_armor          300 - 600                    1.200    DESVIACION, ver abajo
+//   rpg                 sin dato                    6.500    Propuesto
+//   flamethrower        sin dato                    7.500    Propuesto
+//   heat_seeker         sin dato                   11.000    Propuesto
+//   minigun             sin dato                   15.000    Propuesto
+//   pistol_assembled     —                               0    duplicado del 9mm, no vende
+//
+// DESVIACION CONOCIDA — body_armor a 1.200 y no 450. El soft armor IIIA de
+// verdad sale 300-600, asi que por relacion puro tocaria ~450 y el chaleco
+// seria el item mas barato del juego. El item no es soft armor: pesa 2 kg y su
+// receta lleva armor_plate, o sea portaplacas, y un portaplacas con placas
+// esta en 800-1.600. Se sigue la referencia del objeto, no la de la categoria.
+//
+// LOS CUATRO PESADOS (rpg, flamethrower, heat_seeker, minigun) no tienen
+// mercado civil, asi que su precio real no existe como ancla. Se ordenan por
+// costo militar: el RPG-7 es el mas barato de los cuatro (lanzador ~$1.200 y
+// un cohete PG-7 ~$1.000, o sea ~$2.200 el sistema) y el M134 el mas caro
+// ($150.000-$200.000 con alimentacion). Quedan arriba de todo lo civilian, que
+// es lo que quiere el juego: son el final del juego.
+//
+// pistol_assembled queda en 0 a proposito: es el mismo weaponId que 9mm, y si
+// tuviera precio el jugador podria comprar y revender la misma pistola dos
+// veces. getDealerPrice devuelve 0 para price 0, asi que no aparece en el
+// catalogo; y getSellPrice tambien, asi que el trueque la ignora.
+// ============================================================================
 
 export const WEAPON_DATA = [
     // Pistolas
@@ -28,7 +94,7 @@ export const WEAPON_DATA = [
         realWorldName: "Colt M1911A1",
         weight: 1.5,
         isLong: false,
-        price: 400
+        price: 550
     },
     {
         itemId: "pistol_assembled",
@@ -68,7 +134,7 @@ export const WEAPON_DATA = [
         realWorldName: "Colt M1911A1 con silenciador",
         weight: 1.5,
         isLong: false,
-        price: 600
+        price: 1800
     },
     {
         itemId: "desert_eagle",
@@ -88,7 +154,7 @@ export const WEAPON_DATA = [
         realWorldName: "IMI Desert Eagle",
         weight: 1.8,
         isLong: false,
-        price: 900
+        price: 1950
     },
 
     // Escopetas
@@ -110,7 +176,7 @@ export const WEAPON_DATA = [
         realWorldName: "Ithaca 37",
         weight: 3.0,
         isLong: true,
-        price: 1000
+        price: 450
     },
     {
         itemId: "sawed_off",
@@ -130,7 +196,7 @@ export const WEAPON_DATA = [
         realWorldName: "Colt Model 1883 Hammerless Shotgun",
         weight: 1.0,
         isLong: false,
-        price: 800
+        price: 500
     },
     {
         itemId: "combat_shotgun",
@@ -150,7 +216,7 @@ export const WEAPON_DATA = [
         realWorldName: "Franchi SPAS-12",
         weight: 3.5,
         isLong: true,
-        price: 1500
+        price: 3100
     },
 
     // Subfusiles
@@ -172,7 +238,7 @@ export const WEAPON_DATA = [
         realWorldName: "Micro Uzi",
         weight: 1.5,
         isLong: false,
-        price: 700
+        price: 1900
     },
     {
         itemId: "mp5",
@@ -192,7 +258,7 @@ export const WEAPON_DATA = [
         realWorldName: "MP5A3",
         weight: 2.5,
         isLong: false,
-        price: 1200
+        price: 800
     },
     {
         itemId: "tec9",
@@ -234,7 +300,7 @@ export const WEAPON_DATA = [
         realWorldName: "Norinco Type 56",
         weight: 3.5,
         isLong: true,
-        price: 2500
+        price: 950
     },
     {
         itemId: "m4_assembled",
@@ -254,7 +320,7 @@ export const WEAPON_DATA = [
         realWorldName: "Colt Model 733",
         weight: 3.5,
         isLong: true,
-        price: 3000
+        price: 1100
     },
 
     // Rifles
@@ -276,7 +342,7 @@ export const WEAPON_DATA = [
         realWorldName: "Marlin Model 336",
         weight: 2.5,
         isLong: true,
-        price: 2000
+        price: 850
     },
     {
         itemId: "sniper_rifle",
@@ -296,7 +362,7 @@ export const WEAPON_DATA = [
         realWorldName: "Remington Model 700",
         weight: 4.0,
         isLong: true,
-        price: 4500
+        price: 2500
     },
 
     // Artilleria pesada
@@ -318,7 +384,7 @@ export const WEAPON_DATA = [
         realWorldName: "RPG-7",
         weight: 7.0,
         isLong: true,
-        price: 8000
+        price: 6500
     },
     {
         itemId: "heat_seeker",
@@ -338,7 +404,7 @@ export const WEAPON_DATA = [
         realWorldName: "SA-7 Grail",
         weight: 6.0,
         isLong: true,
-        price: 10000
+        price: 11000
     },
     {
         itemId: "flamethrower",
@@ -358,7 +424,7 @@ export const WEAPON_DATA = [
         realWorldName: "Lanzallamas M2",
         weight: 5.0,
         isLong: true,
-        price: 6000
+        price: 7500
     },
     {
         itemId: "minigun",
@@ -400,7 +466,7 @@ export const WEAPON_DATA = [
         realWorldName: "Chaleco balistico",
         weight: 2.0,
         isLong: false,
-        price: 2000
+        price: 1200
     }
 ];
 
@@ -416,6 +482,17 @@ export function getMagIdByWeaponId(weaponId) {
     if (weaponId === null || weaponId === undefined) return null;
     var weapon = WEAPON_DATA.find(function(w) { return w.weaponId === weaponId; });
     return (weapon && weapon.magId) || null;
+}
+
+// Helper: modelo 3D del arma por weaponId del juego (22 → 346).
+// Lo usa Ballistic antes de GIVE_WEAPON_TO_CHAR: 01B2 pide el modelo con
+// REQUEST_MODEL o el arma puede no verse en la mano del ped (y segun el doc de
+// la opcodes, crashear). null si el weaponId no es del catalogo.
+export function getModelIdByWeaponId(weaponId) {
+    if (weaponId === null || weaponId === undefined) return null;
+    var weapon = WEAPON_DATA.find(function(w) { return w.weaponId === weaponId; });
+    if (!weapon || weapon.modelId === null || weapon.modelId === undefined) return null;
+    return weapon.modelId;
 }
 
 // Helper: capacidad de cargador (clipSize vanilla Std) por itemId de item o mag_*

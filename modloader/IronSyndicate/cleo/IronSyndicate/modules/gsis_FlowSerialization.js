@@ -63,7 +63,7 @@ import { WEAPON_DATA, getSellPrice } from "../data/gsis_weapon_data.js";
 import { getVehicleName } from "../data/gsis_vehicle_data.js";
 import { itemRow } from "./gsis_ItemRow.js";
 import {
-    getItems, getTotalWeight,
+    getItems, getTotalWeight, entregaOpts,
     getTrunkItems, getTrunkWeight, getTrunkMaxCapacity
 } from "./gsis_Items.js";import {
     isTrunkMenuVisible, closeTrunkMenu, openTrunkMenu, getTrunkVehicleId
@@ -248,7 +248,13 @@ function _snapDealer() {
         if (!w.itemId) continue;
         var p = getDealerPrice(w.itemId, charId);
         if (!p) continue; // este NPC no lo vende
-        var fila = itemRow({ id: w.itemId, qty: 1 });
+        // La fila del catalogo. Sin estado de municion, como toda cosa que todavia no
+// es del jugador. _filaDeItem le pasa lo que dicta entregaOpts, que para un arma
+// es hasMag:false — y asi la celda de municion sale con guion en vez de "17/17":
+// lo que se vende llega sin cargador, asi que un "17/17" en el catalogo seria
+// prometer municion que no viene. body_armor no es instanciado, asi que no le
+// llega hasMag y su tooltip no dice "sin cargador".
+var fila = itemRow(_filaDeItem(w.itemId, 1));
         fila.cat = w.category || w.itemId;
         fila.precio = p;
         fila.enCarrito = cart[w.itemId] || 0;
@@ -282,7 +288,10 @@ function _snapDealer() {
 
     return {
         titulo: t("DLR_TTL"),
-        subtitulo: _subtitulo(_dealerName(charId)),
+        // Sin _subtitulo(): la armeria lleva el encabezado en UNA sola linea
+        // (.panel-header--linea) y ahi "Emmet | ESPACIO o ESC..." queda pegado
+        // al titulo y no se lee. Solo el nombre del vendedor.
+        subtitulo: _dealerName(charId),
         panes: [
             { key: "catalogo", titulo: t("DLR_CAT"), vacio: t("DLR_NON"), weight: 0, max: 0, rows: rows },
             { key: "carrito", titulo: t("DLR_CRT"), vacio: t("CRT_NON"), weight: 0, max: 0, rows: cartRows }
@@ -348,11 +357,42 @@ function _snapSeller() {
     };
 }
 
+// La base de una fila que todavia no es del jugador: el id, la cantidad, y el
+// estado que va a traer. entregaOpts decide ese estado una sola vez en todo el
+// mod y esta es su segunda mitad —la primera es la entrega, en
+// collectItem/collectAll de gsis_DealerPickup.js.
+//
+// La usan el CATALOGO de la armeria y el RETIRO, y por eso son dos pantallas con
+// la misma regla: la fila de una compra real y la del producto que se esta
+// mirando tienen que decir lo mismo, o el panel y la entrega divergen y el
+// jugador cobra por una promesa.
+//
+// Solo se copian ammo y hasMag. El resto de la forma de la instancia lo pone
+// makeInstance del lado del mod, y la salud en particular no se copia: una fila
+// pendiente no es una unidad, es un producto o un pedido, y su salud es
+// SALUD_MAX por definicion.
+function _filaDeItem(id, qty) {
+    var o = { id: id, qty: qty };
+    var e = entregaOpts(id);
+    if (e) {
+        if (e.hasMag !== undefined) o.hasMag = e.hasMag;
+        if (e.ammo !== undefined) o.ammo = e.ammo;
+    }
+    return o;
+}
+
 // ------------------------------------------------------------------ RETIRO --
 //
 // Las filas son lineas de pedido, no inventario: el item todavia no esta en la
 // mochila. El qty que se ve es el que quedo del pedido, y por eso la fila se arma
 // con esa cantidad y no con la que tendria en la mochila.
+//
+// La fila se arma con entregaOpts —la MISMA regla que usa collectItem al
+// entregar— para que el panel y la entrega digan lo mismo. Sin eso, un AK-47
+// pendiente se veria "30/30" (ammoCell cae al default de un arma) y llegaria a
+// 0/30: el panel promete 30 balas y entrega 0. Se pasan solo ammo/hasMag;
+// `salud` no, porque lo decide addItem en la entrega y una fila pendiente no
+// tiene salud todavia.
 function _snapPickup() {
     var order = getOrder();
     if (!order) return null;
@@ -361,7 +401,7 @@ function _snapPickup() {
     var peso = 0;
     for (var i = 0; i < order.items.length; i++) {
         var linea = order.items[i];
-        var fila = itemRow({ id: linea.id, qty: linea.qty });
+        var fila = itemRow(_filaDeItem(linea.id, linea.qty));
         fila.disponible = linea.qty;
         peso += getItemWeight(linea.id) * linea.qty;
         rows.push(fila);

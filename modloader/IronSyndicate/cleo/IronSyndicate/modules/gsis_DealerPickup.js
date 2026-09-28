@@ -24,7 +24,7 @@ import { t } from "../core/gsis_L10n.js";
 import { setNotice } from "../core/gsis_Notice.js";
 import { getItemName, getItemWeight } from "../data/gsis_item_data.js";
 import { getSpots } from "../data/gsis_spot_data.js";
-import { addItem, getTotalWeight } from "./gsis_Items.js";
+import { addItem, getTotalWeight, entregaOpts } from "./gsis_Items.js";
 import {
     createSpotGate, updateSpotSpheres, closeSpotFlow, spotCanOpen,
     spotHas, beginSpotCooldown
@@ -168,8 +168,13 @@ export function collectItem(itemId, qty) {
     // Primero entra el item, recien despues sale del pedido. Al reves, un fallo
     // de addItem deja la linea cobrada y el arma perdida, que es el peor de los
     // dos mundos.
+    //
+    // entregaOpts: el arma comprada llega SIN cargador (hasMag:false, 0 balas).
+    // No es una cortesia del dealer, es la regla del mod —misma funcion que usa
+    // el preview del pedido, para que el panel y la entrega digan lo mismo.
+    var opts = entregaOpts(itemId);
     for (var u = 0; u < qty; u++) {
-        if (!addItem(itemId, 1)) {
+        if (!addItem(itemId, 1, opts)) {
             setNotice(t("PKC_ERR", { name: getItemName(itemId) }));
             return false;
         }
@@ -205,11 +210,13 @@ export function collectAll() {
     // Linea por linea, con su propio removeFromOrder: el pedido se va vaciando
     // en el mismo orden en que se leyo, y un addItem que falle a la mitad deja el
     // pedido en el estado real de lo que si entro, no en uno inventado.
+    // entregaOpts por linea, igual que collectItem: cada id decide su estado.
     for (var j = 0; j < order.items.length; j++) {
         var id = order.items[j].id;
         var qty = order.items[j].qty;
+        var optsLinea = entregaOpts(id);
         for (var u = 0; u < qty; u++) {
-            if (!addItem(id, 1)) {
+            if (!addItem(id, 1, optsLinea)) {
                 setNotice(t("PKC_ERR", { name: getItemName(id) }));
                 return false;
             }

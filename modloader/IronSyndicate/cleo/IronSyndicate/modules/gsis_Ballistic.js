@@ -17,8 +17,10 @@
 // asi que hoy es de ida y vuelta sin cambios; el campo queda porque el registro
 // es lo que sobrevive a guardar/cargar.
 //   - equipWeapon(itemId): items:takeWeapon (sale del inventario) →
-//     GIVE_WEAPON_TO_CHAR con el estado de la instancia (hasMag/ammo) + clip en
-//     memoria. Si el slot ya tiene otra arma → se desequipa sola (auto-swap).
+//     _giveWeapon (REQUEST_MODEL + LOAD_ALL_MODELS_NOW + GIVE_WEAPON_TO_CHAR,
+//     el orden que pide el doc de 01B2) con el estado de la instancia
+//     (hasMag/ammo) + clip en memoria. Si el slot ya tiene otra arma → se
+//     desequipa sola (auto-swap).
 //   - unequipWeapon(slot): REMOVE_WEAPON_FROM_CHAR con la municion viva del
 //     ped → items:storeWeapon (vuelve al inventario con su estado).
 //   - _reconcileLoadout() cada frame: arma de catalogo en el ped SIN registro
@@ -55,7 +57,8 @@
 // SET_CHAR_AMMO (017B), GET_PED_POINTER (0A96), IS_CHAR_DEAD (0118),
 // IS_PLAYER_CONTROL_ON (09E7), GET_WEAPONINFO_FLAGS (0E86),
 // GIVE_WEAPON_TO_CHAR (01B2), REMOVE_WEAPON_FROM_CHAR (0555),
-// HAS_CHAR_GOT_WEAPON (0491), SET_CURRENT_CHAR_WEAPON (01B9).
+// HAS_CHAR_GOT_WEAPON (0491), SET_CURRENT_CHAR_WEAPON (01B9),
+// REQUEST_MODEL (00A7), LOAD_ALL_MODELS_NOW (0952).
 // Memory.WriteU16 → CWeaponInfo+0x20 (m_nAmmoClip).
 // ============================================================================
 
@@ -65,7 +68,7 @@ import { registerModule, getModuleData, setModuleData } from "../core/gsis_SaveM
 import { KEYS, TIMERS } from "../core/gsis_Config.js";
 import { keyJustPressed } from "../core/gsis_Input.js";
 import { t } from "../core/gsis_L10n.js";
-import { WEAPON_DATA, getMagIdByWeaponId, getClipSizeByItemId } from "../data/gsis_weapon_data.js";
+import { WEAPON_DATA, getMagIdByWeaponId, getClipSizeByItemId, getModelIdByWeaponId } from "../data/gsis_weapon_data.js";
 import { SALUD_MAX, clampSalud } from "../data/gsis_item_data.js";
 
 var _CLIP_OFF = 0x20; // m_nAmmoClip en CWeaponInfo (uint16)
@@ -199,14 +202,44 @@ function _weaponAddrByType(ped, weaponType) {
     return 0;
 }
 
-// _giveWeapon — arma al ped con su cargador: GIVE_WEAPON_TO_CHAR + total vía
-// SET_CHAR_AMMO + clip/state en memoria (listo para disparar sin recargar).
+// _ensureWeaponModel — carga el modelo 3D de un arma antes de darla.
+//
+// REQUEST_MODEL + LOAD_ALL_MODELS_NOW, que es el orden del doc de 01B2
+// (GIVE_WEAPON_TO_CHAR). Sin esto el arma se puede dar "invisible" — el ped la
+// tiene en la mano y no se ve — y segun el doc hasta puede crashear. Los
+// modelos de arma son vanilla y estan cargados siempre, asi que esto no arregla
+// un caso que se vea hoy: es la garantia de que el give no depende de que otro
+// los haya pedido.
+//
+// NO se hace mark_model_as_no_longer_needed despues del give, aunque el doc lo
+// haga: el ped ya tiene el arma en la mano y liberarle el modelo es
+// justamente el modo de fallo que esto previene. Devuelve false si el modelo no
+// se pudo pedir; el give sigue igual (un modelo no cargado no es razon para
+// negarle el arma al jugador), pero quien llame puede saberlo.
+function _ensureWeaponModel(weaponId) {
+    try {
+        var modelId = getModelIdByWeaponId(weaponId);
+        if (!modelId) return false;  // fuera de catalogo: no hay modelo que pedir
+        native("REQUEST_MODEL", modelId);
+        native("LOAD_ALL_MODELS_NOW");
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
+// _giveWeapon — arma al ped con su cargador: modelo + GIVE_WEAPON_TO_CHAR +
+// total vía SET_CHAR_AMMO + clip/state en memoria (listo para disparar sin
+// recargar).
 function _giveWeapon(c, weaponId, ammo, hasMag) {
     var total = hasMag ? Math.max(0, ammo | 0) : 0;
+    _ensureWeaponModel(weaponId);
     try {
         native("GIVE_WEAPON_TO_CHAR", c, weaponId, total);
         if (!native("HAS_CHAR_GOT_WEAPON", c, weaponId)) {
-            // fallback: give con munición y dejar el total en 0
+            // El give no fue del todo, pero el modelo ya esta cargado. Se reintenta
+            // con municion y el total se deja en 0 despues: hay que conseguir que
+            // HAS_CHAR_GOT_WEAPON de true, o el arma no existe para el mod.
             native("GIVE_WEAPON_TO_CHAR", c, weaponId, _capacityByType(weaponId) || 1);
             if (!native("HAS_CHAR_GOT_WEAPON", c, weaponId)) {
                 native("REMOVE_WEAPON_FROM_CHAR", c, weaponId); // no dejar nada a medias

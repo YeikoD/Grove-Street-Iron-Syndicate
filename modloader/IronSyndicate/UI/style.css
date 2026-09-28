@@ -45,10 +45,11 @@
    contrato: el markup exacto, quien lo arma en app.js y que hay que tocar para
    que otra pantalla la adopte.
 
-     componentes    .table  .btn  .panel  .meter  .keyhint  .ctxmenu
-     flujo          .panel-header--linea  .panel--centro  .flow__panes
-                    .aviso  .pane__peso  .accionbar__dir  .accionbar__todo
-   --------------------------------------------------------------------------- */
+      componentes    .table  .btn  .panel  .meter  .keyhint  .ctxmenu
+      flujo          .panel-header--linea  .panel--centro  .flow__panes
+                     .aviso  .pane__peso  .panel--titcab  .flow__panes--apilado
+      base           scrollbar (global, no vive en una clase)
+    --------------------------------------------------------------------------- */
 
 :root {
   /* ------------------------------------------------------ CAPA 1: PRIMITIVAS -- */
@@ -373,14 +374,14 @@ body {
    El reparto no es uniforme a proposito y sigue la misma regla que --6: el
    ancho lo mide lo mas ancho de ENCABEZADO o DATO de cada columna. Salud se
    queda en 2.9vw porque su dato mas largo es "100%" (y su encabezado "Salud"
-   manda); municion/peso/valor/precio bajaron a 2.9 / 1.9 / 3.7 / 3.7: sus
+   manda); municion/peso/valor/precio bajaron a 2.7 / 1.6 / 3.5 / 3.5: sus
    datos mas largos son "Munición", "3.5", "$1.500" y la palabra "PRECIO", y
    traian holgura de sobra. La que la necesita es el NOMBRE: la armeria va en
    el panel CENTRO de dos columnas —cada lista vive en media panel—, y en esa
    lista el nombre lleva el chip "(2 en carrito)" al lado (buildTableRow en
-   app.js); con la antigua holgura el chip comprimia el nombre a "9..." a
-   1452x926. Medir con measure.mjs en los dos aspectos; si vuelve a cortarse,
-   se le suma QUITANDO de municion/peso antes que de las de dinero.
+   app.js); con la holgura vieja el chip comprimia el nombre a "9..." y "AK..."
+   a 1452x926. Medir con measure.mjs en los dos aspectos; si vuelve a
+   cortarse, se le suma QUITANDO de municion/peso antes que de las de dinero.
 
    Las de dinero (valor/base 3.9, precio/oferta 3.9) son las que mas traen:
    la cifra es "$1.500" —6 caracteres con el punto de miles— y el encabezado
@@ -390,7 +391,7 @@ body {
    no hay aviso — solo la palabra partida. Medir con measure.mjs; si vuelve a
    cortarse a algun aspecto, se agranda ESTE track y no el nombre. */
 .table--7 {
-  --table-cols: var(--table-icon-w) 1fr 2.9vw 2.9vw 1.9vw 3.7vw 3.7vw;
+  --table-cols: var(--table-icon-w) 1fr 2.7vw 2.9vw 1.6vw 3.5vw 3.5vw;
 }
 
 .table__head,
@@ -998,23 +999,24 @@ body {
 
 /* =========================================== RECETA: .panel-header--linea --
    El subtitulo en la MISMA linea que el titulo, pegado al borde derecho del
-   encabezado. Lo usan las dos pantallas cuya segunda linea es UNA palabra o dos
+   encabezado. Lo usan las pantallas cuya segunda linea es UNA palabra o dos
    letras —un dato que identifica, no una frase—:
 
      maletero   el auto ("Infernus"): el encabezado queda con sus dos extremos,
                 menu a la izquierda y auto a la derecha.
      inventario "CJ": de que menu es y de quien es, en la misma linea.
+     armeria    "Emmet" contra "Contrabandista": el vendedor, en la misma linea.
 
    En la misma linea y no debajo porque ahi la linea es corta: debajo quedaria
    pegada al titulo y se leeria como una segunda linea de el ("Maletero
    Vehiculo / Infernus", "Inventario / CJ"); al otro extremo de la misma linea se
    lee como lo que es.
 
-   Los otros tres menus de proximidad NO lo siguen: sus lineas son largas (el
-   vendedor, lo que busca el cliente, el pedido con sus importes) y en una linea
-   propia con el borde derecho lleno se leen cortadas y sin relacion con el
-   titulo. Para una de esas, el subtitulo es una frase y lo que quiere es un
-   bloque abajo del titulo, que es lo que hace la receta de arriba.
+   Los otros DOS menus de proximidad NO lo siguen: sus subtitulos son frases
+   largas ("Busca hoy: Rifles, Escopetas", "Pedido: $960 | Peso: 4.1 kg") y en
+   una linea propia con el borde derecho lleno se leen cortadas y sin relacion
+   con el titulo. Para una de esas, el subtitulo es una frase y lo que quiere es
+   un bloque abajo del titulo, que es lo que hace la receta de arriba.
 
    El tamano NO lo toca: --subtitle-fs es global, el mismo en las cinco pantallas
    (ver la receta de arriba); lo unico que este modificador cambia es la POSICION
@@ -1032,8 +1034,9 @@ body {
                </div>
 
      quien     crearPanel() en app.js agrega la clase cuando el panel tiene
-               .panel--centro; el render no la toca, solo escribe el texto de
-               las dos lineas (renderFlujo).
+               .panel--centro (flag centro) o el flag linea de PANTALLAS (la
+               armeria); el render no la toca, solo escribe el texto de las dos
+               lineas (renderFlujo).
 
      adoptar   dos lineas: la clase en el .panel-header y nada mas. Los valores
                (--subtitle-fs y demas) viven en la receta .panel__subtitle de
@@ -1056,16 +1059,15 @@ body {
   white-space: nowrap;
 }
 
-/* El pie de un panel de flujo. Cuatro cosas en una linea: el dato de la izquierda,
-   el de la derecha, los botones del menu y los keycaps. Los keycaps se van al
-   borde con margin-left:auto, que es lo que hace el pie del inventario. */
+/* El pie de un panel de flujo. Tres cosas en una linea: el dato de la izquierda,
+   el de la derecha y los botones del menu. Los botones se van al borde con
+   margin-left:auto, que es lo que hace el pie del inventario. */
 .panel-foot {
   display: flex;
   align-items: center;
-  /* wrap y no nowrap: en un panel angosto (27vw) el pie de la armeria es texto
-     del carrito + dos botones + cuatro guias de tecla, y en una sola linea las
-     guias se salian por el borde derecho y quedaban pintadas sobre la escena.
-     Con wrap las guias se van a su propia linea (ver .keyhints abajo). */
+  /* wrap y no nowrap: en un panel angosto (~30vw) el pie de la armeria es texto
+     del carrito + dos botones, y en una sola linea los botones se salian por el
+     borde derecho. Con wrap van a su propia linea. */
   flex-wrap: wrap;
   gap: var(--spw-3);
   padding-top: var(--sp-2);
@@ -1073,12 +1075,10 @@ body {
   border-top: 1px solid var(--divider);
 }
 
-/* En los menus de flujo el pie NO lleva margin-top:auto mas: el que absorbe el
-   sobrante del panel es la barra de accion (ver .panel--flujo .accionbar), y el
-   pie va pegado justo debajo. Antes el auto vivia aca y la barra quedaba arriba
-   pegada a las listas: con tres filas el 60% del panel era un vacio entre la
-   barra y el pie, que se leia como pantalla sin usar. El margen base de arriba
-   (.panel-foot) es el que separa el pie de la barra. */
+/* En los menus de flujo el pie es el que se va abajo del panel: con la barra de
+   accion ya no existiendo, el margin-top:auto vive en la regla de la receta
+   .aviso de mas abajo (visible: se lo lleva el aviso; oculto: el pie), y el
+   margen de aca es el que separa el pie de las listas o del aviso. */
 
 .panel-foot__txt {
   font-size: var(--fs-2xs);
@@ -1089,6 +1089,14 @@ body {
 .panel-foot__txt + .panel-foot__txt {
   color: var(--text-body);
   font-weight: 700;
+}
+
+/* Saldo insuficiente para el carrito: renderPie() pone esta clase en el total
+   cuando cfg.pieCarrito y el saldo no alcanza. La especificidad es doble clase
+   y va despues de la regla hermana de arriba, que si no le gana por orden y el
+   total quedaria en negro. Mismo rojo de los avisos malos (--state-bad). */
+.panel-foot__txt.panel-foot__txt--mal {
+  color: var(--text-danger);
 }
 
 /* Flash del total del carrito: correrAccion() pega la clase en el pie derecho
@@ -1121,44 +1129,6 @@ body {
   --btn-fs: var(--fs-2xs);
 }
 
-/* Los keycaps del pie. El inventario los tiene por id (#keyhints) porque es un
-   solo pie con dos teclas; aca hay cuatro, y el bloque se arma con la clase. */
-.panel-foot .keyhints {
-  display: flex;
-  gap: var(--spw-2);
-}
-
-/* Las guias de tecla de los menus de flujo ocupan una linea entera del pie.
-   basis 100% las saca de la primera linea (donde estan el texto y los botones)
-   y ahi miden todo el ancho util: cuatro guias no entran en 27vw y, sin esto,
-   el flex las apretaba hasta el minimo - el ancho de la mas larga - y el resto
-   seguia pintado FUERA del panel. En una segunda linea el wrap las parte en dos
-   adentro del panel. El baul no pierde nada con esto: su pie no tiene ni texto
-   ni botones, asi que las guias ya estaban solas.
-
-   flex-end las deja pegadas a la derecha, que es donde estaban antes de la
-   segunda linea. */
-.panel--flujo .keyhints {
-  flex-basis: 100%;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-
-.keyhint {
-  font-size: var(--fs-2xs);
-  color: var(--text-muted);
-  white-space: nowrap;
-}
-
-/* La tecla y el verbo del pie de los menus de flujo. La tecla va en acento y en
-   bold: es la parte que se aprieta, y hasta ahora no se dibujaba - el pie decia
-   "Cambiar de lista" sin decir con que. El verbo sigue en muted, que es el color
-   que ya tenia todo el pie. */
-.panel-foot .keyhint__k {
-  color: var(--text-accent);
-  font-weight: 700;
-}
-
 /* --------------------------------------------------- PANELES DE FLUJO --
    Baul, armeria, retiro y trueque. Cuatro ventanas con el mismo esqueleto y la
    misma tabla, cada una con su funcion. No son pestanas del panel: el modulo las
@@ -1166,8 +1136,8 @@ body {
 
    El ancho y el alto salen de los mismos tokens que el panel principal, asi que
    un panel de flujo tiene EXACTAMENTE el mismo tamaño. Lo unico que se pisa es el
-   padding: el baul lleva dos tablas y la barra de accion, y con el padding de
-   casa se queda sin lugar. */
+   padding: el baul lleva dos tablas con su canal, y con el padding de casa se
+   queda sin lugar. */
 .panel--flujo {
   display: flex;
   flex-direction: column;
@@ -1177,8 +1147,8 @@ body {
   --panel-pt: var(--sp-5);
   /* Alto tope de cada lista. Con menos filas la caja mide lo que hay (ver
      .flow__panes, que no estira), y con mas llega aca y scrollea: es lo que
-     deja que las listas y la barra queden juntas arriba sin perder el scroll
-     cuando el baul esta lleno. */
+     deja que las listas queden juntas arriba sin perder el scroll cuando el
+     baul esta lleno. */
   --flow-list-max: 52vh;
   animation: fadeIn var(--dur-slow) ease-out;
 }
@@ -1198,13 +1168,16 @@ body {
                lo ancho esa comparacion es lo que hay que volver declarativo:
                la regla de abajo se reutiliza tal cual, no se copia.
 
-     va con    .panel-header--linea (encabezado en una linea) y
-               .flow__panes--2 (dos columnas con el canal en el medio). Las tres
-               son la misma decision: pantalla de DOS listas.
+      va con    .panel-header--linea (encabezado en una linea) y
+                .flow__panes--2 (dos columnas con el canal en el medio). Las dos
+                son la misma decision: dos listas A LO ANCHO. La armeria es de a
+                dos listas pero elige la otra forma -apiladas en un panel
+                angosto al borde izquierdo, ver .flow__panes--apilado- porque
+                con columnas los nombres no entraban.
 
-     adoptar   el tamano es esta regla; las listas, el canal, la barra, el chip
-               de destino y el peso los dibujan los otros solos en cuanto el
-               snapshot trae mas de un pane (ver .flow__panes y .aviso). */
+      adoptar   el tamano es esta regla; las listas, el canal y el peso los
+                dibujan los otros solos en cuanto el snapshot trae mas de un
+                pane (ver .flow__panes y .aviso). */
 .panel--flujo.panel--centro {
   --panel-x: 50%;
   --panel-w: 60vw;
@@ -1219,12 +1192,13 @@ body {
    de distinto tamano.
 
    flex: 0 1 auto y NO 1 1 auto: las listas miden lo que traen. Antes estiraban
-   hasta el pie y el vacio del panel se abria ENTRE la ultima fila y la barra de
-   accion - que es justo donde estan los controles con los que se mueven los
-   items- con lo que el jugador tenia que buscar abajo lo que acababa de elegir
-   arriba. Con las listas a tamano de contenido, la barra queda pegada a ellas y
-   el sobrante va abajo, al costado del pie. El tope (--flow-list-max) es el que
-   hace que esto no se coma el scroll cuando hay mas filas de las que entran.
+   hasta el pie y el vacio del panel se abria ENTRE la ultima fila y lo que
+   venia abajo - la barra de accion, que es justo donde estaban los controles
+   con los que se mueven los items- con lo que el jugador tenia que buscar abajo
+   lo que acababa de elegir arriba. Con las listas a tamano de contenido, lo que
+   viene pegado queda pegado y el sobrante va abajo, al costado del pie. El tope
+   (--flow-list-max) es el que hace que esto no se coma el scroll cuando hay mas
+   filas de las que entran.
 
    CONTRATO
 
@@ -1246,10 +1220,13 @@ body {
                data-dir="1"    habilitado solo si la lista activa es la izquierda
                :disabled       el otro, al que no apunta la lista que se mira
 
-     adoptar   no hay CSS que agregar: con dos panes en el snapshot la pantalla ya
-               tiene este layout. Lo que tiene que mandar el mod son esos dos
-               panes (hoy solo el maletero). Ver tambien .panel--centro para el
-               ancho y .accionbar__dir para el chip de destino. */
+      adoptar   no hay CSS que agregar: con dos panes en el snapshot la pantalla ya
+                tiene este layout. Lo que tiene que mandar el mod son esos dos
+                panes (hoy el maletero y la armeria). Cada pantalla elige ademas
+                su forma: .panel--centro para las dos a lo ancho (baul) o
+                .flow__panes--apilado para las apiladas en panel angosto
+                (armeria), que ademas es la que se acomoda sola. Ver tambien
+                .panel--centro para el ancho. */
 .flow__panes {
   display: grid;
   grid-template-columns: 1fr;
@@ -1263,6 +1240,60 @@ body {
    igual que antes. */
 .flow__panes--2 {
   grid-template-columns: 1fr auto 1fr;
+}
+
+/* Dos listas APILADAS (armeria): una debajo de la otra y el canal en forma de
+   tira horizontal en el medio, con el panel al borde izquierdo como el
+   inventario (sin .panel--centro). Va despues de --2: las dos clases se ponen
+   juntas (renderPanes) y esta la que manda, porque cambia el display entero.
+
+   En un panel angosto (~30vw) dos columnas dejaban cada tabla de 13vw y los
+   nombres no entraban; apiladas cada lista mide el ancho entero.
+
+   ACOMODE SOLA (flex y no grid): la caja deja de partir el alto en partes
+   iguales —que era el vacio de la foto, con el canal flotando en el medio— y
+   pasa a acomodarse por CONTENIDO. Cada lista mide lo que trae, el canal queda
+   pegado al final del catalogo y el carrito arranca donde termina el canal; lo
+   que sobra del panel queda abajo de todo, contra el pie. El tope de cada lista
+   es el 50% de la caja (regla de abajo): ni el catalogo ni el carrito se
+   llevan mas de la mitad aunque vengan largos. Cuando el contenido no cabe —una
+   lista en su tope, o las dos con el canal— el que achica es flex (min-height:0
+   de .pane) y el scroll de cada lista (.pane__rows) es el que no deja nada
+   afuera.
+
+   flex: 1 1 auto: la caja ocupa el resto del panel, asi el pie queda abajo sin
+   que las listas tengan que estirarse a el. overflow: hidden es el corte de
+   seguridad por si el contenido no cabe ni achicado. El tope de filas
+   (--flow-list-max) sigue vigente para la lista que no llega al 50%. */
+.flow__panes--apilado {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* El tope del 50% va en la LISTA (.pane) y no en .pane__rows: el % se resuelve
+   contra la caja, que tiene alto de flex (definido por el panel), y no contra la
+   propia fila, que es de contenido y haria el % circular. flex: 0 1 auto es el
+   valor inicial — crece con lo que trae y achica cuando no cabe— y min-height:0
+   es el que deja que achique en vez de desbordar. */
+.flow__panes--apilado>.pane {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 50%;
+}
+
+/* El canal no achica: son dos botones de alto fijo, y si flex los encoge el
+   vacio vuelve repartido en pedazos en vez de desaparecer. */
+.flow__panes--apilado>.flow__xfer {
+  flex: 0 0 auto;
+}
+
+/* El canal con las listas apiladas: los dos botones en horizontal, centrados
+   en la tira entre las listas. Las flechas son ↓ y ↑ (crearCanal). */
+.flow__panes--apilado .flow__xfer {
+  flex-direction: row;
 }
 
 /* El canal entre las dos listas: los dos botones de traslado, centrados
@@ -1400,10 +1431,20 @@ body {
   color: var(--text-accent);
 }
 
+/* Con el titulo de la lista EN la cabecera de la tabla (crearPane() con
+   cfg.tituloEnCabecera) ya no hay .pane__title que teñir, y la marca de "esta
+   lista tiene la seleccion" va en la celda del nombre: es la unica celda de la
+   cabecera sin .table__num, asi que :not() la encuentra sin atarse al orden ni
+   al tamano de las columnas. Es el mismo gesto que .pane--activo de arriba, en
+   el unico nodo que quedó para el estado. */
+.panel--titcab .pane--activo .table__head>span:not(.table__num) {
+  color: var(--text-accent);
+}
+
 /* ========================================================= RECETA: .aviso --
-   El feedback de una accion. Sale entre la tabla y la barra, porque es de la
-   fila que estas mirando y no del menu entero. El tono lo decide el prefijo del
-   texto (~r~ / ~g~), que es el mismo criterio que usa el juego.
+   El feedback de una accion. Sale debajo de las listas, encima del pie, porque
+   es de la fila que estas mirando y no del menu entero. El tono lo decide el
+   prefijo del texto (~r~ / ~g~), que es el mismo criterio que usa el juego.
 
    CONTRATO
 
@@ -1420,9 +1461,9 @@ body {
                viene en el campo notice del snapshot, que arma el mod con
                setNotice() (gsis_Notice.js).
 
-     orden     panes -> aviso -> accionbar -> pie, que es el orden con que
-               crearPanel() los appendea. Las dos reglas de anclaje de mas abajo
-               dependen de ese orden: el ~ apunta al hermano que le sigue.
+     orden     panes -> aviso -> pie, que es el orden con que crearPanel() los
+               appendea. Las dos reglas de anclaje de mas abajo dependen de ese
+               orden: el ~ apunta al hermano que le sigue.
 
      adoptar   los cuatro flujos ya tienen el elemento y ya leen notice, asi que
                un menu nuevo que mande aviso lo muestra sin tocar CSS ni JS.
@@ -1451,189 +1492,29 @@ body {
 }
 
 /* El anclaje al fondo del panel: el que absorbe el sobrante es el AVISO si se
-   esta mostrando, y la BARRA si el aviso esta oculto. Los dos casos dejan el
-   aviso (cuando hay) + la barra + el pie pegados abajo, y la barra no se mueve
-   ni un pixel cuando el aviso aparece o se va - mostrarAviso() lo apaga a los
-   segundos, y un pie que saltaria cada vez que el menu se llena seria peor que
-   el vacio.
+   esta mostrando, y el PIE si el aviso esta oculto. Los dos casos dejan el
+   aviso (cuando hay) + el pie pegados abajo, y el pie no se mueve ni un pixel
+   cuando el aviso aparece o se va - mostrarAviso() lo apaga a los segundos, y
+   un pie que saltaria cada vez que el menu se llena seria peor que el vacio.
 
    Sin el segundo selector no hay forma de cubrir el oculto: .aviso con
-   display:none no genera caja, no absorbe nada, y la barra volaria hacia arriba
+   display:none no genera caja, no absorbe nada, y el pie volaria hacia arriba
    cada vez que no hay aviso. El ~ apunta al hermano que viene despues, que es
-   siempre la barra (crearPanel los arma en ese orden, ver el CONTRATO arriba).
+   siempre el pie (crearPanel los arma en ese orden, ver el CONTRATO arriba).
 
-   Estas dos reglas comparten selector con la barra, y por eso el orden no las
-   salva: ganan por especificidad - (0,3,0) contra (0,1,0) de .aviso y (0,3,1)
-   contra (0,1,0) de .accionbar - y se las dejo junto al aviso para que la
-   receta sea una sola pieza. */
+   Estas dos reglas comparten selector con .panel-foot, y por eso el orden no
+   las salva: ganan por especificidad - (0,3,0) contra (0,1,0) del margen base
+   del pie - y se las dejo junto al aviso para que la receta sea una sola pieza.
+
+   En la lista apilada (armeria) el sobrante lo tiene .flow__panes--apilado
+   (flex:1), que flexea ANTES que los margins auto: ahi el pie ya baja solo y
+   estas reglas no lo mueven de mas. */
 .panel--flujo .aviso:not(.hidden) {
   margin-top: auto;
 }
 
-.panel--flujo .aviso.hidden ~ .accionbar {
+.panel--flujo .aviso.hidden ~ .panel-foot {
   margin-top: auto;
-}
-
-/* ------------------------------------------------------- BARRA DE ACCION --
-   Que se hace y cuantos. Es la misma pieza en los cuatro menus: el nombre de la
-   fila, los campos y el boton. Va entre la tabla y el pie, y es lo que uno ve
-   apenas elige una fila. */
-.accionbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--spw-3);
-  padding: var(--sp-2) var(--spw-2);
-  margin-top: var(--sp-2);
-  border-top: 1px solid var(--divider);
-  background: var(--surface-sunken);
-}
-
-/* La barra anclada al fondo del panel, con el pie justo debajo, y el sobrante
-   ENTRE las listas y lo que es pie de verdad. Es lo contrario de lo que hacia
-   el auto del pie: con la barra pegada a las listas, un baul con tres filas
-   dejaba media pantalla de vacio abajo de la barra y el panel se leia a medio
-   llenar.
-
-   Quien absorbe ese sobrante cuando NO hay aviso es la barra, y las dos reglas
-   que lo hacen viven en la receta .aviso de arriba: comparten selector con el
-   aviso, no con la barra. */
-
-.accionbar__item {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--spw-1);
-  font-size: var(--fs-2xs);
-  color: var(--text-muted);
-}
-
-/* El nombre de la fila va con el color del texto normal: es el dato, no una
-   etiqueta. */
-.accionbar__item:first-child {
-  color: var(--text-body);
-  font-weight: 700;
-  max-width: 22vw;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* ================================================ RECETA: .accionbar__dir --
-   A donde se va la fila: el destino de la transferencia, pegado al nombre.
-   Con dos listas el sentido del boton dependia de cual esta mirando el jugador y
-   eso solo estaba escrito en el texto del boton, abajo a la derecha; aca se lee
-   junto al item ("AK-47 → MALETERO"), que es donde esta la decision. En acento,
-   la misma marca que el titulo de la lista activa.
-
-   CONTRATO
-
-     markup    <span class="accionbar__dir">→ MALETERO</span>
-
-     quien     renderAccionBar() lo inserta DESPUES del nombre de la fila, y solo
-               cuando flowData.panes.length > 1. El texto es el titulo del pane
-               al que se esta yendo y la flecha es el sentido desde la lista que
-               se esta mirando.
-
-     depende   la receta .flow__panes (dos listas). Con una no hay destino que
-               nombrar y el chip no se dibuja.
-
-     adoptar   no hay gate de pantalla: con dos panes en el snapshot aparece solo. */
-.accionbar__dir {
-  font-size: var(--fs-2xs);
-  font-weight: 700;
-  letter-spacing: var(--spw-1);
-  text-transform: uppercase;
-  color: var(--text-accent);
-  white-space: nowrap;
-}
-
-/* El campo activo se marca con el fondo de la pastilla. Con dos campos (cantidad
-   y oferta) el jugador tiene que saber a cual responde el "+", y sin esto no hay
-   forma de saberlo. */
-.accionbar__item--activo .accionbar__label {
-  color: var(--text-accent);
-}
-.accionbar__label {
-  text-transform: uppercase;
-  letter-spacing: var(--spw-1);
-}
-
-.accionbar__valor {
-  min-width: 4.2vw;
-  text-align: center;
-  color: var(--text-body);
-  font-variant-numeric: tabular-nums;
-}
-
-.accionbar__paso {
-  width: 2.6vh;
-  height: 2.6vh;
-  line-height: 1;
-  border: 1px solid var(--border-subtle);
-  background: var(--surface-raised);
-  color: var(--text-body);
-  cursor: pointer;
-  font-size: var(--fs-2xs);
-}
-
-.accionbar__paso:hover {
-  border-color: var(--border-hover);
-  background: var(--surface-hover);
-}
-
-/* Sin rango no hay nada que mover: en un arma o un cargador la cantidad es
-   siempre 1 (son instanciales), y los dos botones quedan apagados en vez de
-   permitir un "+" que no cambia nada y un "−" que mandaria 0. */
-.accionbar__paso:disabled {
-  opacity: 0.35;
-  cursor: default;
-}
-
-.accionbar__paso:disabled:hover {
-  border-color: var(--border-subtle);
-  background: var(--surface-raised);
-}
-
-/* =============================================== RECETA: .accionbar__todo --
-   El chip "Todo" al lado del stepper: la cantidad completa del stack en un solo
-   click. Mismo corte que los +/- (borde, fondo, alto) para que los tres se leyan
-   como un mismo control, con la palabra adentro.
-
-   CONTRATO
-
-     markup    <button class="accionbar__todo" type="button">Todo</button>
-
-     quien     crearCampo() lo dibuja despues del "+" SOLO si el campo declara
-               todo: true y el tope (maxDe()) es mayor que 1. El click escribe el
-               tope en _valores[campo.key] y redibuja barra y pesos, que es lo
-               que hace falta para que el "Todo" se refleje en la proyeccion.
-
-     cortes    mismo borde, fondo y alto que .accionbar__paso: los tres son un
-               mismo control. Con tope 1 no aparece - en un arma o un cargador la
-               cantidad es siempre 1 y un chip que pone 1 sobre 1 no es control,
-               es ruido.
-
-     adoptar   una linea en PANTALLAS[id].barra: { ..., todo: true }. Sin esa
-               linea el chip no se dibuja en esa pantalla, aunque el CSS este. */
-.accionbar__todo {
-  height: 2.6vh;
-  padding: 0 var(--spw-2);
-  border: 1px solid var(--border-subtle);
-  background: var(--surface-raised);
-  color: var(--text-body);
-  font-size: var(--fs-2xs);
-  letter-spacing: var(--spw-1);
-  text-transform: uppercase;
-  cursor: pointer;
-}
-
-.accionbar__todo:hover {
-  border-color: var(--border-hover);
-  background: var(--surface-hover);
-}
-
-.accionbar__btn {
-  margin-left: auto;
 }
 
 /* El titulo del inventario: un <h1 class="panel__title" id="title"> y nada mas.
@@ -1691,26 +1572,41 @@ body {
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
+}
+
+/* ====================================================== RECETA: SCROLLBAR --
+   UNA scrollbar para toda la UI, con los mismos tokens que todo lo demas
+   (thumb --g-600, hover --border-hover, ancho --spw-2). Es GLOBAL a proposito:
+   #rows, .pane__rows —la de las listas de los menus de proximidad, que se
+   salian con la scrollbar blanca del sistema— y cualquier contenedor nuevo
+   quedan con la misma cara sin volver a copiar la receta.
+
+   CEF es Chromium, asi que las pseudo-clases -webkit-scrollbar dan control del
+   track y del thumb. Las propiedades estandar (scrollbar-width/color) van en
+   * como fallback para el motor que no lea -webkit. Sin elemento delante, la
+   pseudo-clase aplica a TODO contenedor con scroll, que es justo lo que se
+   quiere: el ancho y el tono los pone una sola linea y no una regla por
+   lista. */
+* {
   scrollbar-width: thin;
   scrollbar-color: var(--g-600) transparent;
 }
 
-/* Scrollbar del area de items. CEF es Chromium, asi que las pseudo-clases
-   -webkit-scrollbar dan control del track y del thumb. */
-#rows::-webkit-scrollbar {
+::-webkit-scrollbar {
   width: var(--spw-2);
+  height: var(--spw-2);
 }
 
-#rows::-webkit-scrollbar-track {
+::-webkit-scrollbar-track {
   background: transparent;
 }
 
-#rows::-webkit-scrollbar-thumb {
+::-webkit-scrollbar-thumb {
   background: var(--g-600);
   border-radius: var(--radius-sm);
 }
 
-#rows::-webkit-scrollbar-thumb:hover {
+::-webkit-scrollbar-thumb:hover {
   background: var(--border-hover);
 }
 
