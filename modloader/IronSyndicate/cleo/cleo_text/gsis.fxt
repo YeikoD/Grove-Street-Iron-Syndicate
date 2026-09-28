@@ -95,7 +95,8 @@ TRK_EMB (maletero vacio)
 TRK_HNT B: menu | 3: cerrar maletero | Alejarse cierra el menu
 PKC_TTL Retiro de pedido
 PKC_ORD Pedido: ${n}  |  Peso: {w} kg
-SEL_TTL Trueque — Cliente local
+SEL_TTL Vender Armas
+SEL_NPC Cliente
 SEL_BUS Busca hoy: {list}
 SEL_BUD Presupuesto: ${n}
 SEL_NON (no tienes armas para vender)

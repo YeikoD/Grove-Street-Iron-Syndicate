@@ -146,6 +146,7 @@ const MOCK_CATALOG = {
   ],
   icons: {
     "9mm": "9mm.png",
+    "9mm_ext": "9mm.png",
     "pistol_assembled": "9mm.png",
     "silenced_9mm": "silenced9mm.png",
     "desert_eagle": "desertEagle.png",
@@ -168,6 +169,7 @@ const MOCK_CATALOG = {
     // el curvo (mag_fusil.png). Es una copia del mapa real, no una seleccion: si
     // divergiera, el preview mostraria una columna distinta de la del juego.
     "mag_9mm": "mag_9mm.png",
+    "mag_9mm_ext": "mag_9mm.png",
     "mag_silenced_9mm": "mag_9mm.png",
     "mag_desert_eagle": "mag_9mm.png",
     "mag_shotgun": "mag_fusil.png",
@@ -322,8 +324,11 @@ const MOCK_FLUJOS = {
     pie: { izq: "Tu dinero: $4.200", der: "Total carrito: $2.760" }
   },
   seller: {
-    titulo: "Trueque — Cliente local",
-    subtitulo: "Busca hoy: Fusiles de asalto, Escopetas",
+    // Mismo shape que _snapSeller: un titulo y un dato que identifica, la frase
+    // larga en el pie y una fila con la oferta ya movida, para ver la columna
+    // pintada distinto de la base.
+    titulo: "Vender Armas",
+    subtitulo: "Cliente",
     panes: [
       {
         key: "venta",
@@ -332,16 +337,22 @@ const MOCK_FLUJOS = {
         weight: 0,
         max: 0,
         rows: [
-          { id: "ak47", cat: "weapon", name: "AK-47", qty: 1, ammo: "30/30", weight: 3.5, value: 900, base: 900, oferta: 900, tip: "" },
+          { id: "ak47", cat: "weapon", name: "AK-47", qty: 1, ammo: "30/30", weight: 3.5, value: 900, base: 900, oferta: 1040, tip: "" },
           { id: "9mm", cat: "weapon", name: "9mm", qty: 1, ammo: "9/17", weight: 1.5, value: 240, base: 240, oferta: 240, tip: "" }
         ]
       }
     ],
-    pie: { izq: "Presupuesto: (no te lo dijo)", der: "" }
+    pie: { izq: "Busca hoy: Fusiles de asalto, Escopetas", der: "Presupuesto: (no te lo dijo)" }
   },
   pickup: {
     titulo: "Retiro de pedido",
-    subtitulo: "Pedido: $1.440  |  Peso: 5.0 kg",
+    // El subtitulo identifica, igual que la armeria ("Emmet") y el trueque
+    // ("Cliente"): el nombre va en la MISMA linea que el titulo (linea: true,
+    // declarado en LISTAS.pickup) y no en una segunda linea propia. La frase
+    // que traia antes ("Pedido: $1.440 | Peso: 5.0 kg") no era un nombre, era
+    // dato, y ese dato vive ahora en la tarjeta Tu pedido del control
+    // (ctrlRetiro): la pagina lo pinta ahi y no en el encabezado.
+    subtitulo: "Emmet",
     panes: [
       {
         key: "pedido",
@@ -355,7 +366,11 @@ const MOCK_FLUJOS = {
         ]
       }
     ],
-    pie: { izq: "Libre en mochila: 5.8 kg", der: "" }
+    // El total del pedido va en pie.der: el pie esta oculto en las pantallas
+    // con control, asi que aca no lo pinta renderPie sino la tarjeta Tu pedido.
+    // El mod real manda der vacio por ahora, y ahi la linea simplemente no
+    // aparece -no es un dato que la pagina se inventa.
+    pie: { izq: "Libre en mochila: 5.8 kg", der: "Pedido: $1.440" }
   }
 };
 
@@ -1449,7 +1464,14 @@ function limpiarSeleccion() {
 function selectRow(index, paneIdx) {
   const p = paneIdx === undefined ? _selPane : paneIdx;
   const vista = vistaDe(p);
-  if (vista.length === 0) return;
+  if (vista.length === 0) {
+    // Sin filas no hay seleccion que marcar, pero el control lateral quedaria
+    // mostrando la fila del snapshot anterior. trasSeleccionar() no lee su
+    // argumento - solo mira pantalla, lista y seleccion - asi que aca le llega
+    // null y renderControl() vacia la columna.
+    trasSeleccionar(null);
+    return;
+  }
 
   limpiarSeleccion();
   _selPane = p;
@@ -1509,6 +1531,11 @@ function trasSeleccionar(r) {
 
   renderPeso(p);
   sincronizarCanal(p);
+
+  // La columna de control se redibuja con cada seleccion: dice que arma quedo
+  // elegida, su base y la oferta. Va aca y no en renderPanes porque su contenido
+  // depende de la fila elegida, y renderPanes solo ve el snapshot.
+  if (cfg.control) renderControl(p, cfg, flowData);
 }
 
 // El pane que esta mirando se marca con el mismo criterio que la fila: estado en
@@ -1640,7 +1667,7 @@ function crearPanel(id) {
   sec.appendChild(foot);
   document.body.appendChild(sec);
 
-  return { sec, titulo, subtitulo, panes, aviso, pieIzq, pieDer, footBtns, _avisoTimer: null };
+  return { sec, titulo, subtitulo, panes, aviso, foot, pieIzq, pieDer, footBtns, _avisoTimer: null };
 }
 
 // Muestra una pantalla y oculta la otra. El inventario se apaga cuando hay un
@@ -1781,6 +1808,7 @@ function renderFlujo() {
 function renderPanes(p, cfg) {
   p.panes.innerHTML = "";
   p.paneEls = [];
+  p.ctrl = null;
   const todos = (flowData && flowData.panes) || [];
   const conDos = todos.length > 1;
   for (let i = 0; i < todos.length; i++) {
@@ -1793,6 +1821,16 @@ function renderPanes(p, cfg) {
   // Apilado (armeria): las dos listas una debajo de la otra en un panel angosto
   // en vez de dos columnas en uno ancho. Sin apilado, --2 solo.
   p.panes.classList.toggle("flow__panes--apilado", conDos && !!cfg.apilado);
+  // La columna de control (trueque): el segundo hijo del grid, al 30%. Va aca y
+  // no en crearPanel porque renderPanes vacia la caja entera con cada snapshot y
+  // se la llevaria puesto; el CONTENIDO lo escribe renderControl(), que corre
+  // con cada cambio de seleccion.
+  p.panes.classList.toggle("flow__panes--control", !!cfg.control);
+  if (cfg.control) {
+    p.ctrl = document.createElement("div");
+    p.ctrl.className = "flow__ctrl";
+    p.panes.appendChild(p.ctrl);
+  }
 }
 
 // El canal entre las dos listas del baul: los dos botones de traslado.
@@ -2049,6 +2087,251 @@ function mostrarAviso(p, texto) {
   }, 3800);
 }
 
+// ------------------------------------------------------- CAJA DE CONTROL --
+//
+// La caja de control (.flow__panes--control), debajo del catalogo: lo que antes
+// vivia en el pie, en DOS bloques rotulados dentro del 30% del menu. Es la
+// contraparte de renderPie() —el pie de las otras dos pantallas— y por eso
+// comparte su section: una pantalla tiene pie O control, nunca los dos.
+//
+// renderControl() solo arma la caja y despacha: QUE se dibuja lo declara cada
+// pantalla en su campo `control` (una funcion), porque las preguntas son de
+// cada flujo y no del layout:
+//
+//   ctrlTrueque   EL CLIENTE (las dos frases del mod) + OFERTA POR UNIDAD
+//                 (el arma con su base, la cifra y el stepper)
+//   ctrlRetiro    TU PEDIDO (peso del pedido contra lo que queda libre) +
+//                 RECOGER (la fila elegida, su peso y los dos botones)
+//
+// Cada uno arma sus bloques con ctrlRotulo()/ctrlLinea()/ctrlBotones(): misma
+// receta visual (tarjeta, clave apagada + valor claro, boton fantasma), distinto
+// contenido.
+//
+// Se reescribe COMPLETA con cada llamada y no se parchea nodo por nodo: no hay
+// estado propio que preservar (todo viene del snapshot y de la seleccion) y
+// media docena de nodos con innerHTML() es mas barato que sincronizarlos.
+function renderControl(p, cfg, data) {
+  const box = p.ctrl;
+  if (!box || typeof cfg.control !== "function") return;
+  box.innerHTML = "";
+  cfg.control(box, { r: selectedRow(), cfg, data });
+}
+
+// El contenido del trueque en la caja de control: DOS bloques.
+function ctrlTrueque(box, ctx) {
+  const { r, cfg, data } = ctx;
+
+  // Bloque 1: el cliente. Las dos frases llegan armadas del mod (pie.izq y
+  // pie.der del snapshot), asi que van tal cual y sin armar nada: el texto es
+  // suyo, la hoja solo lo parte en el primer dos puntos para poder poner la
+  // clave chica y el valor claro.
+  const grpCliente = document.createElement("div");
+  grpCliente.className = "ctrl__grp ctrl__tarjeta";
+  grpCliente.appendChild(ctrlRotulo("El cliente"));
+  const pie = (data && data.pie) || {};
+  const lineas = document.createElement("div");
+  lineas.className = "ctrl__lineas";
+  for (const texto of [pie.izq, pie.der]) {
+    if (!texto) continue;
+    lineas.appendChild(ctrlLinea(texto));
+  }
+  grpCliente.appendChild(lineas);
+  box.appendChild(grpCliente);
+
+  // Bloque 2: la oferta. El grupo va aunque no haya fila (lista vacia) para que
+  // el stepper no aparezca y desaparezca con la seleccion: el hueco es parte
+  // del layout, no un estado que haya que acordarse.
+  const grpOferta = document.createElement("div");
+  grpOferta.className = "ctrl__grp ctrl__tarjeta ctrl__grp--oferta";
+  grpOferta.appendChild(ctrlRotulo("Oferta por unidad"));
+
+  if (r) {
+    // El arma con su base en UNA linea y a los dos costados: son los dos numeros
+    // que se miran antes de mover nada (que vendo / cuanto vale en el mercado)
+    // y apilados se leian como dos datos sueltos, uno debajo del otro.
+    const fila = document.createElement("div");
+    fila.className = "ctrl__row";
+    const arma = document.createElement("span");
+    arma.className = "ctrl__arma";
+    arma.textContent = r.name;
+    const base = document.createElement("span");
+    base.className = "ctrl__base";
+    base.textContent = "base " + fmtDinero(r.base);
+    fila.appendChild(arma);
+    fila.appendChild(base);
+    grpOferta.appendChild(fila);
+
+    // El valor es r.oferta, el mismo que pinta la columna de la lista y que el
+    // mod mueve con seller:quote.
+    const valor = document.createElement("span");
+    valor.className = "ctrl__valor";
+    valor.textContent = fmtDinero(r.oferta);
+    grpOferta.appendChild(valor);
+  }
+
+  grpOferta.appendChild(ctrlBotones(cfg, r, { apagaSinFila: true }));
+  box.appendChild(grpOferta);
+}
+
+// El rotulo de un bloque de control. La caja es chica y hay dos, asi que el
+// rotulo va en la misma escala que el de una lista (.pane__title) para que el
+// ojo encuentre las dos partes igual de rapido.
+function ctrlRotulo(texto) {
+  const el = document.createElement("span");
+  el.className = "ctrl__lbl";
+  el.textContent = texto;
+  return el;
+}
+
+// Una linea del cliente, partida en clave y valor. El mod manda la frase
+// entera ("Busca hoy: Fusiles de asalto, Escopetas") y aca se parte en el
+// PRIMER dos puntos: la clave queda chica y apagada nombra, el valor claro
+// responde, y los dos siguen juntos en el texto -la union es verbatim, con el
+// mismo ": " que mando el mod. Sin dos puntos la frase va entera como valor.
+function ctrlLinea(texto) {
+  const p = document.createElement("p");
+  p.className = "ctrl__linea";
+  const i = texto.indexOf(":");
+  if (i < 0) {
+    const val = document.createElement("span");
+    val.className = "ctrl__val";
+    val.textContent = texto;
+    p.appendChild(val);
+    return p;
+  }
+  // El ": " se queda con la clave y no se inventa nada: clave + valor es el
+  // texto del mod, igual al caracter.
+  const resto = texto.slice(i + 1);
+  const colgap = resto.match(/^\s*/)[0];
+  const clave = document.createElement("span");
+  clave.className = "ctrl__clave";
+  clave.textContent = texto.slice(0, i + 1) + colgap;
+  const val = document.createElement("span");
+  val.className = "ctrl__val";
+  val.textContent = resto.slice(colgap.length);
+  p.appendChild(clave);
+  p.appendChild(val);
+  return p;
+}
+
+// Los botones dentro de la caja de control. Son los mismos que dibujaria el
+// pie (mismo label, mismo cmd, misma tecla): lo que cambia es el sitio.
+//
+//   opts.fila         la accion de la FILA elegida (Enter / la X) como boton
+//                     visible, primera de la tira. Es la unica que se apaga
+//                     sin seleccion: sin fila no hay arma que recoger.
+//   opts.apagaSinFila los del pedido entero (trueque: mover la oferta sin fila
+//                     no tiene fila que mover). El retiro NO lo usa: recoger
+//                     todo y cancelar son del pedido, no de la linea marcada,
+//                     y el menu solo se abre con pedido (openPickupMenu).
+function ctrlBotones(cfg, r, opts) {
+  opts = opts || {};
+  const lista = [];
+  if (opts.fila) lista.push({ a: opts.fila, deFila: true });
+  for (const a of cfg.pieAcciones || []) lista.push({ a: a });
+
+  const btns = document.createElement("div");
+  btns.className = "ctrl__btns";
+  for (const it of lista) {
+    const a = it.a;
+    const b = document.createElement("button");
+    // .btn para la receta (medida, tipografia, foco) y .ctrl__btn para que el
+    // boton se encuentre sin descendencias: el resto del panel lo busca con
+    // una sola clase.
+    b.className = "btn ctrl__btn";
+    b.type = "button";
+    b.textContent = typeof a.label === "function" ? a.label(r) : a.label;
+    if (it.deFila || opts.apagaSinFila) b.disabled = !r;
+    b.addEventListener("click", () => correrAccion(a, it.deFila ? r : null));
+    btns.appendChild(b);
+  }
+  return btns;
+}
+
+// El peso total del pedido, fila por fila. r.weight YA es el total de la linea
+// (itemRow multiplica por qty), asi que la suma es directa: es la misma cuenta
+// que hace el mod para el subtitulo (_snapPickup) y por eso las dos cifras
+// dicen lo mismo. Estimacion de la pagina al estilo de renderPeso(): pintar,
+// no validar — el que pesa contra la mochila es collectAll().
+function pesoDePedido(data) {
+  const filas = (((data || {}).panes || [])[0] || {}).rows || [];
+  let kg = 0;
+  for (const f of filas) kg += Number(f.weight) || 0;
+  return Math.round(kg * 10) / 10;
+}
+
+function fmtKg(kg) {
+  return Number(kg).toFixed(1) + " kg";
+}
+
+// El retiro en la caja de control: DOS bloques, mismo pliego que el trueque.
+//
+// Las preguntas de aca son otras. El trueque negocia un precio; el retiro
+// decide si ENTRA — el pedido no reserva peso al comprar, se valida al recoger,
+// asi que la comparacion que importa es "cuanto pesa" contra "cuanto me cabe",
+// y es la que va arriba, una debajo de la otra y con la clave alineada para
+// que la comparacion sea de un vistazo.
+function ctrlRetiro(box, ctx) {
+  const { r, cfg, data } = ctx;
+
+  // Bloque 1: el pedido. Las tres lineas que nombran el pedido completo: el
+  // total (pie.der, lo que decia el subtitulo antes), el peso del pedido (lo
+  // calcula la pagina, misma cuenta que hace el mod para ese subtitulo) y lo
+  // que queda libre en la mochila (pie.izq, del mod). Van juntas y con la clave
+  // alineada para que la comparacion peso/cabe sea de un vistazo.
+  const grpPedido = document.createElement("div");
+  grpPedido.className = "ctrl__grp ctrl__tarjeta";
+  grpPedido.appendChild(ctrlRotulo("Tu pedido"));
+  const pie = (data && data.pie) || {};
+  const lineas = document.createElement("div");
+  lineas.className = "ctrl__lineas";
+  if (pie.der) lineas.appendChild(ctrlLinea(pie.der));
+  lineas.appendChild(ctrlLinea("Peso: " + fmtKg(pesoDePedido(data))));
+  if (pie.izq) lineas.appendChild(ctrlLinea(pie.izq));
+  grpPedido.appendChild(lineas);
+  box.appendChild(grpPedido);
+
+  // Bloque 2: recoger. La fila elegida con lo que vale (lo mismo que pinta la
+  // columna Valor de la lista, a dos tamanos) y en grande el peso: es el que
+  // se suma a la mochila con la linea elegida, la mitad de la cuenta de arriba.
+  const grpRecoger = document.createElement("div");
+  grpRecoger.className = "ctrl__grp ctrl__tarjeta ctrl__grp--oferta";
+  grpRecoger.appendChild(ctrlRotulo("Recoger"));
+
+  if (r) {
+    const fila = document.createElement("div");
+    fila.className = "ctrl__row";
+    const arma = document.createElement("span");
+    arma.className = "ctrl__arma";
+    arma.textContent = r.name;
+    fila.appendChild(arma);
+    const valor = fmtDinero(r.value);
+    if (valor != null) {
+      const pagado = document.createElement("span");
+      pagado.className = "ctrl__base";
+      pagado.textContent = "valor " + valor;
+      fila.appendChild(pagado);
+    }
+    grpRecoger.appendChild(fila);
+
+    const peso = document.createElement("span");
+    peso.className = "ctrl__valor";
+    peso.textContent = fmtKg(Number(r.weight) || 0);
+    grpRecoger.appendChild(peso);
+  }
+
+  // Tres botones y no dos: el de la fila elegida ("Recoger", el mismo cmd que
+  // manda Enter) va primero porque es el gesto normal -recoger UNA linea- y los
+  // otros dos son del pedido entero. Sin el primero, "recoger solo una" solo
+  // existia apretando Enter sobre la fila, que es un atajo que no se ve.
+  //
+  // El de la fila se apaga sin seleccion (no hay arma que recoger); los otros
+  // dos no, porque son del pedido y el menu solo se abre con pedido.
+  const accFila = ((cfg.acciones || []).find((x) => x.sobreFila)) || null;
+  grpRecoger.appendChild(ctrlBotones(cfg, r, { fila: accFila }));
+  box.appendChild(grpRecoger);
+}
+
 // ----------------------------------------------------------------- PIE --
 
 // El pie de un menu de proximidad: los numeros del snapshot a un lado, los
@@ -2058,7 +2341,14 @@ function mostrarAviso(p, texto) {
 // pagar el carrito, vaciarlo. Las de la fila (agregar, quitar, ofrecer,
 // recoger) corren con Enter sobre la fila elegida, doble click o el canal, y
 // meter estas dos ahi seria mentir sobre a que fila se aplican.
+//
+// Con panel de control no hay pie: busca, presupuesto y stepper viven en la
+// columna lateral (renderControl), y el pie quedaria como una barra vacia al
+// fondo empujando el aviso. La clase .hidden la saca del layout entero.
 function renderPie(p, cfg, data) {
+  p.foot.classList.toggle("hidden", !!cfg.control);
+  if (cfg.control) return;
+
   const pie = data.pie || {};
   p.pieIzq.textContent = pie.izq || "";
   p.pieDer.textContent = pie.der || "";
@@ -2219,12 +2509,23 @@ function correrAccion(a, r) {
 //   pieAcciones       las del pie (Vaciar, Pagar, Recoger todo), con su tecla
 //   tituloEnCabecera  el titulo de cada lista en la celda de su tabla (armeria)
 //   linea             el subtitulo en la MISMA linea que el titulo (armeria)
+//   oferta            el paso fino y el grueso del precio (trueque), en $
+//   control           la caja de control (trueque, retiro), 30% del alto del
+//                     menu: reemplaza al pie entero y ES la funcion que dibuja
+//                     su contenido (ver renderControl())
 //   apilado / centro  la forma de las listas (ver .flow__panes y .panel--centro)
 //   pieCarrito        estados del pie del carrito (renderPie)
 //
 // Los comandos van con prefijo del menu ("trunk:", "dealer:") y se despachan en
 // handleCommand() de gsis_WebInterface.js. La lista de un lado y del otro se
 // chequea con check_pantallas.mjs: es el contrato que mas se rompe en silencio.
+// El paso del stepper de precio del trueque, en $, declarado UNA sola vez: lo
+// lee el teclado (deltaDeOferta, donde Mayus sube de paso) y los cuatro botones
+// del control. El multiplo no es arbitrario - getSellPrice devuelve siempre una
+// decena, ver gsis_weapon_data.js - y sin redondear a la decena una rafaga de
+// teclas dejaria la oferta en una cifra que no es de este mercado.
+const PASO_OFERTA = { paso: 10, pasoGrueso: 100 };
+
 const PANTALLAS = {
   // ---------------------------------------------------------------- BAUL --
   // Las dos listas son los mismos items, asi que las columnas son las del
@@ -2348,28 +2649,63 @@ const PANTALLAS = {
   },
 
   // ------------------------------------------------------------- TRUEQUE --
-  // La oferta por unidad. Sin barra de accion no hay stepper de precio: la
-  // oferta es la que trae la fila (oferta = base, la escribio el mod en
-  // _snapSeller) y Enter la manda tal cual. Subirla —el trueque— era lo que
-  // hacia el stepper de la barra, que ya no existe.
+  // El precio lo mueve el jugador. Oferta y Base son las dos cifras de la misma
+  // fila con dos roles: Base es lo que vale el arma en el mercado (getSellPrice,
+  // la misma cifra que Value ponia en la armeria) y Oferta es lo que estas
+  // pidiendo. Van juntas porque el trueque ES comparar una contra la otra — sin
+  // Base, un numero en la columna Oferta no dice si es una ganga o un latigazo.
   //
-  // Las columnas son las del inventario MENOS valor, y no es un descuido: base
-  // sale de getSellPrice(id), que es EXACTAMENTE lo que valueCell() pone en la
-  // columna valor (ver gsis_ItemRow.js). Las dos juntas darian la misma cifra
-  // dos veces al lado de la oferta. Salud, peso y cant quedan tal cual.
+  // El paso esta en `oferta` (mas abajo), el tope en el mod: la pagina solo manda
+  // el delta con seller:quote y pinta lo que el snapshot devuelve. Por eso la
+  // columna Oferta no es un campo de texto editable: no escribe nada, mueve un
+  // numero que vive del otro lado.
+  //
+  // La tabla dejo de ser el catalogo: cuatro columnas (icono, arma, base,
+  // oferta) y nada mas. Cant, salud y peso no dicen nada de un trueque —las
+  // armas del jugador son instanciales, una fila ES un arma, y ni la condicion
+  // ni los kilos cambian lo que el NPC paga— y estaban ocupando el ancho que
+  // ahora es de la columna de control.
+  //
+  // Base sale de getSellPrice(id), que es EXACTAMENTE lo que valueCell() pone
+  // en la columna valor (ver gsis_ItemRow.js): por eso la de valor no esta,
+  // seria la misma cifra dos veces.
   //
   // Base y Oferta van con encabezado de texto: los iconos de cabecera ya estan
-  // ocupados por las columnas que vienen del inventario. Ver .table--7.
+  // ocupados por las columnas que vienen del inventario. Ver .table--4.
   seller: {
-    titulo: "Trueque",
+    titulo: "Vender Armas",
+    // "Vender Armas / Cliente" es un nombre y un nombre: el segundo dato
+    // identifica al que esta del otro mostrador, no explica nada, asi que va en
+    // la MISMA linea que el titulo (misma receta que "Armero ilegal / Emmet", ver
+    // .panel-header--linea).
+    linea: true,
+    // Sin .panel--centro: el trueque se queda en el mismo lugar de siempre,
+    // pegado a la izquierda con el ancho de un menu de proximidad. Lo que cambia
+    // es la FORMA de adentro —lista arriba, control abajo (ver
+    //.flow__panes--control)— y no la posicion en pantalla.
+    //
+    // La caja de control con la negociacion entera, abajo del catalogo y en el
+    // 30% del alto del menu: lo que busca, el presupuesto, el arma con su base,
+    // la oferta y su stepper. Reemplaza al pie (renderPie no dibuja nada en las
+    // pantallas con control).
+    //
+    // El valor ES la funcion que dibuja el contenido (renderControl la llama),
+    // asi que el flag de layout y el dibujo no pueden desincronizarse: el dia
+    // que haya dos cajas distintas, cada pantalla declara la suya.
+    control: ctrlTrueque,
+    // El titulo de la lista vive en la celda del nombre de SU tabla (TUS ARMAS)
+    // y no en una linea propia arriba, igual que CATALOGO en la armeria. Sin
+    // esto la cabecera queda con dos titulos apilados.
+    tituloEnCabecera: true,
     cols: [
       { kind: "icon" },
       { kind: "name", text: "Arma" },
-      { text: "Cant", icon: "cant", cell: celdaCantidad },
-      { text: "Salud", icon: "salud", cell: celdaSalud },
-      { text: "Peso", icon: "peso", cell: celdaPeso },
-      { text: "Base", cell: (r) => fmtDinero(r.base) },
-      { text: "Oferta", cell: (r) => fmtDinero(r.oferta) }
+      // Base suave y Oferta fuerte, mismo motivo que Valor/Precio en la
+      // armeria: son dos precios a comparar en la misma celda visual y con el
+      // mismo peso hay que adivinar cual es el del mercado. En el trueque la
+      // que importa mover es la segunda, y es la unica que cambia.
+      { text: "Base", cell: (r) => fmtDinero(r.base), suave: true },
+      { text: "Oferta", cell: (r) => fmtDinero(r.oferta), fuerte: true }
     ],
     // El tope de Mayús+Enter, mismos $ de siempre. No hay campo price: la
     // oferta sale de la fila (ver el cmd).
@@ -2381,6 +2717,30 @@ const PANTALLAS = {
         label: () => "Ofrecer",
         cmd: (r) => ({ cmd: "seller:offer", id: r.id, qty: qtyDe(), price: r.oferta || r.base || 0 })
       }
+    ],
+    // El paso del precio, en $. Vive aca y no en el mod porque es dato de
+    // INTERFAZ, igual que las etiquetas del pie: el mod no calcula nada, aplica
+    // el delta que le manda la pagina (moveOffer) y guarda el resultado. El
+    // tope si es del mod, porque esta atado al presupuesto que la pagina no ve.
+    oferta: PASO_OFERTA,
+    // Los cuatro botones del stepper, que renderControl() pinta en la columna
+    // de control. Mueven la oferta de la fila ELEGIDA, o sea que son acciones de
+    // fila viajando en un sitio que no es la fila: por eso no llevan
+    // `sobreFila` — correrAccion las llama con r = null y quien resuelve la
+    // fila es moverOferta(), sin seleccion no manda nada.
+    //
+    // Sin `tecla` a proposito: la letra de teclado de +/- es la tecla misma, y
+    // esa pareja no vive en pieAcciones (ver la rama de teclado del handler).
+    // Sin `principal` tambien, porque Enter sigue siendo "Ofrecer": subir el
+    // precio sin ofrecerlo todavia es el gesto normal del trueque.
+    //
+    // Los cuatro y no dos: el teclado tiene el "Mayus = paso grueso" y el mouse
+    // no, y con solo el paso fino subir de $900 a $1.140 son 24 clicks.
+    pieAcciones: [
+      { label: "-$100", cmd: () => moverOferta(-PASO_OFERTA.pasoGrueso) },
+      { label: "-$10", cmd: () => moverOferta(-PASO_OFERTA.paso) },
+      { label: "+$10", cmd: () => moverOferta(PASO_OFERTA.paso) },
+      { label: "+$100", cmd: () => moverOferta(PASO_OFERTA.pasoGrueso) }
     ]
   },
 
@@ -2394,8 +2754,19 @@ const PANTALLAS = {
   // numero que cant y las dos columnas serian un espejo. Se lee disponible y no
   // cant a proposito —el dia que el pedido se parcialize, la que importa es la
   // que queda— y cant es el fallback mientras no haya dato propio.
+  //
+  // Igual que el trueque, el retiro va con caja de control y sin pie: los dos
+  // numeros que se comparan antes de recoger (cuanto pesa el pedido / cuanto
+  // queda libre en la mochila) y los dos botones del pedido entero viven
+  // abajo, en dos tarjetas. Ver ctrlRetiro().
   pickup: {
     titulo: "Retiro",
+    // El subtitulo (el nombre del vendedor, "Emmet") en la MISMA linea que el
+    // titulo, igual que la armeria y el trueque: identifica, no explica, y en
+    // una segunda linea propia se leia como una frase mas del encabezado.
+    // Ver .panel-header--linea.
+    linea: true,
+    control: ctrlRetiro,
     cols: [
       { kind: "icon" },
       { kind: "name", text: "Pedido" },
@@ -2440,6 +2811,37 @@ const PANTALLAS = {
 function qtyDe() {
   if (_qtyUnica != null) return _qtyUnica >= 1 ? Math.floor(_qtyUnica) : 1;
   return 1;
+}
+
+// La oferta del trueque se mueve desde DOS caminos que se juntan aca: los dos
+// botones del pie y las teclas +/- (ver la rama de teclado mas abajo). Los dos
+// solo saben cuanto moverla — la pagina no calcula precios ni conoce el tope:
+// manda el delta con seller:quote y el mod lo guarda y devuelve ya redondeado
+// (moveOffer), asi que la columna se repinta con lo que el snapshot trae.
+//
+// Devuelve el payload o null. null es "no hay fila elegida", que correrAccion
+// lee como "no se puede hacer" y no manda nada; el teclado hace lo mismo.
+function moverOferta(delta) {
+  const r = selectedRow();
+  if (!r) return null;
+  return { cmd: "seller:quote", id: r.id, delta: delta };
+}
+
+// El delta de una pulsacion, por el CARACTER y no por el layout: "=" y "-" son
+// el paso fino, y sus versiones con Mayus ("+", "_") el grueso. En el teclado
+// principal "+" son dos teclas — Mayus y "=" — o sea que la que cuesta mas
+// apretar es la que salta mas, y las dos finas quedan al alcance de un dedo.
+// El numpad entra con la misma regla y su "+" es el paso grueso.
+//
+// Devuelve 0 con cualquier otra tecla, que es como la rama del handler la deja
+// seguir por el resto de la cadena.
+const TECLAS_OFERTA = /^[=+_-]$/;
+
+function deltaDeOferta(e, cfg) {
+  const paso = (e.key === "+" || e.key === "_") ? cfg.oferta.pasoGrueso : cfg.oferta.paso;
+  if (e.key === "=" || e.key === "+") return paso;
+  if (e.key === "-" || e.key === "_") return -paso;
+  return 0;
 }
 
 // ----------------------------------------------------------- TECLADO & EVENTOS --
@@ -2782,6 +3184,19 @@ document.addEventListener("keydown", (e) => {
     } else {
       _diag("letra " + letra + ": " + flow + " no la tiene asignada");
     }
+  } else if (cfg && cfg.oferta && !e.ctrlKey && !e.metaKey && !e.altKey && TECLAS_OFERTA.test(e.key)) {
+    // El stepper del precio del trueque. Mismo camino que los dos botones del
+    // pie (moverOferta) y mismo paso, que decide el caracter (ver
+    // deltaDeOferta): no hay que declarar Mayus porque la tecla con Mayus ya es
+    // la otra tecla.
+    //
+    // Va despues de las letras del pie y antes de la X. La condicion lleva
+    // cfg.oferta, que solo existe en el trueque, asi que en las otras tres
+    // pantallas esta pareja de teclas sigue siendo de nadie.
+    e.preventDefault();
+    const p = moverOferta(deltaDeOferta(e, cfg));
+    if (p) emitCommand(p);
+    else _diag("oferta: no hay fila seleccionada");
   } else if (e.key.toLowerCase() === "x" && !e.repeat) {
     // La X es la accion principal en las dos familias. En el inventario tiene
     // ademas el "tirar al soltar", que aca no existe: ninguno de los cuatro menus

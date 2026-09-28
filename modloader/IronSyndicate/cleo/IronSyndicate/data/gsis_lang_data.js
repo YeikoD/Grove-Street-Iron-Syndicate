@@ -231,17 +231,21 @@ export var STRINGS = {
         es: "~r~Eso no se compra hoy",
         en: "~r~Not buying that today"
     },
+    // El {n} de los rechazos es el TECHO del NPC (techo en offerWeapon). Sin
+    // el numero el rechazo no es informacion: el jugador recibe un "no" que no
+    // puede responder con ninguna oferta, porque solo le queda adivinar. Con el
+    // techo a la vista el trueque tiene un limite al que apuntar.
     SEL_R1: {
-        es: "~r~¡Ni loco! Eso vale mucho menos.",
-        en: "~r~No way! That is worth much less."
+        es: "~r~¡Ni loco! Te pago hasta ${n}.",
+        en: "~r~No way! I'll pay up to ${n}."
     },
     SEL_R2: {
         es: "~r~Hoy no me alcanza la plata.",
         en: "~r~I cannot afford that today."
     },
     SEL_R3: {
-        es: "~y~Uff, te estiraste mucho, dejalo para la proxima.",
-        en: "~y~Oof, you stretched too far, leave it for next time."
+        es: "~y~Uff, te estiraste mucho: hasta ${n} dejo.",
+        en: "~y~Oof, you stretched too far: up to ${n} for me."
     },
     SEL_A2: {
         es: "~g~Mmm, esta un poco caro pero te lo llevo igual... (+${n})",
@@ -352,7 +356,12 @@ export var STRINGS = {
     PKC_NON: { es: "No hay pedido para recoger", en: "No order to collect" },
 
     // --- UI Trueque ---
-    SEL_TTL: { es: "Trueque — Cliente local", en: "Trade — Local client" },
+    // Titulo y subtitulo van en UNA linea (.panel-header--linea), como en la
+    // armeria: el titulo dice que se hace y el segundo dato identifica a quien
+    // lo atiende. "Busca hoy: ..." es una frase y no cabe ahi — se fue al pie
+    // izquierdo (ver _snapSeller).
+    SEL_TTL: { es: "Vender Armas", en: "Sell Weapons" },
+    SEL_NPC: { es: "Cliente", en: "Client" },
     SEL_BUS: { es: "Busca hoy: {list}", en: "Looking for today: {list}" },
     SEL_BUD: { es: "Presupuesto: ${n}", en: "Budget: ${n}" },
     SEL_BUDH: { es: "Presupuesto: (no te lo dijo)", en: "Budget: (not told)" },

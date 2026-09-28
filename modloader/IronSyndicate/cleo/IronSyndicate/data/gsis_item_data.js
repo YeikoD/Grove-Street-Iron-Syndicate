@@ -46,6 +46,7 @@ export var ITEMS = {
 
     // Armas de fuego (nombres = HUD GTA SA ES; IDs estables p/ saves)
     "9mm":           { name: "9mm",             weight: 1.5, type: "weapon" },
+    "9mm_ext":       { name: "9mm 33",          weight: 1.6, type: "weapon" },
     "pistol_assembled": { name: "9mm",          weight: 1.2, type: "weapon" },
     "silenced_9mm":  { name: "Pistola con silenciador", weight: 1.5, type: "weapon" },
     "desert_eagle":  { name: "Desert Eagle",    weight: 1.8, type: "weapon" },
@@ -68,6 +69,7 @@ export var ITEMS = {
     // Cargadores (type magazine; capacidad = WEAPON_DATA.clipSize via getClipSizeByItemId)
     // Instancia { id, qty:1, ammo, salud } — no se apilan
     "mag_9mm":           { name: "Cargador 9mm",             weight: 0.2, type: "magazine" },
+    "mag_9mm_ext":       { name: "Cargador 9mm extendido",    weight: 0.2, type: "magazine" },
     "mag_silenced_9mm":  { name: "Cargador 9mm con silenciador", weight: 0.2, type: "magazine" },
     "mag_desert_eagle":  { name: "Cargador Desert Eagle",    weight: 0.2, type: "magazine" },
     "mag_shotgun":       { name: "Cartucho escopeta",        weight: 0.2, type: "magazine" },

@@ -34,6 +34,10 @@
 // de alla.
 export var WEB_ICONS = {
     "9mm": "9mm.png",
+    // La variante se ve igual que la 9mm normal: el .asi todavia no registra
+    // modelos propios, asi que el icono es el mismo. Cuando exista el .dff de la
+    // Glock extendida, aca va su propio PNG.
+    "9mm_ext": "9mm.png",
     "pistol_assembled": "9mm.png",
     "silenced_9mm": "silenced9mm.png",
     "desert_eagle": "desertEagle.png",
@@ -57,6 +61,7 @@ export var WEB_ICONS = {
     // otro lado. El PNG sale de la categoria del arma en WEAPON_DATA: los tres
     // primeros son pistolas, los tres siguientes subfusiles.
     "mag_9mm": "mag_9mm.png",
+    "mag_9mm_ext": "mag_9mm.png",
     "mag_silenced_9mm": "mag_9mm.png",
     "mag_desert_eagle": "mag_9mm.png",
     "mag_shotgun": "mag_fusil.png",

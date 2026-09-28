@@ -86,7 +86,7 @@ import { equipWeapon, unequipWeapon } from "./gsis_Ballistic.js";
 import { removeItem, equipMagToBelt, unequipBeltMag } from "./gsis_Items.js";
 import { putInTrunk, takeFromTrunk } from "./gsis_Trunk.js";
 import { addToCart, removeFromCart, resetCart, checkout } from "./gsis_WeaponDealer.js";
-import { doOffer } from "./gsis_WeaponSeller.js";
+import { doOffer, moveOffer } from "./gsis_WeaponSeller.js";
 import { collectItem, collectAll, cancelOrder } from "./gsis_DealerPickup.js";
 import { clearNotice, hasNotice, takeNotice } from "../core/gsis_Notice.js";
 import SAWeb from "../../../../SAWebUI/cleo/SAWebUI/SAWeb.js";
@@ -960,6 +960,17 @@ function handleCommand(cmd) {
                 if (!id) return false;
                 doOffer(id, cmd.qty, cmd.price);
                 log("[WebInterface] oferta " + id + " x" + cmd.qty + " a " + cmd.price);
+                return true;
+
+            // Mueve la oferta de una fila (las teclas +/- y los dos botones del
+            // pie). Sin clearNotice() a proposito: el aviso que quedo de la
+            // oferta anterior es el que trae el precio seguro, y es justamente
+            // el dato con el que se esta ajustando. El siguiente seller:offer
+            // lo sobreescribe solo.
+            case "seller:quote":
+                if (!id) return false;
+                moveOffer(id, cmd.delta);
+                log("[WebInterface] oferta movida " + id + " " + (cmd.delta >= 0 ? "+" : "") + cmd.delta);
                 return true;
 
             default:

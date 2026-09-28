@@ -200,5 +200,17 @@ export var SPECIAL_MODELS = {
     ENABLED: true,                // Habilita carga de modelos especiales custom
     RANGE_START: 15000,           // Rango de IDs disponibles (recomendado 15000-15024)
     RANGE_END: 15024,             // Fin del rango de IDs disponibles
-    FILES: ["fam5"]               // Archivos DFF custom (solo seller)
+    FILES: ["fam5"],              // Archivos DFF custom (solo seller)
+    // Rango de IDs de modelo RESERVADO PARA ARMAS.
+    //
+    // Aparte del de personajes a proposito: un ID de modelo es un puntero a un
+    // modelo, no una etiqueta. Si una variante de arma y un ped tomaran el
+    // mismo ID, el segundo que se cargara pisa al primero y el arma aparece con
+    // el cuerpo de un personaje (o al reves). Son rangos separados y no se tocan.
+    //
+    // Lo que vive aca es el CONTRATO con un .ASI que registre armas: el plugin
+    // reserva sus modelos en WEAPON_RANGE y el mod los lee de ahi. Por eso el
+    // rango esta en el Config y no en una constante del modulo: es un acuerdo
+    // entre dos cosas, y un numero agreementado en un solo lugar.
+    WEAPON_RANGE: { START: 15025, END: 15099 }
 };

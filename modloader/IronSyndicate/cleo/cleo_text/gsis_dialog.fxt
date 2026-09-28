@@ -6,8 +6,8 @@ SEL_NOQ ~r~No tienes esa cantidad
 SEL_ERR ~r~Error al quitar items
 SEL_IVL ~r~Oferta invalida
 SEL_NOB ~r~Eso no se compra hoy
-SEL_R1 ~r~¡Ni loco! Eso vale mucho menos.
+SEL_R1 ~r~¡Ni loco! Te pago hasta ${n}.
 SEL_R2 ~r~Hoy no me alcanza la plata.
-SEL_R3 ~y~Uff, te estiraste mucho, dejalo para la proxima.
+SEL_R3 ~y~Uff, te estiraste mucho: hasta ${n} dejo.
 SEL_A2 ~g~Mmm, esta un poco caro pero te lo llevo igual... (+${n})
 SEL_A1 ~g~¡De una, me sirve el precio! (+${n})

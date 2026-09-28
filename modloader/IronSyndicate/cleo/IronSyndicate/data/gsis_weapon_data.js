@@ -97,6 +97,40 @@ export const WEAPON_DATA = [
         price: 550
     },
     {
+        itemId: "9mm_ext",
+        magId: "mag_9mm_ext",
+        name: "9mm 33",
+        // Tipo 100: por encima del enum real de armas del juego, que termina en
+        // ARMOUR = 0x30 (48), y por encima de los pseudo-tipos de forma de morir
+        // (49-58: atropellado, explosion, ahogado...). Los 49-58 estan tomados: el
+        // juego los consulta de verdad y con la variante ahi se rompia al ser
+        // atropellado. No existe hasta que gsisArmory.asi lo registra.
+        weaponId: 100,
+        modelId: 346,
+        slot: 2,
+        // SIN clipSize, a proposito. La capacidad de esta arma NO la impone el
+        // mod: la tiene el motor (la escribio el .ASI al registrar el tipo), y
+        // syncClipSizes se saltea lo que tiene clipSource "engine" justamente
+        // para no pisarla. Ademas el .asi clona esta de la 9mm normal, asi que
+        // el resto de los campos ya viene bien.
+        capacity: 33,
+        clipSource: "engine",
+        // modelSource "native": el .asi todavia no registra modelos propios, asi
+        // que esta variante se ve igual que una 9mm comun. Cuando haya un .dff,
+        // pasa a "special" y el modelId al rango 15025+.
+        damage: 25,
+        fireRate: 20,
+        range: 30,
+        reloadTime: null,
+        accuracy: 25,
+        ammoType: "9mm Parabellum",
+        category: "Pistolas",
+        realWorldName: "Glock 18 con cargador extendido",
+        weight: 1.6,
+        isLong: false,
+        price: 620
+    },
+    {
         itemId: "pistol_assembled",
         magId: "mag_9mm",
         name: "9mm",
@@ -512,6 +546,25 @@ export const WEAPON_DATA = [
         price: 220
     },
     {
+        itemId: "mag_9mm_ext",
+        magId: null,
+        name: "Cargador 9mm extendido",
+        weaponId: null,
+        slot: null,
+        // CON capacity propia, que es la unica entrada del catalogo que la
+        // tiene. Los otros 17 la derivan del arma por la convencion del
+        // prefijo "mag_", y esa regla esta bien mientras la capacidad es una
+        // sola por arma. Un cargador extendido de 33 SIEMPRE tiene 33: es lo
+        // unico que lo distingue del cargador de 17, y es lo que el jugador
+        // esta pagando. Copiarlo del arma crearia un segundo valor que puede
+        // divergir sin que nada avise.
+        capacity: 33,
+        category: "Cargadores",
+        realWorldName: "Glock 18 extended 33 rds",
+        isLong: false,
+        price: 260
+    },
+    {
         itemId: "mag_silenced_9mm",
         magId: null,
         name: "Cargador 9mm con silenciador",
@@ -689,17 +742,102 @@ export const WEAPON_DATA = [
     }
 ];
 
+// ============================================================================
+// REGISTRO — indice y resolucion de un weaponId a una entrada
+// ============================================================================
+// La tabla se recorria a mano en varios lugares del mod (recarga, streaming,
+// reconciliacion) y cada recorrida llevaba su propio `.find` con "primer match
+// gana". Eso hacia que un weaponId duplicado se resolviera por el orden del
+// array sin que nadie lo hubiera decidido: hoy `9mm` y `pistol_assembled`
+// comparten el 22, y el canonico es `9mm` solo porque esta primero.
+//
+// Los indices son la fuente unica. El canonico de un weaponId es SIEMPRE la
+// primera entrada con ese weaponId — que es lo que ya resolvian las cuatro
+// busquedas — pero escrito en un lugar en vez de repetido en cuatro. Los
+// duplicados quedan anotados en WEAPON_ALIASES en vez de ser un accidente:
+// `pistol_assembled` es el mismo arma que `9mm` con precio 0 (ver el bloque de
+// arriba), asi que es un alias, no un error.
+//
+// Un weaponId fuera de la tabla —un tipo que registro un .ASI, por ejemplo— NO
+// es un dato basura: es un arma del motor que el mod todavia no conoce. Por eso
+// esto devuelve null y no inventa nada. Ver gsis_WEAPONS.md.
+function _buildRegistry() {
+    var byItem = {};
+    var byWeapon = {};
+    var aliases = {};
+    for (var i = 0; i < WEAPON_DATA.length; i++) {
+        var w = WEAPON_DATA[i];
+        if (w.itemId !== null && w.itemId !== undefined && !byItem[w.itemId]) byItem[w.itemId] = w;
+        if (w.weaponId === null || w.weaponId === undefined) continue;
+        if (!byWeapon[w.weaponId]) byWeapon[w.weaponId] = w;
+        else aliases[w.itemId] = byWeapon[w.weaponId].itemId; // duplicado: alias del canonico
+    }
+    return { byItem: byItem, byWeapon: byWeapon, aliases: aliases };
+}
+
+var _REGISTRY = _buildRegistry();
+
+// itemId que comparte weaponId con otra entrada -> itemId de su canonico.
+// Hoy: { pistol_assembled: "9mm" }. Se exporta para poder consultarlo desde la
+// UI y los checks sin volver a recorrer la tabla.
+export var WEAPON_ALIASES = _REGISTRY.aliases;
+
+// ============================================================================
+// CAPACIDAD - quien la tiene, y de donde sale
+// ============================================================================
+// Techo de weaponId nativo. CWeaponInfo::aWeaponInfo tiene lugar cerrado para 70
+// entradas (IDs 0-69); weapon.dat tiene mas lineas, pero de la 70 en adelante son
+// definiciones de modelo, no armas equipables. Un weaponId mayor lo registro un
+// plugin. Vive ACÁ y no en Ballistic para que la tabla y el modulo que la consume
+// no tengan dos copias del mismo numero que puedan desincronizarse.
+export var WEAPON_ID_NATIVE_MAX = 69;
+
+// De quien es la capacidad de un arma:
+//
+//   "catalog"  el mod. Su clipSize es la verdad y syncClipSizes escribe la
+//              CWeaponInfo del motor para que coincidan. Es el caso de las 18
+//              armas del catalogo.
+//   "engine"   el motor. La CWeaponInfo la dio de alta un plugin y su
+//              m_nAmmoClip es la verdad. El mod la LEE y no la escribe: pisar
+//              la capacidad seria dejarle al arma la del base, que es
+//              exactamente lo que el .ASI vino a evitar.
+//
+// El default es "catalog": una entrada nueva es del mod hasta que diga otra cosa.
+export var CLIP_SOURCE_CATALOG = "catalog";
+export var CLIP_SOURCE_ENGINE = "engine";
+
+// De donde sale el modelo 3D del arma:
+//
+//   "native"   un modelId del juego (346-373). Es el default: las 18 armas del
+//              catalogo usan modelos vanilla.
+//   "special"  un modelId del rango reservado a armas custom
+//              (SPECIAL_MODELS.WEAPON_RANGE). Lo registro un plugin en
+//              CModelInfo::ms_modelInfoPtrs, asi que YA esta en la memoria del
+//              juego y no es algo que el mod pueda pedir con REQUEST_MODEL.
+//
+// La diferencia importa por un caso que no se ve solo: si el modelo no esta,
+// el arma se da igual pero sale INVISIBLE en la mano. Con "special" el mod
+// verifica que exista y avisa, en vez deassume que el plugin hizo su parte.
+export var MODEL_SOURCE_NATIVE = "native";
+export var MODEL_SOURCE_SPECIAL = "special";
+
 // Helper: arma por itemId del catalogo ITEMS
 export function getWeaponByItemId(itemId) {
-    var weapon = WEAPON_DATA.find(function(w) { return w.itemId === itemId; });
-    return weapon || null;
+    if (!itemId) return null;
+    return _REGISTRY.byItem[itemId] || null;
+}
+
+// Helper: entrada de catalogo por weaponId del juego (22 -> la entrada "9mm").
+// Es el canonico de ese weaponId. null si el mod no conoce el weaponId.
+export function getWeaponByWeaponId(weaponId) {
+    if (weaponId === null || weaponId === undefined) return null;
+    return _REGISTRY.byWeapon[weaponId] || null;
 }
 
 // Helper: cargador (itemId mag_*) del arma equipada, por weaponId del juego.
 // Usado por Ballistic en la recarga (22 → "mag_9mm"). null si el arma no tiene cargador.
 export function getMagIdByWeaponId(weaponId) {
-    if (weaponId === null || weaponId === undefined) return null;
-    var weapon = WEAPON_DATA.find(function(w) { return w.weaponId === weaponId; });
+    var weapon = getWeaponByWeaponId(weaponId);
     return (weapon && weapon.magId) || null;
 }
 
@@ -708,21 +846,82 @@ export function getMagIdByWeaponId(weaponId) {
 // REQUEST_MODEL o el arma puede no verse en la mano del ped (y segun el doc de
 // la opcodes, crashear). null si el weaponId no es del catalogo.
 export function getModelIdByWeaponId(weaponId) {
-    if (weaponId === null || weaponId === undefined) return null;
-    var weapon = WEAPON_DATA.find(function(w) { return w.weaponId === weaponId; });
+    var weapon = getWeaponByWeaponId(weaponId);
     if (!weapon || weapon.modelId === null || weapon.modelId === undefined) return null;
     return weapon.modelId;
 }
 
-// Helper: capacidad de cargador (clipSize vanilla Std) por itemId de item o mag_*
-// "mag_9mm" → strip "mag_" → "9mm" → clipSize. null si no hay arma/clip.
+// Capacidad declarada por la propia entrada (variantes y accesorios).
+// null si la entrada no la trae.
+function _ownCapacity(w) {
+    if (!w) return null;
+    if (w.capacity !== null && w.capacity !== undefined) return w.capacity;
+    return null;
+}
+
+// De quien es la capacidad de un item (ver CLIP_SOURCE_*). Default "catalog".
+export function getClipSource(itemId) {
+    var w = getWeaponByItemId(itemId);
+    if (!w) return CLIP_SOURCE_CATALOG;
+    return w.clipSource || CLIP_SOURCE_CATALOG;
+}
+
+// De donde sale el modelo de un item (ver MODEL_SOURCE_*). Default "native".
+export function getModelSource(itemId) {
+    var w = getWeaponByItemId(itemId);
+    if (!w) return MODEL_SOURCE_NATIVE;
+    return w.modelSource || MODEL_SOURCE_NATIVE;
+}
+
+// Igual, pero por weaponId. Son DOS helpers y no uno con un parametro que
+// acepte las dos cosas a propósito: una funcion que resuelve "por id o por
+// weaponId" tiene el bug de devolver el default en silencio cuando le pasan la
+// que no es, y ese bug es invisible (el default es "native", o sea el
+// comportamiento de siempre). Ballistic trabaja con weaponId.
+export function getModelSourceByWeaponId(weaponId) {
+    var w = getWeaponByWeaponId(weaponId);
+    if (!w) return MODEL_SOURCE_NATIVE;
+    return w.modelSource || MODEL_SOURCE_NATIVE;
+}
+
+// Capacidad de un item: de un cargador (mag_*) o de un arma.
+//
+// Tres caminos, en orden, y el primero que exista gana:
+//
+//   1. la que declara la entrada misma (`capacity`). Esto es lo que hace que una
+//      variante sea posible: un tambor de 75 NO es el clipSize del AK de 30, es
+//      del cargador. La regla de casa de abajo no aplica para estas entradas.
+//
+//   2. la del arma que alimenta, por el strip del prefijo "mag_". Es la regla de
+//      casa y sigue mandando para los cargadores base: para un cargador de 30
+//      balas la capacidad de verdad es la del arma, y derivarla evita tener el
+//      mismo numero en dos lugares que pueden divergir sin que nada avise.
+//
+//   3. el clipSize de la entrada, cuando el item ES el arma.
 export function getClipSizeByItemId(itemId) {
     if (!itemId) return null;
-    var base = itemId;
-    if (itemId.indexOf("mag_") === 0) base = itemId.slice(4);
-    var weapon = getWeaponByItemId(base);
-    if (!weapon || weapon.clipSize === null || weapon.clipSize === undefined) return null;
-    return weapon.clipSize;
+    var own = _ownCapacity(getWeaponByItemId(itemId));
+    if (own !== null) return own;
+    if (itemId.indexOf("mag_") === 0) {
+        var gun = getWeaponByItemId(itemId.slice(4));
+        if (gun && gun.clipSize !== null && gun.clipSize !== undefined) return gun.clipSize;
+    }
+    var w = getWeaponByItemId(itemId);
+    if (!w || w.clipSize === null || w.clipSize === undefined) return null;
+    return w.clipSize;
+}
+
+// Capacidad del arma con ese weaponId, directo del catalogo. Es lo mismo que
+// dar la vuelta por su magId y quitarle el prefijo "mag_", pero sin el rodeo:
+// para un arma base da lo mismo, y para una variante da la suya y no la del arma
+// base de la que salio.
+export function getClipSizeByWeaponId(weaponId) {
+    var w = getWeaponByWeaponId(weaponId);
+    if (!w) return null;
+    var own = _ownCapacity(w);
+    if (own !== null) return own;
+    if (w.clipSize === null || w.clipSize === undefined) return null;
+    return w.clipSize;
 }
 
 // ============================================================================

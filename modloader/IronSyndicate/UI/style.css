@@ -62,6 +62,7 @@
       componentes    .table  .btn  .panel  .meter  .keyhint  .ctxmenu
       flujo          .panel-header--linea  .panel--centro  .flow__panes
                      .aviso  .pane__peso  .panel--titcab  .flow__panes--apilado
+                     .flow__panes--control  .flow__ctrl
       base           scrollbar (global, no vive en una clase)
     --------------------------------------------------------------------------- */
 
@@ -1363,6 +1364,313 @@ body {
    en la tira entre las listas. Las flechas son ↓ y ↑ (crearCanal). */
 .flow__panes--apilado .flow__xfer {
   flex-direction: row;
+}
+
+/* ================================================ RECETA: .flow__panes--control --
+   El menu del trueque en dos renglones: el catalogo arriba y, abajo, la caja de
+   control. La tabla dejo de ser el catalogo de siete columnas que ocupaba el
+   panel entero y paso a ser el selector (icono | arma | base | oferta, cuatro y
+   nada mas); abajo vive la negociacion entera en DOS bloques rotulados: el
+   cliente (que busca y cuanto tiene) y la oferta (que le estoy vendiendo, a
+   cuanto, y el stepper para moverla). Todo eso antes vivia apretado en el pie,
+   debajo de la tabla.
+
+   El menu NO cambia de lugar: sigue pegado a la izquierda con el ancho de un
+   menu de proximidad (PANTALLAS.seller va sin .panel--centro), ocupa el alto de
+   siempre y con cuatro columnas la tabla le entra de sobra. Lo que cambia es
+   la forma de adentro: dos renglones en vez de una tabla de siete columnas y
+   un pie.
+
+   minmax(0, 1fr) y no 1fr: la lista tiene overflow y sin el 0 minimo el grid no
+   la deja achicarse -el item de un track minmax con min 1fr puede pasarse de su
+   caja— y el renglon de abajo se la come.
+
+   CONTRATO
+
+     markup    <div class="flow__panes flow__panes--control">
+                 <div class="pane pane--activo"> …lista… </div>
+                  <div class="flow__ctrl">
+                    <div class="ctrl__grp ctrl__tarjeta">
+                      <span class="ctrl__lbl">El cliente</span>
+                      <div class="ctrl__lineas">
+                        <p class="ctrl__linea">
+                          <span class="ctrl__clave">Busca hoy:</span>
+                          <span class="ctrl__val">Fusiles de asalto, Escopetas</span>
+                        </p>
+                        <p class="ctrl__linea">
+                          <span class="ctrl__clave">Presupuesto:</span>
+                          <span class="ctrl__val">(no te lo dijo)</span>
+                        </p>
+                      </div>
+                    </div>
+                    <div class="ctrl__grp ctrl__tarjeta ctrl__grp--oferta">
+                     <span class="ctrl__lbl">Oferta por unidad</span>
+                     <div class="ctrl__row">
+                       <span class="ctrl__arma">AK-47</span>
+                       <span class="ctrl__base">base $900</span>
+                     </div>
+                     <span class="ctrl__valor">$1.040</span>
+                     <div class="ctrl__btns"> <button class="btn ctrl__btn">…</button> … </div>
+                   </div>
+                 </div>
+               </div>
+
+               Dos bloques y no cuatro porque hay dos preguntas: con quien estoy
+               tratando, y que le ofrezco. El arma con su base va EN UNA linea
+               adentro del segundo porque es insumo de la oferta, no una
+               tercera cosa.
+
+               Cada bloque es una TARJETA (.ctrl__tarjeta): fondo propio y
+               filete, que es lo que hace que la caja se lea como un panel de
+               control y no como cuatro lineas sueltas sobre el panel. Y los
+               datos del cliente van partida en clave y valor: la clave chica y
+               apagada nombra, el valor claro responde. La frase la arma el mod,
+               la hoja solo la parte en el primer dos puntos.
+
+     quien     renderPanes() pone la clase y crea la caja; renderControl() la
+               reescribe con cada snapshot y con cada cambio de fila
+               (trasSeleccionar) llamando a la funcion que declara la pantalla,
+               que es quien arma los bloques y los botones de pieAcciones;
+               renderPie() para entero en estas pantallas -el pie es lo que la
+               caja reemplaza. Hoy dibujan dos: ctrlTrueque (cliente + oferta)
+               y ctrlRetiro (pedido + recoger), con los mismos bloques.
+
+     estados   la oferta sale de la fila (r.oferta), que escribe el mod en
+               _snapSeller y mueve moveOffer() con cada +/-; sin fila elegida el
+               bloque de la oferta queda con su rotulo y los botones apagados,
+               y el arma con su base no se pinta. El presupuesto sigue llegando
+               del mod oculto hasta la primera oferta (getSellState), que el
+               control solo pinta. En el retiro los botones NO se apagan sin
+               fila: son del pedido entero y el menu solo se abre con pedido.
+
+     adoptar   LISTAS.<id>.control = la funcion que dibuja el contenido, y nada
+               mas: el control es un renglon y no una columna, asi que entra en
+               el ancho de un menu normal. El dia que alguna pantalla lo quiera
+               AL COSTADO ahi si haria falta .panel--centro con las dos cajas a
+               lo ancho. */
+.flow__panes--control {
+  /* Dos renglones y NO dos columnas: el catalogo arriba con todo el ancho del
+     menu y el control abajo, con el mismo ancho. El primero se lleva lo que
+     queda -minmax(0, 1fr): la lista tiene overflow y sin el 0 minimo el grid no
+     la deja achicarse- y el segundo el 30% del alto, que es la parte del menu
+     que le toca. Con minmax(auto, …) ese 30% es un techo y no una caja: si un
+     dia el texto del mod (lo arma el mod, no esta hoja) trae la lista de
+     intereses larga, el renglon crece con el contenido en vez de cortar la
+     mitad de una frase. */
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) minmax(auto, 30%);
+  /* .flow__panes es flex: 0 1 auto — las listas miden lo que traen— y eso
+     estaba bien CON pie: el sobrante quedaba al lado del pie. Aca no hay pie,
+     asi que el sobrante caeria como un hueco muerto debajo de las dos cajas y
+     la division cortaria a media altura. La caja llena el menu y con ella las
+     dos: la lista scrollea dentro de su --flow-list-max y el control queda
+     pegado abajo. */
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* La caja de control, abajo del catalogo: los DOS bloques (el cliente y la
+   oferta) como dos tarjetas apiladas, del mismo ancho que la lista.
+
+   El sobrante NO se reparte entre los dos bloques: la tarjeta de la oferta es
+   la que crece (flex: 1) y se queda con el resto de la altura, con la cifra y
+   los botones anclados abajo. Asi el aire de mas queda DENTRO de una caja
+   definida, que se lee como respiracion de diseno, y no como un hueco entre
+   dos textos sueltos -que era lo que se veia: media caja vacia en el medio. */
+.flow__ctrl {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  min-width: 0;
+  padding: var(--sp-1) 0 0;
+  border-top: 1px solid var(--divider);
+}
+
+/* Cada bloque es tambien una tarjeta: fondo propio y filete. Es lo que hace
+   que la caja se lea como un panel de control y no como cuatro lineas sueltas
+   sobre el panel translucido. Padding chico a proposito: la tarjeta ordena,
+   no pesa. */
+.ctrl__tarjeta {
+  min-width: 0;
+  padding: var(--sp-2) var(--spw-3);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+/* El cuerpo de cada tarjeta: columna apilada, con las lineas adentro de una
+   caja propia (.ctrl__lineas) que SI es una grilla de dos columnas. La razon
+   es la alineacion: cada linea por separado (display:flex) se ancha sola segun
+   su clave, y claves de largo distinto -"Peso del pedido:" contra "Libre en
+   mochila:"- dejaban los valores a 7px de diferencia. Como grilla, la columna
+   de claves es UNA para todas las lineas de la tarjeta: max-content (la mas
+   larga) con el piso de 12em de .ctrl__clave, y todos los valores arrancan en
+   la misma x. */
+.ctrl__grp {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+/* Las lineas de la tarjeta, en la grilla de clave|valor. */
+.ctrl__lineas {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  column-gap: var(--spw-3);
+  row-gap: var(--sp-2);
+  min-width: 0;
+}
+
+/* Rotulo de cada bloque: la misma escala y el mismo case que el titulo de una
+   lista (.pane__title), porque cumple la misma funcion -nombrar lo que viene
+   abajo— y con el filete de acento adelante, que es la misma marca con la que
+   se pinta la lista que tiene la seleccion. Sin eso los dos rotulos eran dos
+   palabras grises mas dentro de la caja. */
+.ctrl__lbl {
+  display: flex;
+  align-items: center;
+  gap: var(--spw-2);
+  font-size: var(--title-fs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: var(--spw-1);
+  color: var(--text-muted);
+}
+
+.ctrl__lbl::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 2px;
+  height: 1em;
+  background: var(--text-accent);
+}
+
+/* Una linea del cliente con su dato JUNTO: la clave nombra (chica, apagada, en
+   versalitas) y el valor responde en la misma linea, un escalon arriba de
+   tono.
+
+   display: contents: el <p> no es una caja, es la union de sus dos hijos dentro
+   de la grilla de .ctrl__lineas — la clave cae en la columna de claves y el
+   valor en la de valores, asi TODAS las lineas de la tarjeta comparten columna
+   y los valores arrancan en la misma x. Con el <p> como caja propia cada linea
+   se ancha sola segun su clave y la alineacion se perdia.
+
+   Sin dos puntos la frase va entera en una sola celda. */
+.ctrl__linea {
+  display: contents;
+}
+
+.ctrl__linea > .ctrl__val:only-child {
+  grid-column: 1 / -1;
+}
+
+.ctrl__clave {
+  flex: 0 0 auto;
+  min-width: 12em;
+  font-size: var(--fs-2xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: var(--spw-1);
+  color: var(--text-muted);
+}
+
+.ctrl__val {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-body);
+  overflow-wrap: anywhere;
+}
+
+/* El arma y su base en UNA linea: los dos numeros que se miran antes de mover
+   nada (que vendo / cuanto vale en el mercado). Apilados se leian como dos
+   datos sueltos; acá cada uno ocupa un costado y la comparacion es horizontal,
+   que es como se compara una cifra contra otra. */
+.ctrl__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--spw-3);
+}
+
+.ctrl__arma {
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--text-accent);
+}
+
+.ctrl__base {
+  font-size: var(--fs-2xs);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* La cifra que se mueve, al unico tamano del panel que se lee sin mirar: es la
+   respuesta a "cuanto ofrezco", la pregunta que hace todo el flujo. tabular-nums
+   como en cualquier precio, para que el +/- no haga bailar la columna.
+
+   margin-top: auto la ancla al fondo de la tarjeta: la tarjeta de la oferta es
+   la que consume el sobrante de la caja y asi ese aire queda ARRIBA de la
+   cifra y de los botones, que es donde sobra sin que se note, en vez de entre
+   los dos bloques. */
+.ctrl__valor {
+  margin-top: auto;
+  font-size: 5vh;
+  font-weight: 700;
+  color: var(--text-body);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+/* La unica tarjeta que crece: la del cliente mide lo que trae y la de la
+   oferta se queda con el resto. Con una sola creciendo no hay hueco que
+   repartir, la caja llena siempre y el bloque fijo queda pegado arriba. */
+.ctrl__grp--oferta {
+  flex: 1 1 auto;
+}
+
+/* Los botones, separados de la cifra por un filete: es la mitad que se toca
+   -la cifra y el stepper son lo mismo— y el filete la nombra sin que haya que
+   leerla. Cuatro en el trueque (el stepper) y dos en el retiro (recoger todo,
+   cancelar), asi que la grilla no es de cuatro fijas: columnas automaticas de
+   un ancho igual, una por boton. Con repeat(4, 1fr) los botones que faltan
+   dejaban dos huecos grises a la derecha del retiro. */
+.ctrl__btns {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: var(--spw-2);
+  margin-top: var(--sp-2);
+  padding-top: var(--sp-2);
+  border-top: 1px solid var(--divider);
+}
+
+/* Botones fantasma: la receta (.btn) les pone fondo --surface-raised, que es
+   el MISMO de la tarjeta, y ahi desaparecian -cuatro rectangulos grises sobre
+   uno gris. Aca mandan translucido + filete firme + texto claro y bold, para
+   que se lean como controles apretables encima del panel, y el hover los pinta
+   de acento como el resto de lo accionable. */
+.ctrl__btns .ctrl__btn {
+  --btn-height: 3.4vh;
+  --btn-fs: var(--fs-2xs);
+  --btn-bg: var(--w-04);
+  --btn-bg-hover: var(--surface-hover);
+  --btn-border: var(--border-strong);
+  --btn-border-hover: var(--text-accent);
+  --btn-text: var(--text-body);
+  --btn-text-hover: var(--text-inverse);
+  --btn-weight: 700;
+  padding-inline: 0;
+}
+
+/* Sin fila elegida no hay oferta que mover, y el boton apagado tiene que
+   VERSILO apagado: la receta no tiene estado disabled. Mismo gesto que los dos
+   del canal (.flow__xfer-btn:disabled), para que "no se puede" sea el mismo
+   color en las dos partes del menu. */
+.ctrl__btn:disabled {
+  opacity: 0.35;
+  cursor: default;
 }
 
 /* El canal entre las dos listas: los dos botones de traslado, centrados

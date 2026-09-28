@@ -65,10 +65,10 @@
 import { register } from "../core/gsis_ModuleRegistry.js";
 import { query } from "../core/gsis_EventBus.js";
 import { registerModule, getModuleData, setModuleData } from "../core/gsis_SaveManager.js";
-import { KEYS, TIMERS } from "../core/gsis_Config.js";
+import { KEYS, TIMERS, SPECIAL_MODELS } from "../core/gsis_Config.js";
 import { keyJustPressed } from "../core/gsis_Input.js";
 import { t } from "../core/gsis_L10n.js";
-import { WEAPON_DATA, getMagIdByWeaponId, getClipSizeByItemId, getModelIdByWeaponId } from "../data/gsis_weapon_data.js";
+    import { WEAPON_DATA, WEAPON_ID_NATIVE_MAX, CLIP_SOURCE_ENGINE, MODEL_SOURCE_SPECIAL, getModelIdByWeaponId, getModelSourceByWeaponId, getMagIdByWeaponId, getClipSizeByItemId, getClipSizeByWeaponId, getWeaponByItemId, getWeaponByWeaponId } from "../data/gsis_weapon_data.js";
 import { SALUD_MAX, clampSalud } from "../data/gsis_item_data.js";
 
 var _CLIP_OFF = 0x20; // m_nAmmoClip en CWeaponInfo (uint16)
@@ -87,6 +87,20 @@ var _STATE_OUT_OF_AMMO = 3; // Fire() tambien la bloquea (mod de arma a cero)
 var _NO_ANIM = [37, 38]; // en catalogo pero sin anim de recarga (lanzallamas, minigun)
 var _lastSlot = null;
 var _reloadPending = null; // { ped, weapon, deadline, cap } recarga nossa en curso
+
+// Techo de weaponId nativo. El numero vive en el dato (WEAPON_ID_NATIVE_MAX) y
+// se importa de ahi, no se re-declara: dos copias del mismo techo en dos
+// archivos es la forma de que un dia una diga 69 y la otra 70.
+//
+// Cualquier weaponId mayor es un tipo que registro un plugin (un .ASI que
+// agranda CWeaponInfo::aWeaponInfo y da de alta sus variantes). El mod no lo
+// conoce todavia, y eso NO es un arma invalida: es un arma real, agarrada, con su
+// propio slot y su propia capacidad. Por eso el reconciliador las separa de la
+// basura vanilla (melee, granadas, camara, paracaidas) en vez de borrarlas, y
+// syncClipSizes no escribe en ellas. Ver gsis_WEAPONS.md §2.5, §3.1 y §3.3.
+function _isCustomWeaponId(weaponId) {
+    return weaponId > WEAPON_ID_NATIVE_MAX;
+}
 
 // ============================================================================
 // API - arma actual, cargador, clips del catalogo
@@ -167,20 +181,31 @@ function _ballisticData() {
     var data = getModuleData("Ballistic");
     if (!data) data = {};
     if (!data.equipped) data.equipped = {};
+    // Armas que dio de alta un plugin (weaponId >= 70) y el mod todavia no
+    // conoce. Viven en un mapa APARTE a proposito: data.equipped tiene una
+    // forma que consumen getEquippedAmmo, equipWeapon, unequipWeapon, la UI y
+    // el bolso, y meterle una forma nueva los obliga a todos a saber que
+    // existe. Afuera, no hay nada que ajustar ni nada que se pueda romper.
+    // Ver gsis_WEAPONS.md §3.3.
+    if (!data.foreign) data.foreign = {};
     return data;
 }
 
-// Ficha del catalogo por itemId (null si no es arma equipable)
+// Ficha del catalogo por itemId (null si no es arma equipable).
+// El filtro de "equipable" es tener weaponId y slot: un cargador no tiene de
+// las dos, y un slot 0/undefined tambien lo saca. Ver gsis_WEAPONS.md §3.4
+// (kind) — la idea de que que es un cargador no se va a resolver por nulidades
+// sino por un kind explicito.
 function _weaponDefByItemId(itemId) {
     if (!itemId) return null;
-    var wd = WEAPON_DATA.find(function (w) { return w.itemId === itemId; });
+    var wd = getWeaponByItemId(itemId);
     if (!wd || wd.weaponId === null || wd.weaponId === undefined || !wd.slot) return null;
     return wd;
 }
 
 // itemId de catalogo para un weaponId (22 → "9mm"); null si no esta en catalogo
 function _itemIdByWeaponId(weaponType) {
-    var wd = WEAPON_DATA.find(function (w) { return w.weaponId === weaponType; });
+    var wd = getWeaponByWeaponId(weaponType);
     return wd ? wd.itemId : null;
 }
 
@@ -202,6 +227,34 @@ function _weaponAddrByType(ped, weaponType) {
     return 0;
 }
 
+// Un modelo custom de arma tiene que estar en SU rango, que no es el de los
+// personajes: un ID de modelo es un puntero a un modelo, no una etiqueta, y si
+// dos cosas toman el mismo, la segunda pisa a la primera. Un id fuera de los dos
+// rangos suele ser un typo; uno dentro del rango de personajes es una colision
+// directa. Los dos se avisan al init (una vez) en vez de fallar en juego, que es
+// como un arma invisible se descubre tarde.
+function _validateWeaponModels() {
+    var rango = SPECIAL_MODELS.WEAPON_RANGE;
+    if (!rango) return;
+    for (var i = 0; i < WEAPON_DATA.length; i++) {
+        var w = WEAPON_DATA[i];
+        if (w.modelSource !== MODEL_SOURCE_SPECIAL) continue;
+        var m = w.modelId;
+        if (m === null || m === undefined) {
+            log("[Ballistic] WARN: " + w.itemId + " declara modelSource 'special' pero no tiene modelId");
+            continue;
+        }
+        if (m >= SPECIAL_MODELS.RANGE_START && m <= SPECIAL_MODELS.RANGE_END) {
+            log("[Ballistic] WARN: " + w.itemId + " usa el modelId " + m +
+                ", que esta en el rango de PERSONAJES (" + SPECIAL_MODELS.RANGE_START +
+                "-" + SPECIAL_MODELS.RANGE_END + "): colision de ID de modelo");
+        } else if (m < rango.START || m > rango.END) {
+            log("[Ballistic] WARN: " + w.itemId + " usa el modelId " + m +
+                ", fuera del rango de armas (" + rango.START + "-" + rango.END + ")");
+        }
+    }
+}
+
 // _ensureWeaponModel — carga el modelo 3D de un arma antes de darla.
 //
 // REQUEST_MODEL + LOAD_ALL_MODELS_NOW, que es el orden del doc de 01B2
@@ -216,10 +269,32 @@ function _weaponAddrByType(ped, weaponType) {
 // justamente el modo de fallo que esto previene. Devuelve false si el modelo no
 // se pudo pedir; el give sigue igual (un modelo no cargado no es razon para
 // negarle el arma al jugador), pero quien llame puede saberlo.
+// El modelo custom ya esta en la memoria del juego (lo registro un plugin), asi
+// que la unica pregunta util es "esta de verdad". Si no esta, se avisa con el id
+// y el weaponId, que es justo lo que hace falta para encontrar al culpable sin
+// tener que adivinar.
+function _specialModelReady(modelId) {
+    try {
+        if (native("HAS_MODEL_LOADED", modelId)) return true;
+        log("[Ballistic] WARN: modelo de arma " + modelId +
+            " no esta cargado. Si lo registro un .ASI, su .dff/.txd no cargo; el arma va a salir invisible.");
+        return false;
+    } catch (e) {
+        return false;
+    }
+}
+
 function _ensureWeaponModel(weaponId) {
     try {
         var modelId = getModelIdByWeaponId(weaponId);
         if (!modelId) return false;  // fuera de catalogo: no hay modelo que pedir
+        if (getModelSourceByWeaponId(weaponId) === MODEL_SOURCE_SPECIAL) {
+            // El modelo lo registro un plugin en CModelInfo: ya esta en la
+            // memoria del juego y REQUEST_MODEL no es lo que lo trae. Lo que si
+            // tiene que pasar es que este de verdad, porque si falta el arma se
+            // da igual y sale invisible, y eso no se ve solo.
+            return _specialModelReady(modelId);
+        }
         native("REQUEST_MODEL", modelId);
         native("LOAD_ALL_MODELS_NOW");
         return true;
@@ -370,26 +445,93 @@ function expandMagazine(size, weaponType, skill) {
 // Solo en init (una vez). Devuelve cuántos combos se parchearon.
 function syncClipSizes() {
     var n = 0;
+    var primeraDir = null;
     for (var i = 0; i < WEAPON_DATA.length; i++) {
         var w = WEAPON_DATA[i];
         if (w.weaponId === null || w.weaponId === undefined) continue;
         if (w.clipSize === null || w.clipSize === undefined) continue;
+        // Lo que la tiene el motor no se toca: es la CWeaponInfo de un plugin.
+        if (w.clipSource === CLIP_SOURCE_ENGINE) continue;
+        // Y ningun weaponId fuera del rango nativo: el mod no escribe en la
+        // tabla que creo el .ASI, ni para una variante propia.
+        if (w.weaponId > WEAPON_ID_NATIVE_MAX) continue;
         for (var skill = 0; skill <= 3; skill++) {
+            if (primeraDir === null) primeraDir = _weaponInfoAddr(w.weaponId, skill);
             if (expandMagazine(w.clipSize, w.weaponId, skill)) n++;
         }
     }
+    // DONDE VIVE LA TABLA REAL de CWeaponInfo, para un .asi que quiera dar de
+    // alta armas nuevas.
+    //
+    // Esto se midio, no se copio de un SDK. El plugin-sdk declara la tabla en
+    // 0xC8AAB8 y GetWeaponInfo en 0x743C60, pero en ESTA build esa region esta en
+    // ceros incluso 30 s despues de que este modulo escriba los cargadores
+    // aca: o sea que no es la tabla. La unica fuente que responde es el handle
+    // que devuelve GET_WEAPONINFO, y se loguea una vez para que el .asi parta
+    // de un numero real en vez de uno de manual.
+    log("[Ballistic] CWeaponInfo: " + WEAPON_DATA[0].itemId + " (tipo " +
+        WEAPON_DATA[0].weaponId + ") en " + primeraDir +
+        " | " + n + " parcheados (tipo x skill)");
     return n;
+}
+
+// Direccion de la CWeaponInfo de un (tipo, skill). Aislada de expandMagazine
+// para poder mirarla sin escribir nada.
+function _weaponInfoAddr(weaponType, skill) {
+    try {
+        return _infoAddr(native("GET_WEAPONINFO", weaponType, skill));
+    } catch (e) {
+        return null;
+    }
 }
 
 // ============================================================================
 // RECONCILIACION - el ped solo puede llevar armas del registro
 // ============================================================================
 
-// Capacidad del cargador de un weaponId (0 si esa arma no tiene cargador)
+// Export de diagnostico. _ensureWeaponModel es privada, pero es el UNICO lugar
+// donde se decide si a un modelo se lo pide o se lo verifica, y esa decision es
+// justamente la que cambia con un .ASI: un modelo que registro un plugin no se
+// pide, se verifica que este. Sin una costura el test tendria que duplicar la
+// decision, y un test con su propia copia de la decision no verifica la del
+// codigo: verifica la suya.
+export function weaponModelReady(weaponId) {
+    return _ensureWeaponModel(weaponId);
+}
+
+// Capacidad que tiene el MOTOR para un tipo de arma. Se usa solo cuando la
+// CWeaponInfo la registro un plugin (clipSource "engine"): el catalogo puede no
+// conocerla, y aunque la conozca, la que vale es la del motor.
+//
+// Se lee por el mismo camino que usa _readSlotAndType para el arma en la mano
+// (GET_WEAPONINFO -> GET_WEAPONINFO_TOTAL_CLIP) en vez de por offset fijo, para
+// no depender de que el layout sea el de _CLIP_OFF: el bloque de CWeaponInfo lo
+// escribio el plugin, no el juego.
+function _engineClip(weaponType) {
+    try {
+        var c = _playerChar();
+        if (!c) return 0;
+        var skill = native("GET_CHAR_WEAPON_SKILL", c, weaponType) || 0;
+        var info = native("GET_WEAPONINFO", weaponType, skill);
+        if (!info) return 0;
+        return native("GET_WEAPONINFO_TOTAL_CLIP", info) || 0;
+    } catch (e) {
+        return 0;
+    }
+}
+
+// Capacidad efectiva de un tipo de arma en el juego.
+//
+// Antes hacia la vuelta completa: arma -> su magId -> quitar "mag_" -> el arma
+// otra vez -> su clipSize. Para un arma base eso vuelve al punto de partida; para
+// una variante daba la capacidad del BASE, que es justo el bug que viene a
+// arreglar. Ahora va directo a la entrada del weaponId, y si la capacidad la
+// tiene el motor, la lee de ahi.
 function _capacityByType(weaponType) {
-    var magId = getMagIdByWeaponId(weaponType);
-    if (!magId) return 0; // melee, granadas, fuera de catalogo
-    var capacity = getClipSizeByItemId(magId);
+    var w = getWeaponByWeaponId(weaponType);
+    if (!w) return 0; // melee, granadas, fuera de catalogo
+    if (w.clipSource === CLIP_SOURCE_ENGINE) return _engineClip(weaponType);
+    var capacity = getClipSizeByWeaponId(weaponType);
     return capacity > 0 ? capacity : 0;
 }
 
@@ -432,6 +574,8 @@ function _reconcileLoadout() {
         if (!type) {
             // slot vacio: el arma se fue (wasted, mision, script)
             if (entry) { delete data.equipped[i]; changed = true; }
+            // el arma de plugin que estuviera aqui tampoco esta mas
+            if (data.foreign[i]) { delete data.foreign[i]; changed = true; }
             continue;
         }
         // ¿El arma del ped es la registrada? (mismo weaponId)
@@ -442,6 +586,28 @@ function _reconcileLoadout() {
             // una registrada en este slot, acaba de perderse
             var presentId = _itemIdByWeaponId(type);
             if (!presentId) {
+                // El ped tiene un arma que el catalogo no reconoce. Hay DOS
+                // motivos muy distintos y el trato no puede ser el mismo:
+                //
+                //  - type < 70: basura vanilla (melee, granada, camara,
+                //    paracaidas). El mod no la maneja nunca y no hay nada que
+                //    registrar.
+                //  - type >= 70: un tipo de arma que dio de alta un plugin.
+                //    El mod todavia no lo conoce, pero el arma es real, esta
+                //    agarrada y tiene su propio slot. ANTES esta linea la
+                //    borraba del save en el primer frame, sin error ni log.
+                //    Ahora se anota aparte (data.foreign) y no se toca.
+                if (_isCustomWeaponId(type)) {
+                    if (!data.foreign[i] || data.foreign[i].weaponId !== type) {
+                        data.foreign[i] = { weaponId: type, slot: i };
+                        changed = true;
+                    }
+                    // Si habia una arma del catalogo registrada en este slot,
+                    // ya no esta (el plugin la sustituyo): se libera el registro.
+                    // El arma en si no se pierde — el save la tiene el juego.
+                    if (entry) { delete data.equipped[i]; changed = true; }
+                    continue;
+                }
                 if (entry) { delete data.equipped[i]; changed = true; }
                 continue;
             }
@@ -469,10 +635,14 @@ function _reconcileLoadout() {
                 continue;
             }
             if (entry) delete data.equipped[i];
+            // el slot vuelve a ser del catalogo: el arma de plugin que
+            // estuviera anotada aqui ya no aplica
+            if (data.foreign[i]) delete data.foreign[i];
             changed = true;
             continue;
         }
         // Registrada y coincidente → normalizar la munición del cargador
+        if (data.foreign[i]) { delete data.foreign[i]; changed = true; }
         var capR = _capacityByType(type) || 0;
         var totalR = Memory.ReadI32(addr + _W_AMMO, false);
         if (entry.hasMag === false) {
@@ -635,7 +805,7 @@ register({
     init: function () {
         _lastSlot = null;
         _reloadPending = null; // sin recarga pendiente al cargar partida
-        registerModule("Ballistic", { equipped: {} }); // armas en slot
+        registerModule("Ballistic", { equipped: {}, foreign: {} }); // armas en slot (+ armas de plugin)
         // Migracion de saves viejos: hasMag[slot] → equipped[slot].hasMag
         var data = getModuleData("Ballistic");
         var migrado = false;
@@ -660,6 +830,9 @@ register({
             }
         }
         if (migrado) setModuleData("Ballistic", data);
+        // Modelos custom: valida que los ids no colisionen con el rango de
+        // personajes antes de que un arma salga invisible en juego
+        _validateWeaponModels();
         // Capacidades: clip de juego = clipSize del catalogo (igual que mag_*)
         syncClipSizes();
     },

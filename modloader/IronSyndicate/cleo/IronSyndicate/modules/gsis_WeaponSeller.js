@@ -19,7 +19,7 @@
 
 import { register } from "../core/gsis_ModuleRegistry.js";
 import { registerMenuSource } from "../core/gsis_Input.js";
-import { t } from "../core/gsis_L10n.js";
+import { t, money } from "../core/gsis_L10n.js";
 import { setNotice } from "../core/gsis_Notice.js";
 import { emit } from "../core/gsis_EventBus.js";
 import { getSellPrice, WEAPON_DATA } from "../data/gsis_weapon_data.js";
@@ -56,7 +56,12 @@ function _defaultState() {
         techoBase: [0, 150],
         // Si el comprador ya escucho UNA oferta. El presupuesto se esconde hasta
         // que pasa: ver getSellState().
-        offered: false
+        offered: false,
+        // La oferta que el jugador esta pidiendo por CADA arma, en el mismo
+        // espiritu que el carrito de la armeria: el estado lo tiene el mod y la
+        // pagina solo lo lee y lo mueve. {} vacio = oferta de base. Se vacia
+        // junto con el resto cuando se regenera el NPC (_generateState).
+        ofertas: {}
     };
 }
 
@@ -122,6 +127,52 @@ export function getSellState() {
     };
 }
 
+// La oferta actual de un arma: lo que la pagina pinta en la columna OFERTA y lo
+// que arma seller:offer cuando el jugador confirma. Sin nada guardado devuelve
+// la base del trueque (getSellPrice), que es donde arranca la negociacion.
+//
+// Por que vive en el mod y no en la pagina: es estado del NPC, igual que el
+// carrito de la armeria. Vivir aca hace que el snapshot sea la unica verdad —
+// la pagina la pinta y listo— y que mover la oferta quede registrado aunque el
+// jugador cambie de fila, se vaya del menu o el snapshot tarde.
+export function getOffer(itemId) {
+    var st = _activeState();
+    var guardada = st.ofertas[itemId];
+    if (guardada) return guardada;
+    return getSellPrice(itemId);
+}
+
+// Mueve la oferta de un arma y la deja guardada. `delta` es +10/-10 (o +100/
+// -100, la pagina decide el paso) y el resultado se vuelve a redondear a la
+// decena: el precio de trueque es multiplo de 10 (getSellPrice) y sin esto una
+// rafaga de teclas podria dejar la columna en una cifra que no es de este
+// mercado.
+//
+// Los dos topes son parte del contrato, no ahorros:
+//   piso 10    una oferta de 0 no es negociar, es regalar (offerWeapon rechaza
+//              unitPrice <= 0, pero sin esto la columna llegaria a $0 y el
+//              jugador mandaria un precio invalido).
+//   techo base*3  sanitario, y elegido para NO filtrar el presupuesto: el techo
+//              real del NPC es base + rand y el presupuesto sigue oculto hasta
+//              la primera oferta, asi que frenar la oferta ahi daria el dato
+//              del NPC a mirar la barra.
+export function moveOffer(itemId, delta) {
+    var base = getSellPrice(itemId);
+    if (!base) return 0;
+    // El delta puede venir malformado de la pagina (y con un NaN el `if` de
+    // abajo no frenaria nada: NaN < 10 es false, NaN > base*3 tambien, y la
+    // columna pasaria a $NaN).
+    delta = Math.round(Number(delta) || 0);
+    if (!delta) return getOffer(itemId);
+    var st = _activeState();
+    var actual = st.ofertas[itemId] || base;
+    var nuevo = Math.round((actual + delta) / 10) * 10;
+    if (nuevo < 10) nuevo = 10;
+    if (nuevo > base * 3) nuevo = base * 3;
+    st.ofertas[itemId] = nuevo;
+    return nuevo;
+}
+
 // Evaluacion de oferta sobre el NPC activo.
 // Devuelve { ok, total, interest, msgKey, msgParams } — la orquestacion (doOffer)
 // saca el item, aplica el commit y paga.
@@ -132,6 +183,21 @@ export function getSellState() {
 // el NPC compra y solo despues cobre — antes el descuento pasaba antes de saber
 // si el item salia de la mochila, y sin rollback: si removeItem fallaba, el NPC
 // ya habia pagado y el jugador se llevaba el arma gratis.
+// El precio que el jugador puede pedir y que el NPC acepta SIN jugar al azar:
+// el 85% del techo, redondeado a la decena (todos los precios de este mercado
+// son multiplos de 10, ver getSellPrice). Es la mitad del contrato de los dos
+// rechazos de offerWeapon: sin este numero el jugador recibe un "no" que no
+// puede responder, y con el el camino normal del trueque converge en dos
+// intentos — ofrecer el techo mismo sigue siendo posible, y sigue siendo una
+// moneda al aire, pero ya no es lo unico que se puede hacer.
+//
+// piso 10 y no 0: una oferta de 0 la rechaza el filtro de arriba (SEL_IVL), asi
+// que decirle "hasta $0" seria mandarlo a un error.
+function _precioSeguro(techo) {
+    var n = Math.floor((techo * 0.85) / 10) * 10;
+    return n < 10 ? 10 : n;
+}
+
 function offerWeapon(itemId, qty, unitPrice, commit) {
     if (commit === undefined || commit === null) commit = true;
     qty = qty || 1;
@@ -169,11 +235,15 @@ function offerWeapon(itemId, qty, unitPrice, commit) {
             Math.floor(Math.random() * (st.techoBase[1] - st.techoBase[0] + 1));
     }
 
-    // Rechazo automatico: oferta > techo
+    // Rechazo automatico: oferta > techo. El mensaje lleva el precio SEGURO, no
+    // el techo: es el unico numero que el jugador puede ofrecer y recibir
+    // respuesta "si" (unitPrice <= techo * 0.85, mas abajo). Decirle "hasta
+    // $950" cuando ofrecer $950 es una moneda al aire lo estaria mandando al
+    // mismo rechazo de siempre, y mover la oferta a ciegas no es negociar.
     if (unitPrice > techo) {
         return {
             ok: false, total: 0, interest: isInterest,
-            msgKey: "SEL_R1", msgParams: null
+            msgKey: "SEL_R1", msgParams: { n: money(_precioSeguro(techo)) }
         };
     }
 
@@ -193,16 +263,19 @@ function offerWeapon(itemId, qty, unitPrice, commit) {
     } else {
         // 50% entre 85% y 100% del techo
         if (Math.random() >= 0.5) {
+            // Mismo numero que SEL_R1: si estiro demasiado, lo que le falta es
+            // saber hasta donde NO. La diferencia entre los dos rechazos la pone
+            // el color del codigo (~y~ en vez de ~r~), no el numero.
             return {
                 ok: false, total: 0, interest: isInterest,
-                msgKey: "SEL_R3", msgParams: null
+                msgKey: "SEL_R3", msgParams: { n: money(_precioSeguro(techo)) }
             };
         }
         // acepta con flavor de "un poco caro"
         if (commit) _commitOffer(st, total, isInterest);
         return {
             ok: true, total: total, interest: isInterest,
-            msgKey: "SEL_A2", msgParams: { n: total }
+            msgKey: "SEL_A2", msgParams: { n: money(total) }
         };
     }
 
@@ -210,7 +283,7 @@ function offerWeapon(itemId, qty, unitPrice, commit) {
     if (commit) _commitOffer(st, total, isInterest);
     return {
         ok: true, total: total, interest: isInterest,
-        msgKey: "SEL_A1", msgParams: { n: total }
+        msgKey: "SEL_A1", msgParams: { n: money(total) }
     };
 }
 
@@ -363,6 +436,10 @@ function _randRange(range, fallbackMin, fallbackMax) {
 
 function _generateState(charId) {
     var st = _state(charId);
+    // El NPC nuevo es un NPC nuevo: las ofertas que le venia pidiendo al anterior
+    // no le dicen nada a este. Se limpia aca y no en closeSellMenu porque la
+    // regeneracion puede pasar con el menu cerrado (openSellMenu con fulfilled).
+    st.ofertas = {};
     var ch = getCharacter(charId);
     var cfg = (ch && ch.seller) ? ch.seller : null;
 

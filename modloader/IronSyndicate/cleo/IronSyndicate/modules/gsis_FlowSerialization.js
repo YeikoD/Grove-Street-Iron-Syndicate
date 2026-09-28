@@ -73,7 +73,7 @@ import {
     getDealerPrice, getCart, getCartTotal, getCJMoney
 } from "./gsis_WeaponDealer.js";
 import {
-    isSellMenuVisible, closeSellMenu, openSellMenu, getSellState
+    isSellMenuVisible, closeSellMenu, openSellMenu, getSellState, getOffer
 } from "./gsis_WeaponSeller.js";
 import {
     isPickupMenuVisible, closePickupMenu, openPickupMenu, getOrder
@@ -331,6 +331,18 @@ function _dealerName(charId) {
 // Las filas son las armas del jugador que el NPC compra. El presupuesto NO se
 // arma aca: getSellState() ya lo devuelve null hasta la primera oferta, asi que
 // el dato no sale del mod (ver el comentario de getSellState).
+//
+// Encabezado y pie, con las mismas recetas que la armeria:
+//
+//   subtitulo   SOLO el segundo dato que identifica ("Cliente"), en la misma
+//               linea que el titulo (.panel-header--linea). "Busca hoy: ..." es
+//               una frase y no cabe ahi, y el cierre " | ESPACIO o ESC" ya no se
+//               anuncia en ningun menu: se fue al pie.
+//   pie.izq     lo que busca el NPC, que es el dato que decide que le conviene
+//               ofrecerle.
+//   pie.der     el presupuesto cuando se lo dijo (getSellState lo oculta hasta
+//               la primera oferta) y "se cumplio" cuando ya le conseguiste lo
+//               que buscaba.
 function _snapSeller() {
     var items = getItems();
     var rows = [];
@@ -346,20 +358,30 @@ function _snapSeller() {
         if (getItemType(items[i].id) !== "weapon") continue;
         var fila = itemRow(items[i]);
         fila.base = base;
-        // La oferta arranca en el valor base, que es lo unico que el jugador
-        // puede calcular sin informacion del NPC. Subirla es el trueque.
-        fila.oferta = base;
+        // La oferta arranca en el valor base y el jugador la mueve desde la
+        // pagina (seller:quote → moveOffer). Sale del mod y no de la pagina
+        // porque es estado del NPC: asi el snapshot es la unica verdad y mover
+        // la oferta no se pierde al cambiar de fila. base queda como columna de
+        // referencia — es lo que vale el arma en el mercado, y es la unica
+        // diferencia entre las dos cifras de la fila.
+        fila.oferta = getOffer(items[i].id);
         rows.push(fila);
     }
 
     var st = getSellState();
     return {
         titulo: t("SEL_TTL"),
-        subtitulo: _subtitulo(t("SEL_BUS", { list: st.interests.length ? st.interests.join(", ") : "-" })),
+        subtitulo: t("SEL_NPC"),
         panes: [{ key: "venta", titulo: t("SEL_ARMAS"), vacio: t("SEL_NON"), weight: 0, max: 0, rows: rows }],
         pie: {
-            izq: st.budget == null ? t("SEL_BUDH") : t("SEL_BUD", { n: money(st.budget) }),
-            der: st.fulfilled ? t("SEL_OK") : ""
+            izq: t("SEL_BUS", { list: st.interests.length ? st.interests.join(", ") : "-" }),
+            // El presupuesto va aca y no a la izquierda porque el que decide
+            // mostrarlo es el mod (getSellState lo devuelve null hasta la primera
+            // oferta) y "se cumplio" ocupa el mismo lugar cuando ya le
+            // conseguiste lo que buscaba: son dos estados del mismo dato.
+            der: st.fulfilled
+                ? t("SEL_OK")
+                : (st.budget == null ? t("SEL_BUDH") : t("SEL_BUD", { n: money(st.budget) }))
         }
     };
 }
