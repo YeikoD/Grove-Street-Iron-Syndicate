@@ -13,14 +13,16 @@
 // Pedido: SaveManager "DealerOrders" (persiste guardado) hasta recoger
 // Dinero: nativo de CJ (Player.storeScore / addScore), NO cleanMoney del save
 // Depende de: Config, ModuleRegistry, SaveManager, EventBus, weapon_data,
-//             character_data, SpotRuntime
+//             character_data, SpotRuntime, L10n, Notice, item_data
 // ============================================================================
 
 import { register } from "../core/gsis_ModuleRegistry.js";
 import { registerMenuSource } from "../core/gsis_Input.js";
 import { registerModule, getModuleData, setModuleData } from "../core/gsis_SaveManager.js";
 import { emit } from "../core/gsis_EventBus.js";
-import { t } from "../core/gsis_L10n.js";
+import { t, money } from "../core/gsis_L10n.js";
+import { setNotice } from "../core/gsis_Notice.js";
+import { getItemName } from "../data/gsis_item_data.js";
 import { getWeaponPrice } from "../data/gsis_weapon_data.js";
 import { getCharacter } from "../data/gsis_character_data.js";
 import {
@@ -123,20 +125,68 @@ export function getCartTotal() {
     return total;
 }
 
-// Suma qty al carrito activo (qty default 1)
+// Suma qty al carrito activo (qty default 1). El aviso lo escribe este modulo:
+// el exito se ve como "Agregaste 2x 9mm" y el rechazo —item fuera del catalogo
+// de este dealer o cantidad ilegal— como aviso rojo, en los dos casos via el
+// notice del proximo snapshot. Sin esto la tecla Entrar parecia morder aire:
+// el comando viajaba, el carrito cambiaba y la pantalla no decia nada hasta que
+// uno miraba el pane derecho.
 export function addToCart(itemId, qty) {
-    if (!getDealerPrice(itemId)) return false;
+    if (!getDealerPrice(itemId)) {
+        setNotice(t("DLR_IVL"));
+        return false;
+    }
     qty = qty || 1;
-    if (qty < 1) return false;
+    if (qty < 1) {
+        setNotice(t("DLR_IVL"));
+        return false;
+    }
     var cart = _cartRef();
     cart[itemId] = (cart[itemId] || 0) + qty;
+    setNotice(t("DLR_ADD", { qty: qty, name: getItemName(itemId) }));
     return true;
 }
 
-// Limpia carrito del personaje activo
+// Saca qty del carrito activo (qty default 1) y devuelve si habia algo que
+// sacar. El false es lo que el aviso de "quitar" usa para no mentir: un
+// "quitado 2x AK-47" sobre un carrito que no tenia la fila seria un feedback
+// que dice una cosa y hace otra. No valida precio: sacar no cuesta nada.
+//
+// La cantidad se topa contra lo que hay: si piden sacar 2 y queda 1, salen 1 y
+// el aviso dice 1. Ver DLR_REM / DLR_IVL en gsis_lang_data.js.
+export function removeFromCart(itemId, qty) {
+    var cart = _cartRef();
+    if (!cart[itemId] || cart[itemId] <= 0) {
+        setNotice(t("DLR_IVL"));
+        return false;
+    }
+    qty = qty || 1;
+    if (qty < 1) {
+        setNotice(t("DLR_IVL"));
+        return false;
+    }
+    if (qty > cart[itemId]) qty = cart[itemId];
+    cart[itemId] -= qty;
+    if (cart[itemId] <= 0) delete cart[itemId];
+    setNotice(t("DLR_REM", { qty: qty, name: getItemName(itemId) }));
+    return true;
+}
+
+// Limpia carrito del personaje activo. Vaciar uno que ya estaba vacio avisa
+// "Carrito vacio" en rojo y no "Carrito vaciado": el segundo diria que algo
+// cambio cuando no cambio nada.
 export function resetCart() {
     var id = getActiveCharacterId();
+    var cart = _carts[id] || {};
+    var tenia = false;
+    for (var k in cart) {
+        if (cart.hasOwnProperty(k)) {
+            tenia = true;
+            break;
+        }
+    }
     _carts[id] = {};
+    setNotice(t(tenia ? "DLR_CLR" : "CRT_EMP"));
 }
 
 // Dinero actual de CJ (HUD nativo GTA SA)
@@ -149,17 +199,25 @@ export function getCJMoney() {
 }
 
 // Checkout: valida dinero de CJ, cobra, guarda/mergea pedido, limpia carrito activo
+//
+// Los tres resultados van por setNotice() y no por showTextBox: con el menu
+// abierto el showTextBox se dibuja DETRAS del panel y no se lee ni una letra
+// (ver el header de gsis_Notice.js). El texto es el mismo de siempre —CRT_EMP,
+// MON_LOW, ORD_OK—, solo cambia el canal por el que sale.
 export function checkout() {
     var total = getCartTotal();
     if (total <= 0) {
-        showTextBox(t("CRT_EMP"));
+        setNotice(t("CRT_EMP"));
         return false;
     }
 
     var p = new Player(0);
-    var money = p.storeScore();
-    if (money < total) {
-        showTextBox(t("MON_LOW", { n: total - money }));
+    // Se llama saldo y no money: money es la funcion de formato de L10n, y con
+    // el mismo nombre adentro de checkout() la llamada money(total) resolveria
+    // a este numero.
+    var saldo = p.storeScore();
+    if (saldo < total) {
+        setNotice(t("MON_LOW", { n: money(total - saldo) }));
         return false;
     }
     p.addScore(-total); // 0109: negativo resta dinero de CJ
@@ -192,7 +250,7 @@ export function checkout() {
     // quiera escucharlo (un dialogo, un sonido) sin tener que preguntar por el
     // pedido cada frame.
     emit("dealer:orderReady", {});
-    showTextBox(t("ORD_OK", { n: total }));
+    setNotice(t("ORD_OK", { n: money(total) }));
     log("[WeaponDealer] Checkout OK (" + activeId + "): $" + total +
         " (CJ money: " + p.storeScore() + ")");
     return true;

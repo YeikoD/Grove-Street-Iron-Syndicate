@@ -299,9 +299,27 @@ const MOCK_FLUJOS = {
           { id: "shotgun", cat: "Escopetas", name: "Escopeta", qty: 1, ammo: "1/1", weight: 3.5, value: 700, precio: 1050, enCarrito: 0, tip: "" },
           { id: "ak47", cat: "Fusiles de asalto", name: "AK-47", qty: 1, ammo: "30/30", weight: 3.5, value: 1500, precio: 1800, enCarrito: 1, tip: "" }
         ]
+      },
+      {
+        // Lo que ya esta en el carrito: mismo shape que las filas del catalogo
+        // (mismas columnas) mas maxQty, el tope de cuanto se puede sacar. En el
+        // juego lo arma _snapDealer a partir del cart; aca se escribe a mano
+        // para ver el layout de las dos listas.
+        key: "carrito",
+        titulo: "Carrito",
+        vacio: "(carrito vacio)",
+        weight: 0,
+        max: 0,
+        rows: [
+          { id: "9mm", cat: "Pistolas", name: "9mm", qty: 1, ammo: "17/17", weight: 1.5, value: 400, precio: 480, enCarrito: 2, maxQty: 2, tip: "" },
+          { id: "ak47", cat: "Fusiles de asalto", name: "AK-47", qty: 1, ammo: "30/30", weight: 3.5, value: 1500, precio: 1800, enCarrito: 1, maxQty: 1, tip: "" }
+        ]
       }
     ],
-    pie: { izq: "Tu dinero: $4.200", der: "Total carrito: $1.440" }
+    // El total del carrito es el de las filas de arriba: 2x480 + 1x1800.
+    // renderPie parsea este texto para el "falta $X" y los botones del pie,
+    // asi que el mock tiene que cuadrar con sus propias filas.
+    pie: { izq: "Tu dinero: $4.200", der: "Total carrito: $2.760" }
   },
   seller: {
     titulo: "Trueque — Cliente local",
@@ -1017,10 +1035,15 @@ function celdaCantidad(r) {
   return q;
 }
 
-// PLACEHOLDER. El mod no tiene condicion de item que mandar: `quality` esta en
-// la forma de la instancia pero siempre vale 1, asi que no hay nada real que
-// mostrar todavia. Va fijo en 100% con el tope escrito, para que el dia que se
-// enchufe un dato de verdad el clamp ya este y no haya que acordarse.
+// Salud 0..100. La manda el mod en cada fila (`salud` en itemRow,
+// modules/gsis_ItemRow.js) y la celda no inventa nada: sin dato, 100.
+//
+// El fallback a 100 no es un placeholder, es el default del dato: TODO item
+// nace a SALUD_MAX (data/gsis_item_data.js), y una fila sin `salud` es una fila
+// vieja o un contenedor que todavia no la trae, no un item sin salud. Por eso
+// el clamp va en la celda igual —una fila con 130 o con -4 de un save editado se
+// pinta como 100% o 0% y no rompe la columna— y no solo en el mod: la celda es
+// el ultimo lugar por el que pasa el dato y el que ve el jugador.
 //
 // La firma es (fila) como el resto de las celdas: la grilla pasa la fila, y una
 // celda que espera un numero recibe el objeto entero y sale "NaN%".
@@ -1034,8 +1057,22 @@ function celdaPeso(r) {
   return r.weight != null ? r.weight.toFixed(1) : null;
 }
 
+// Dinero con el formato del juego: $ y punto de miles, sin decimales — "$1.500".
+// Es la MISMA regla con la que el mod arma el pie (DLR_DIN/DLR_TOT en
+// gsis_FlowSerialization.js), asi que una cifra de la tabla y la del pie se
+// leen como el mismo numero y no como dos sistemas distintos ($1500 contra
+// $1.440, que era como quedaban antes).
+//
+// No va por toLocaleString: la pagina corre en Chrome (preview) y en el CEF del
+// juego, y si cada runtime resolviera una cultura distinta, las dos mitades del
+// menu podrian divergir un dia sin codigo nuevo en el medio.
+function fmtDinero(n) {
+  if (n == null) return null;
+  return "$" + String(Math.round(Number(n))).replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+}
+
 function celdaValor(r) {
-  return r.value != null ? "$" + r.value : null;
+  return r.value != null ? fmtDinero(r.value) : null;
 }
 
 // Las dos primeras columnas de toda tabla son estructurales y el resto son
@@ -1097,13 +1134,39 @@ function buildTableRow(r, cols, vista, paneIdx) {
   el.setAttribute("role", "option");
   el.dataset.id = r.id;
 
+  // Fila del catalogo que ya tiene unidades en el carrito: tinte de color
+  // distinto al de la seleccion (ver .table__row--carrito) para que en la lista
+  // larga se vea de un vistazo lo que ya esta elegido sin mirar el pane
+  // derecho. Solo pane 0 —en el pane del carrito la fila YA es el carrito— y
+  // solo con enCarrito > 0, que es el campo que el mod manda en el snapshot.
+  if (paneIdx === 0 && r.enCarrito > 0) {
+    el.classList.add("table__row--carrito");
+  }
+
   for (const col of cols) {
     if (col.kind === "icon") {
       el.appendChild(iconCell(r));
     } else if (col.kind === "name") {
-      el.appendChild(nameCell(r));
+      const wrap = nameCell(r);
+      // El chip "(2 en carrito)" va en el mismo wrapper que la marca de
+      // equipado: flex, no se corta con ellipsis (recorta solo .table__name) y
+      // el parentesis va en el texto para que se lea pegado a la palabra.
+      if (paneIdx === 0 && r.enCarrito > 0) {
+        const chip = document.createElement("span");
+        chip.className = "table__carrito";
+        chip.textContent = "(" + r.enCarrito + " en carrito)";
+        wrap.appendChild(chip);
+      }
+      el.appendChild(wrap);
     } else {
-      el.appendChild(cell(col.cell(r)));
+      const c = cell(col.cell(r));
+      // Jerarquia entre columnas de la misma fila: "suave" baja la cifra de
+      // referencia (lo que vale despues) y "fuerte" sube la que decide la
+      // compra (lo que se paga). Sin esto las dos van juntas del mismo peso y
+      // el jugador tiene que adivinar cual es el precio.
+      if (col.suave) c.classList.add("table__num--suave");
+      if (col.fuerte) c.classList.add("table__num--fuerte");
+      el.appendChild(c);
     }
   }
 
@@ -1157,6 +1220,10 @@ function buildTableRow(r, cols, vista, paneIdx) {
 //             van con PALABRA, porque los cuatro iconos ya estan ocupados.
 //             Una palabra en columna de datos lleva .table__headtext.
 //   cell      (fila) => texto, o null si la celda va vacia (sale como guion).
+//   suave     la cifra de referencia baja a muted (ver buildTableRow).
+//   fuerte    la cifra que decide la compra va en bold. Las dos son opcionales
+//             y van juntas en las filas donde hay DOS precios que comparar
+//             (armeria: reventa contra precio de compra).
 //
 // El inventario es una lista de 6 y es la BASE de las otras: armeria, trueque y
 // retiro declaran las mismas celdas con el mismo cell() y le suman o le quitan
@@ -1422,6 +1489,9 @@ function trasSeleccionar(r) {
   if (panes.length > 1 && paneActual !== _selPane && _selPane !== null) {
     paneActual = _selPane;
     marcarPaneActivo(p);
+    // El pie declara verbos por lista (Enter: Agregar/Quitar) y mas adelante
+    // estados por lista (botones del carrito): se redibuja con cada lista.
+    renderPie(p, cfg, flowData);
   }
 
   // La cantidad es de UNA fila: quedarse con "5" de la chatarra al pasar a un
@@ -1507,22 +1577,25 @@ function panelDe(id) {
 // HTML habria que escribirlo cuatro veces y las cuatro copias divergen — que es
 // lo que le paso al mapa de iconos cuando vivia en app.js.
 function crearPanel(id) {
+  const cfg = PANTALLAS[id] || {};
   const sec = document.createElement("section");
   sec.className = "panel panel--flujo hidden";
-  // El baul es el unico que no va al costado: son dos listas, y al centro se leen
-  // las dos sin taparse. La clase decide tamano y posicion (style.css).
-  if (id === "trunk") sec.classList.add("panel--centro");
+  // El ancho central es declarativo: PANTALLAS.<id>.centro. Hoy lo piden dos
+  // —el baul, por las dos listas, y la armeria, por catalogo contra carrito—
+  // y las dos son pantallas de a dos listas: la clase decide tamano y posicion
+  // (style.css) y la regla es una sola para las dos.
+  if (cfg.centro) sec.classList.add("panel--centro");
   sec.id = "pnl-" + id;
 
   const head = document.createElement("div");
-  // El subtitulo del baul —el nombre del auto— va en la linea del titulo, y el
-  // inventario lo hace igual con "CJ" (esta declarado en el HTML). Los otros tres
-  // lo llevan en su propia linea porque son frases largas.
+  // El subtitulo central —el nombre del auto, "CJ", el nombre del vendedor— va
+  // en la linea del titulo, y los demas lo llevan en su propia linea porque son
+  // frases largas.
   //
   // La condicion se lee de la clase del panel y no se repite como otro
-  // `id === "trunk"`: las dos cosas son el baul, y con dos comparaciones
-  // separadas el dia que una pantalla se sume a una de las dos se puede sumar a
-  // una y no a la otra.
+  // `id === "trunk"`: la clase nace del flag centro de PANTALLAS, y con dos
+  // comparaciones separadas el dia que una pantalla se sume a una de las dos se
+  // puede sumar a una y no a la otra.
   head.className = "panel-header" +
     (sec.classList.contains("panel--centro") ? " panel-header--linea" : "");
   const titulo = document.createElement("h1");
@@ -1532,11 +1605,11 @@ function crearPanel(id) {
   head.appendChild(titulo);
   head.appendChild(subtitulo);
 
-  // Donde van los panes. Con dos panes (el baul) se llenan dos columnas; con
-  // uno, una sola a lo ancho.
+  // Donde van los panes. La clase --2 no se pone aca: renderPanes() la decide
+  // con el largo del snapshot, que es el unico lugar que sabe cuantas listas
+  // trae esta vez (y la cambia si el mod manda otra cantidad).
   const panes = document.createElement("div");
   panes.className = "flow__panes";
-  if (id === "trunk") panes.classList.add("flow__panes--2");
 
   const aviso = document.createElement("p");
   aviso.className = "aviso hidden";
@@ -1610,6 +1683,13 @@ function setPantalla(id) {
     _vistasPane[0] = [];
     _vistasPane[1] = [];
     _selPane = 0;
+    // La lista activa tambien arranca en la primera. paneActual sobrevive
+    // entre flujos (se declara una sola vez) y el reset implicito era el clamp
+    // de renderFlujo — paneActual >= panes.length—, que con listas de una sola
+    // columna siempre cumplia. Con DOS pantallas de dos listas dejaba al
+    // jugador entrando a la armeria parado en el carrito por haber salido del
+    // baul en el maletero.
+    paneActual = 0;
   }
   if (!id) {
     // La seleccion vuelve a ser la del inventario. Sin esto, al cerrarse un
@@ -1977,7 +2057,10 @@ function renderPie(p, cfg, data) {
     }
     const verb = document.createElement("span");
     verb.className = "keyhint__v";
-    verb.textContent = k.texto;
+    // texto puede ser funcion del pane: el Enter de la armeria dice "Agregar"
+    // en el catalogo y "Quitar" en el carrito, y el pie se redibuja al cambiar
+    // de lista. Las teclas de menu entero (V, P) van como texto plano.
+    verb.textContent = typeof k.texto === "function" ? k.texto(paneActual) : k.texto;
     b.appendChild(verb);
     p.keyhints.appendChild(b);
   }
@@ -2191,9 +2274,15 @@ function cambiarPane(dir) {
   const panes = (flowData && flowData.panes) || [];
   if (panes.length < 2) return;
   paneActual = (paneActual + dir + panes.length) % panes.length;
-  marcarPaneActivo(panelDe(pantallaActual()));
+  const id = pantallaActual();
+  marcarPaneActivo(panelDe(id));
   selectRow(0, paneActual);
+  // Mismo motivo que en trasSeleccionar: el pie depende de la lista activa.
+  renderPie(panelDe(id), cfgDe(id), flowData);
 }
+
+// Timer del flash del total del carrito (ver correrAccion, mas abajo).
+let _flashTimer = null;
 
 // Corre una accion. El comando lo arma la pantalla, con los valores de la barra
 // escritos: la pagina compone el payload y el mod lo valida.
@@ -2215,6 +2304,27 @@ function correrAccion(a, r) {
   }
   const ok = emitCommand(payload);
   _diag("cmd " + payload.cmd + (ok ? " enviado" : " rechazado"));
+  // Flash del total del carrito. El comando de la armeria recien CONFIRMADO
+  // pega el destello en el total (pie derecho) mientras el snapshot con los
+  // datos nuevos tarda hasta 400ms: es el "se envio, mira el total" que falta
+  // entre el Enter y la respuesta. Solo dealer: en las demas pantallas el pie
+  // no es un total que cambia.
+  if (ok && String(payload.cmd).indexOf("dealer:") === 0) {
+    const p = panelDe(pantallaActual());
+    if (p && p.pieDer) {
+      if (_flashTimer !== null) clearTimeout(_flashTimer);
+      // Sacar y volver a poner la clase reinicia la animacion: sin el reflow
+      // del medio el navegador agrupa los dos cambios y un segundo Enter
+      // rapido no volveria a destellar.
+      p.pieDer.classList.remove("panel-foot__txt--flash");
+      void p.pieDer.offsetWidth;
+      p.pieDer.classList.add("panel-foot__txt--flash");
+      _flashTimer = setTimeout(function () {
+        _flashTimer = null;
+        p.pieDer.classList.remove("panel-foot__txt--flash");
+      }, 650);
+    }
+  }
 }
 
 // ============================================================================
@@ -2248,6 +2358,7 @@ const PANTALLAS = {
   // mochila y sacar sale del baul, y depende de que lista estas mirando.
   trunk: {
     titulo: "Maletero Vehiculo",
+    centro: true,
     cols: COLS_INVENTARIO,
     // "todo" le agrega el chip al stepper y el Mayús+Enter: mover una pila de 12
     // con un stepper de 1 en 1 era el peor tramo del menu. En las armas el tope
@@ -2273,43 +2384,76 @@ const PANTALLAS = {
   },
 
   // ------------------------------------------------------------- ARMERIA --
-  // Catalogo con precio de compra y cuanto hay ya en el carrito. Las columnas
-  // son las del inventario MAS las dos propias: lo que el jugador compara al
-  // comprar es lo mismo que compara en su mochila —cuanto pesa, cuantas balas
-  // trae, cuanto vale despues— y sacarlo para que entre el precio seria perder
-  // la mitad de la fila.
+  // Catalogo con precio de compra. Las columnas son las del inventario MAS la
+  // propia: lo que el jugador compara al comprar es lo mismo que compara en su
+  // mochila —cuanto pesa, cuantas balas trae, en que estado viene— y sacarlo
+  // para que entre el precio seria perder la mitad de la fila.
   //
   // La banda de grupo sigue siendo la CATEGORIA del arma (Pistolas, Escopetas),
   // no el type del item: en la armeria todas las filas son type weapon, y con
   // el type quedaria una sola banda, que es el inventario con otros numeros.
   //
-  // Las dos propias van con encabezado de TEXTO y no de icono: los cuatro
-  // iconos de cabecera ya estan ocupados por las columnas del inventario, y
-  // pintar uno nuevo seria un dibujo nuevo para una sola palabra. Ver
-  // .table__headtext y .table--8 en style.css.
+  // Salud se queda y ahora es real: la manda el mod en cada fila del catalogo
+  // (`salud` en itemRow). En la armeria sale siempre a 100% porque lo que se
+  // compra es nuevo, y eso es correcto — no es un dato de mentira.
+  //
+  // Precio va con encabezado de TEXTO y no de icono: los cuatro iconos de
+  // cabecera ya estan ocupados por las columnas del inventario, y pintar uno
+  // nuevo seria un dibujo nuevo para una sola palabra. Ver .table__headtext y
+  // .table--7 en style.css.
+  //
+  // Valor (lo que vale despues de vender) va suave y Precio (lo que se paga)
+  // va fuerte: son DOS precios a comparar en la misma celda visual, y con el
+  // mismo peso el jugador tenia que adivinar cual era el de compra — en la
+  // captura $400 $480 se leian como dos numeros intercambiables.
+  //
+  // La columna Carrito ya no esta: cuanto se lleve de cada arma lo dice el
+  // panel del carrito (segunda lista) y, en la propia fila, el chip
+  // "(2 en carrito)" con la fila resaltada. Ocupaba ancho que las dos
+  // cifras de precio no tenian.
   //
   // El carrito se paga desde el pie y no desde la barra: pagar no es una accion
   // sobre la fila elegida sino sobre el carrito entero, que no es ninguna fila.
   // Por eso pieAcciones vive aparte de acciones.
   dealer: {
     titulo: "Armeria",
+    // Dos listas y panel al centro, igual que el baul: catalogo y carrito con
+    // el canal en el medio. La columna Carrito de la tabla se reemplazo por
+    // esto — el canal hace lo que la columna solo contaba, y en dos listas el
+    // carrito se ve entero en vez de un numero suelto por fila. Con un solo
+    // pane el jugador tenia que acordarse lo que fue agregando.
+    centro: true,
     cols: [
       { kind: "icon" },
       { kind: "name", text: "Arma" },
-      { text: "Cant", icon: "cant", cell: celdaCantidad },
+      { text: "Munición", icon: "cant", cell: celdaCantidad },
       { text: "Salud", icon: "salud", cell: celdaSalud },
       { text: "Peso", icon: "peso", cell: celdaPeso },
-      { text: "Valor", icon: "valor", cell: celdaValor },
-      { text: "Precio", cell: (r) => (r.precio != null ? "$" + r.precio : null) },
-      { text: "Carrito", cell: (r) => r.enCarrito || null }
+      { text: "Valor", icon: "valor", cell: celdaValor, suave: true },
+      { text: "Precio", cell: (r) => fmtDinero(r.precio), fuerte: true }
     ],
-    barra: [{ key: "qty", label: "Cantidad", min: 1, step: 1, max: () => 99 }],
+    // La cantidad tiene dos topos distintos segun la lista y un solo max lo
+    // atiende a los dos: en el catalogo se agrega sin tope (el mod apila), y en
+    // el carrito no se puede sacar mas de lo que hay — r.maxQty lo escribe el
+    // mod SOLO en las filas del carrito (_snapDealer), asi que el campo no
+    // pregunta por el pane: la fila dice cual de los dos casos es.
+    barra: [{ key: "qty", label: "Cantidad", min: 1, step: 1, max: (r) => (r.maxQty != null ? r.maxQty : 99) }],
     acciones: [
       {
         principal: true,
         sobreFila: true,
-        label: () => "Agregar al carrito",
-        cmd: (r) => ({ cmd: "dealer:add", id: r.id, qty: qtyDe() })
+        // Mismo esquema que el baul: el sentido depende de la lista que se esta
+        // mirando. El canal (crearCanal), el chip de destino (renderAccionBar)
+        // y el Enter llaman con el pane activo, asi que los dos botones del
+        // canal apuntan a la accion correcta sin conocer el carrito.
+        //
+        // El test es `pane === 1` y no `pane === 0`: correrAccion arma el
+        // diagnostico con label(r) sin pane, y ahi caer en "Agregar" es el
+        // default correcto (la accion de la lista por defecto).
+        label: (r, pane) => (pane === 1 ? "Quitar del carrito" : "Agregar al carrito"),
+        cmd: (r, pane) => (pane === 1
+          ? { cmd: "dealer:cart:remove", id: r.id, qty: qtyDe() }
+          : { cmd: "dealer:add", id: r.id, qty: qtyDe() })
       }
     ],
     // El pie del menu. Sin este bloque el carrito se llenaba y no habia forma de
@@ -2320,10 +2464,12 @@ const PANTALLAS = {
     ],
     teclas: [
       { tecla: "+−", texto: "Cantidad" },
-      { tecla: "Enter", texto: "Agregar" },
+      // El verbo del Enter depende de la lista: en el catalogo agrega y en el
+      // carrito quita. texto puede ser funcion y el pie se redibuja con cada
+      // cambio de lista (cambiarPane y el click cruzado en trasSeleccionar).
+      { tecla: "Enter", texto: (pane) => (pane === 1 ? "Quitar" : "Agregar") },
       // "Vaciar" y no "Vaciar carrito": es el mismo verbo del boton de al lado
-      // y en un panel de 27vw la palabra de mas empujaba la guia a una tercera
-      // linea del pie.
+      // y la palabra de mas empujaba la guia a una tercera linea del pie.
       { tecla: "V", texto: "Vaciar" },
       { tecla: "P", texto: "Pagar" }
     ]
@@ -2349,12 +2495,12 @@ const PANTALLAS = {
       { text: "Cant", icon: "cant", cell: celdaCantidad },
       { text: "Salud", icon: "salud", cell: celdaSalud },
       { text: "Peso", icon: "peso", cell: celdaPeso },
-      { text: "Base", cell: (r) => (r.base != null ? "$" + r.base : null) },
-      { text: "Oferta", cell: (r) => (r.oferta != null ? "$" + r.oferta : null) }
+      { text: "Base", cell: (r) => fmtDinero(r.base) },
+      { text: "Oferta", cell: (r) => fmtDinero(r.oferta) }
     ],
     barra: [
       { key: "qty", label: "Cantidad", min: 1, step: 1, max: (r) => r.qty || 1 },
-      { key: "price", label: "Oferta", min: 0, step: 10, max: () => 99999, format: (v) => "$" + v }
+      { key: "price", label: "Oferta", min: 0, step: 10, max: () => 99999, format: (v) => fmtDinero(v) }
     ],
     acciones: [
       {

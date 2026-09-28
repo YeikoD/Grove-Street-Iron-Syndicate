@@ -8,6 +8,7 @@
 // Catalogo: data/gsis_lang_data.js (STRINGS) — keys GXT/FXT max 7 chars
 // Idioma: Config.LANG.DEFAULT (sin switch en runtime)
 // t(key, params?) → string localizado con {placeholders} en JS
+// money(n) → el numero con punto de miles, sin "$" (lo pone la plantilla)
 // FxtStore.insert una vez en init para Text.* / GXT futuro
 // Depende de: Config (LANG), lang_data
 // ============================================================================
@@ -43,6 +44,21 @@ export function t(key, params) {
         }
     }
     return text;  // Retorna texto localizado
+}
+
+// El numero como lo escribe el juego: punto de miles y sin decimales —
+// "4200" → "4.200". SOLO el numero: el "$" lo pone la plantilla
+// (t("DLR_DIN") es "Tu dinero: ${n}"), y meterlo aca dejaria "$$4.200".
+//
+// Los dos lados del contrato tienen que escribir igual. La pagina formatea las
+// columnas con fmtDinero (app.js) y parsea el pie para el total del carrito
+// (renderPie), y "$4200" y "$4.200" son dos sistemas distintos para el mismo
+// lector. No va por toLocaleString: el mod y la pagina corren en runtimes
+// distintos (CEF del juego, Chrome del preview) y cada uno resolveria otra
+// cultura.
+export function money(n) {
+    if (n === null || n === undefined) return n;
+    return String(Math.round(Number(n))).replace(/\B(?=(\d{3})+(?!\d))/g, ".");
 }
 
 // Preload al store FXT global (una vez en init)

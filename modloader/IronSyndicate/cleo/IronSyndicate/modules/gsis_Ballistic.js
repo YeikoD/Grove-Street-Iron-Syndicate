@@ -7,7 +7,15 @@
 // ============================================================================
 // EQUIPO — para que un arma este en un slot de GTA tiene que estar equipada
 // desde el inventario (InventoryMenu → equipWeapon). Registro persistido:
-// GameState.Ballistic.equipped[slot] = { id, hasMag }.
+// GameState.Ballistic.equipped[slot] = { id, hasMag, salud }.
+//
+// `salud` esta en el registro porque el arma equipada no esta en items[]: es el
+// unico sitio donde puede vivir su salud sin que se pierda al desequipar. No es
+// lo mismo que el `ammo`, que tampoco esta y se lee del ped, y por el mismo
+// motivo: lo equipado vive en la memoria del juego y lo que el mod guarda es el
+// resto de su estado. La salud todavia no se desgasta (no hay regla que la baje),
+// asi que hoy es de ida y vuelta sin cambios; el campo queda porque el registro
+// es lo que sobrevive a guardar/cargar.
 //   - equipWeapon(itemId): items:takeWeapon (sale del inventario) →
 //     GIVE_WEAPON_TO_CHAR con el estado de la instancia (hasMag/ammo) + clip en
 //     memoria. Si el slot ya tiene otra arma → se desequipa sola (auto-swap).
@@ -58,6 +66,7 @@ import { KEYS, TIMERS } from "../core/gsis_Config.js";
 import { keyJustPressed } from "../core/gsis_Input.js";
 import { t } from "../core/gsis_L10n.js";
 import { WEAPON_DATA, getMagIdByWeaponId, getClipSizeByItemId } from "../data/gsis_weapon_data.js";
+import { SALUD_MAX, clampSalud } from "../data/gsis_item_data.js";
 
 var _CLIP_OFF = 0x20; // m_nAmmoClip en CWeaponInfo (uint16)
 var _WEAPONS_OFF = 0x5A0; // CPed::m_aWeapons (CWeapon[13])
@@ -242,11 +251,11 @@ export function equipWeapon(itemId) {
     if (!_giveWeapon(c, wd.weaponId, ammo, taken.hasMag !== false)) {
         // native fallido: la instancia vuelve al inventario (no se pierde)
         query("items:storeWeapon", {
-            id: itemId, hasMag: taken.hasMag, ammo: taken.ammo, force: true
+            id: itemId, hasMag: taken.hasMag, ammo: taken.ammo, salud: taken.salud, force: true
         });
         return false;
     }
-    data.equipped[slot] = { id: itemId, hasMag: taken.hasMag !== false };
+    data.equipped[slot] = { id: itemId, hasMag: taken.hasMag !== false, salud: taken.salud };
     setModuleData("Ballistic", data);
     try {
         native("SET_CURRENT_CHAR_WEAPON", c, wd.weaponId);
@@ -284,7 +293,7 @@ export function unequipWeapon(slot) {
         if (native("HAS_CHAR_GOT_WEAPON", c, wd.weaponId)) stillThere = true;
     } catch (e) { /* sin verificacion: confiamos en el native */ }
     if (stillThere) return false;
-    if (!query("items:storeWeapon", { id: entry.id, hasMag: hasMag, ammo: ammo })) {
+    if (!query("items:storeWeapon", { id: entry.id, hasMag: hasMag, ammo: ammo, salud: entry.salud })) {
         // sin espacio en el inventario: la arma sigue siendo tuya → se recupera
         _giveWeapon(c, wd.weaponId, ammo, hasMag);
         return false;
@@ -421,7 +430,7 @@ function _reconcileLoadout() {
             } catch (e) { /* sin native: vale la lectura de memoria */ }
             if (stillThere) continue;
             if (!query("items:storeWeapon", {
-                id: presentId, hasMag: hasMag, ammo: total, force: true
+                id: presentId, hasMag: hasMag, ammo: total, salud: SALUD_MAX, force: true
             })) {
                 _giveWeapon(c, type, total, hasMag); // sin sitio: vuelve al ped
                 continue;
@@ -531,7 +540,12 @@ function _unloadWeapon(weaponAddr) {
     } catch (e) { /* sin memoria: el cargador ya esta en el inventario */ }
 }
 
-// Marca si el arma equipada de ese slot lleva cargador montado
+// Marca si el arma equipada de ese slot lleva cargador montado.
+//
+// Solo `hasMag`. La `salud` del registro NO se toca desde aca: es estado de la
+// instancia, y esta funcion reacciona a un evento de recarga, no a desgaste.
+// Igual con `id`. Lo unico que la recarga escribe en el registro es si hay
+// cargador montado, porque eso es lo que la recarga cambia.
 function _setHasMag(slot, mounted) {
     var data = _ballisticData();
     if (!data.equipped[slot]) return;
@@ -591,10 +605,28 @@ register({
         registerModule("Ballistic", { equipped: {} }); // armas en slot
         // Migracion de saves viejos: hasMag[slot] → equipped[slot].hasMag
         var data = getModuleData("Ballistic");
+        var migrado = false;
         if (data && data.hasMag) {
             delete data.hasMag;
-            setModuleData("Ballistic", data);
+            migrado = true;
         }
+        // equipped[slot].salud no existia antes: los slots de un save viejo la
+        // toman a SALUD_MAX. Sin esto el registro queda con salud undefined y
+        // el desequiparla la manda al inventario en 100% por el default de
+        // addItem, que es el mismo numero pero por el camino corto y de rebote.
+        if (data && data.equipped) {
+            for (var slot in data.equipped) {
+                if (!Object.prototype.hasOwnProperty.call(data.equipped, slot)) continue;
+                var entry = data.equipped[slot];
+                if (!entry) continue;
+                var s = clampSalud(entry.salud);
+                if (entry.salud !== s) {
+                    entry.salud = s;
+                    migrado = true;
+                }
+            }
+        }
+        if (migrado) setModuleData("Ballistic", data);
         // Capacidades: clip de juego = clipSize del catalogo (igual que mag_*)
         syncClipSizes();
     },

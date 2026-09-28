@@ -40,6 +40,16 @@
                           que las variantes sean overrides de una linea.
    ============================================================================ */
 
+/* ---------------------------------------------------------------------------
+   RECETAS - el catalogo. Cada una abre con ==== RECETA: .clase ==== y trae su
+   contrato: el markup exacto, quien lo arma en app.js y que hay que tocar para
+   que otra pantalla la adopte.
+
+     componentes    .table  .btn  .panel  .meter  .keyhint  .ctxmenu
+     flujo          .panel-header--linea  .panel--centro  .flow__panes
+                    .aviso  .pane__peso  .accionbar__dir  .accionbar__todo
+   --------------------------------------------------------------------------- */
+
 :root {
   /* ------------------------------------------------------ CAPA 1: PRIMITIVAS -- */
 
@@ -355,32 +365,32 @@ body {
   --table-cols: var(--table-icon-w) 1fr 3.2vw 3.8vw 3.2vw 3.8vw;
 }
 
-/* 7 columnas: icono | nombre | 5 datos. La usa el TRUEQUE, que es el
-   inventario entero menos valor —base sale de getSellPrice(id), que es el mismo
-   numero que pone valueCell() en la columna valor, y una cifra dos veces al lado
-   de la oferta es ruido— mas base y oferta.
+/* 7 columnas: icono | nombre | 5 datos. Dos pantallas: el TRUEQUE —inventario
+   entero menos valor, mas base y oferta— y la ARMERIA —inventario entero menos
+   valor, mas precio de compra (la columna Carrito se fue al panel del carrito,
+   ver PANTALLAS.dealer en app.js)—.
 
-   El reparto no es uniforme a proposito y sigue la misma regla que --6 y --8:
-   el ancho lo mide el ENCABEZADO, no el dato. Cant y las dos propias van con
-   3.2vw porque son "17/17" y palabras de 4-6 letras; salud y peso se quedan en
-   2.9vw porque su dato mas largo es "100%" y "3.5". */
+   El reparto no es uniforme a proposito y sigue la misma regla que --6: el
+   ancho lo mide lo mas ancho de ENCABEZADO o DATO de cada columna. Salud se
+   queda en 2.9vw porque su dato mas largo es "100%" (y su encabezado "Salud"
+   manda); municion/peso/valor/precio bajaron a 2.9 / 1.9 / 3.7 / 3.7: sus
+   datos mas largos son "Munición", "3.5", "$1.500" y la palabra "PRECIO", y
+   traian holgura de sobra. La que la necesita es el NOMBRE: la armeria va en
+   el panel CENTRO de dos columnas —cada lista vive en media panel—, y en esa
+   lista el nombre lleva el chip "(2 en carrito)" al lado (buildTableRow en
+   app.js); con la antigua holgura el chip comprimia el nombre a "9..." a
+   1452x926. Medir con measure.mjs en los dos aspectos; si vuelve a cortarse,
+   se le suma QUITANDO de municion/peso antes que de las de dinero.
+
+   Las de dinero (valor/base 3.9, precio/oferta 3.9) son las que mas traen:
+   la cifra es "$1.500" —6 caracteres con el punto de miles— y el encabezado
+   de armeria es la PALABRA "PRECIO" con .table__headtext. Con 3.2vw los dos
+   se cortaban: la palabra salia "PRE..." y en la captura dos cifras seguidas
+   ("$400 $480") terminaban pegadas, porque el texto overflow se come el gap y
+   no hay aviso — solo la palabra partida. Medir con measure.mjs; si vuelve a
+   cortarse a algun aspecto, se agranda ESTE track y no el nombre. */
 .table--7 {
-  --table-cols: var(--table-icon-w) 1fr 3.2vw 2.9vw 2.9vw 3.2vw 3.2vw;
-}
-
-/* 8 columnas: icono | nombre | 6 datos. La usa la ARMERIA, que es el inventario
-   entero —munición, salud, peso, valor de reventa— mas precio de compra y
-   carrito: el jugador compara al comprar las mismas tres cosas que compara en
-   su mochila, y sacarlas para que entre el precio seria perder la mitad de la
-   fila.
-
-   Reparto por tipo de encabezado, no por igualdad: las cuatro del inventario
-   llevan un svg de 1.85vh y las dos propias llevan PALABRA, que es lo que
-   mide la columna (ver .table__headtext). Por eso esas dos salen con 3.0/3.2vw
-   y salud y peso, cuyo encabezado es un icono y cuyo dato es "100%" y "3.5",
-   con 2.9vw. */
-.table--8 {
-  --table-cols: var(--table-icon-w) 1fr 3.0vw 2.9vw 2.9vw 3.0vw 3.0vw 3.2vw;
+  --table-cols: var(--table-icon-w) 1fr 2.9vw 2.9vw 1.9vw 3.7vw 3.7vw;
 }
 
 .table__head,
@@ -504,6 +514,16 @@ body {
   transition: background var(--dur-fast) ease;
 }
 
+/* Fila del catalogo de la armeria que ya tiene unidades en el carrito. Va
+   ANTES que --selected y --hover en el archivo a proposito: la familia de
+   tinte de la seleccion (verde) gana en cascada cuando las dos clases estan,
+   y el hover sigue pintando encima mientras se pasa el mouse. El color es el
+   de la familia INFO (azul) y no el verde: verde sobre verde seria el mismo
+   color que la fila elegida y no se distinguiria un estado del otro. */
+.table__row--carrito {
+  background: var(--tint-info-bg);
+}
+
 .table__row:hover {
   background: var(--w-04);
 }
@@ -535,10 +555,25 @@ body {
 }
 
 /* Sin dato: la celda no queda vacia, queda con un guion para que la columna
-   siga leyР“В©ndose como columna. */
+   siga leyéndose como columna. */
 .table__num--none {
   color: var(--text-muted);
   opacity: 0.5;
+}
+
+/* Jerarquia entre dos precios de la misma fila (armeria: Valor contra Precio).
+   El suave es la cifra de REFERENCIA —lo que vale despues de vender— y baja a
+   muted; pisa el color de la fila a proposito: aun en la fila elegida la
+   referencia no se vuelve principal solo por estar elegida. El fuerte es la
+   que decide la compra y solo agrega peso: el color sigue siendo el de la
+   fila, asi que en la elegida queda bold y en oro, que es el estado normal de
+   las cifras. Ver los flags suave/fuerte de las columnas en app.js. */
+.table__num--suave {
+  color: var(--text-muted);
+}
+
+.table__num--fuerte {
+  font-weight: 700;
 }
 
 .table__icon {
@@ -588,6 +623,19 @@ body {
   font-size: var(--fs-2xs);
   font-weight: 700;
   color: var(--text-accent);
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+/* Chip de "ya esta en el carrito", al lado del nombre en el catalogo de la
+   armeria (buildTableRow en app.js). Mismo tratamiento que la marca de
+   equipado —chico, sin fondo, flex 0 0 para que no lo coma el ellipsis— pero
+   en la familia INFO: informa pertenencia a OTRO pane, no estado del item. */
+.table__carrito {
+  flex: 0 0 auto;
+  font-size: var(--fs-2xs);
+  font-weight: 700;
+  color: var(--text-info);
   letter-spacing: 0;
   white-space: nowrap;
 }
@@ -948,7 +996,8 @@ body {
   display: none;
 }
 
-/* El subtitulo en la MISMA linea que el titulo, pegado al borde derecho del
+/* =========================================== RECETA: .panel-header--linea --
+   El subtitulo en la MISMA linea que el titulo, pegado al borde derecho del
    encabezado. Lo usan las dos pantallas cuya segunda linea es UNA palabra o dos
    letras —un dato que identifica, no una frase—:
 
@@ -973,7 +1022,22 @@ body {
 
    El margen de abajo es 0 porque el gap titulo/subtitulo solo apedia cuando eran
    dos bloques; el padding-left del lado del titulo es el aire minimo para que un
-   titulo largo y un subtitulo corto no se toquen. */
+   titulo largo y un subtitulo corto no se toquen.
+
+   CONTRATO
+
+     markup    <div class="panel-header panel-header--linea">
+                 <h1 class="panel__title">Maletero Vehiculo</h1>
+                 <p class="panel__subtitle">Infernus</p>
+               </div>
+
+     quien     crearPanel() en app.js agrega la clase cuando el panel tiene
+               .panel--centro; el render no la toca, solo escribe el texto de
+               las dos lineas (renderFlujo).
+
+     adoptar   dos lineas: la clase en el .panel-header y nada mas. Los valores
+               (--subtitle-fs y demas) viven en la receta .panel__subtitle de
+               arriba y este modificador no los pisa: solo mueve la linea. */
 .panel-header--linea {
   display: flex;
   align-items: baseline;
@@ -1025,6 +1089,25 @@ body {
 .panel-foot__txt + .panel-foot__txt {
   color: var(--text-body);
   font-weight: 700;
+}
+
+/* Flash del total del carrito: correrAccion() pega la clase en el pie derecho
+   cuando un comando dealer: sale enviado, y se la saca a los 650ms. El color
+   salta al acento y vuelve al del pie — no hay cambio de layout, solo tinta —
+   y es el acuse de recibo inmediato mientras el snapshot viaja. La animacion
+   se reinicia con remove + reflow + add (ver app.js). */
+.panel-foot__txt--flash {
+  animation: pieFlash 0.6s ease;
+}
+
+@keyframes pieFlash {
+  0% {
+    color: var(--text-accent);
+  }
+
+  100% {
+    color: var(--text-body);
+  }
 }
 
 .panel-foot__btns {
@@ -1100,20 +1183,40 @@ body {
   animation: fadeIn var(--dur-slow) ease-out;
 }
 
-/* El baul va al centro y es mas ancho: son dos listas, y con el ancho de una
+/* ================================================= RECETA: .panel--centro --
+   El baul va al centro y es mas ancho: son dos listas, y con el ancho de una
    cada tabla queda de 13vw y los nombres no entran. El ancho lo toma la casa
    (--box-w es 27vw) y lo que se pisa es el ancho de las dos listas, que se
-   calculan con grid 1fr 1fr. */
+   calculan con grid 1fr 1fr.
+
+   CONTRATO
+
+     markup    <section class="panel panel--flujo panel--centro">
+
+     quien     crearPanel() en app.js, con `id === "trunk"`. Es el UNICO panel
+               que la pide, y el dia que otra pantalla necesite las dos listas a
+               lo ancho esa comparacion es lo que hay que volver declarativo:
+               la regla de abajo se reutiliza tal cual, no se copia.
+
+     va con    .panel-header--linea (encabezado en una linea) y
+               .flow__panes--2 (dos columnas con el canal en el medio). Las tres
+               son la misma decision: pantalla de DOS listas.
+
+     adoptar   el tamano es esta regla; las listas, el canal, la barra, el chip
+               de destino y el peso los dibujan los otros solos en cuanto el
+               snapshot trae mas de un pane (ver .flow__panes y .aviso). */
 .panel--flujo.panel--centro {
   --panel-x: 50%;
   --panel-w: 60vw;
   margin-left: -30vw;
 }
 
-/* Los panes. Con uno, la caja ocupa todo el ancho; con dos, se parte en dos
-   columnas iguales con el canal de traslado en el medio. El grid y no el flex
-   para que las dos listas tengan EXACTAMENTE el mismo ancho: con flex, la mas
-   larga de las dos se lleva el slack y las tablas quedan de distinto tamano.
+/* =================================================== RECETA: .flow__panes --
+   Las listas del menu, y el canal cuando hay dos. Con uno, la caja ocupa todo el
+   ancho; con dos, se parte en dos columnas iguales con el canal de traslado en el
+   medio. El grid y no el flex para que las dos listas tengan EXACTAMENTE el mismo
+   ancho: con flex, la mas larga de las dos se lleva el slack y las tablas quedan
+   de distinto tamano.
 
    flex: 0 1 auto y NO 1 1 auto: las listas miden lo que traen. Antes estiraban
    hasta el pie y el vacio del panel se abria ENTRE la ultima fila y la barra de
@@ -1121,7 +1224,32 @@ body {
    items- con lo que el jugador tenia que buscar abajo lo que acababa de elegir
    arriba. Con las listas a tamano de contenido, la barra queda pegada a ellas y
    el sobrante va abajo, al costado del pie. El tope (--flow-list-max) es el que
-   hace que esto no se coma el scroll cuando hay mas filas de las que entran. */
+   hace que esto no se coma el scroll cuando hay mas filas de las que entran.
+
+   CONTRATO
+
+     markup    <div class="flow__panes flow__panes--2">
+                 <div class="pane pane--activo"> …lista… </div>
+                 <div class="flow__xfer">              <- solo con dos
+                   <button class="flow__xfer-btn" data-dir="1">→</button>
+                   <button class="flow__xfer-btn" data-dir="-1">←</button>
+                 </div>
+                 <div class="pane"> …lista… </div>
+               </div>
+
+     quien     renderPanes() arma la caja y agrega --2 cuando el snapshot trae mas
+               de un pane; crearCanal() mete el canal entre el pane 0 y el 1;
+               crearPane() dibuja cada .pane; sincronizarCanal() pone disabled y
+               title en los dos botones con cada cambio de seleccion.
+
+     estados   .pane--activo   la lista con la seleccion (titulo en acento)
+               data-dir="1"    habilitado solo si la lista activa es la izquierda
+               :disabled       el otro, al que no apunta la lista que se mira
+
+     adoptar   no hay CSS que agregar: con dos panes en el snapshot la pantalla ya
+               tiene este layout. Lo que tiene que mandar el mod son esos dos
+               panes (hoy solo el maletero). Ver tambien .panel--centro para el
+               ancho y .accionbar__dir para el chip de destino. */
 .flow__panes {
   display: grid;
   grid-template-columns: 1fr;
@@ -1137,7 +1265,7 @@ body {
   grid-template-columns: 1fr auto 1fr;
 }
 
-/* El canal entre las dos listas del baul: los dos botones de traslado, centrados
+/* El canal entre las dos listas: los dos botones de traslado, centrados
    verticalmente contra las filas. Ver crearCanal() en app.js: el habilitado es el
    del sentido de la lista que se esta mirando. */
 .flow__xfer {
@@ -1203,8 +1331,38 @@ body {
   letter-spacing: var(--spw-1);
 }
 
-/* El peso del pane va a la derecha de su titulo y no en el pie: el pie es del
-   menu entero y el baul tiene DOS pesos distintos, uno por lista. */
+/* ==================================================== RECETA: .pane__peso --
+   El peso de una lista, a la derecha de su titulo y no en el pie: el pie es del
+   menu entero y el baul tiene DOS pesos distintos, uno por lista. Le agrega la
+   proyeccion: "6.2/12kg → 2.7kg", lo que va a quedar en ESTA lista si se hace
+   la transferencia que esta elegida.
+
+   La proyeccion va en acento cuando entra (mismo color que el titulo de la lista
+   activa: la marca de "esto es lo que pasa") y en rojo cuando el lado que recibe
+   se pasa del maximo, con cuanto se pasa. Es un aviso previo, no un chequeo: el
+   que valida el peso es el mod, ver renderPeso() en app.js.
+
+   CONTRATO
+
+     markup    <span class="pane__peso">6.2/12kg<span class="pane__sig"> → 2.7kg</span></span>
+               estado: <span class="pane__peso pane__peso--bad">… → ✗ +4kg</span>
+
+               El --bad va en el PADRE porque es un estado de la lista y no del
+               texto: asi .pane__peso sigue siendo uno por encabezado.
+
+     quien     crearPane() lo dibuja SOLO si el pane trae max > 0, y arranca en
+               "peso/max kg". renderPeso() reescribe el texto con cada cambio de
+               seleccion o de cantidad: el lado que se vacia nunca baja de 0 (el
+               snapshot tiene hasta 400ms de atraso) y el que recibe se marca en
+               rojo si se pasa.
+
+     limites   la proyeccion solo corre con DOS panes - no hay "despues" sin un
+               traslado, renderPeso sale temprano con uno - pero el peso simple
+               ("6.2/12kg") sirve con cualquiera.
+
+     adoptar   basta con que el snapshot mande weight y max en el pane: hoy solo
+               lo hace el maletero. Nunca apaga el boton por este calculo, solo
+               pinta - el que valida es el mod. */
 .pane__peso {
   font-size: var(--fs-2xs);
   color: var(--text-muted);
@@ -1242,10 +1400,33 @@ body {
   color: var(--text-accent);
 }
 
-/* ------------------------------------------------------------- AVISO --
+/* ========================================================= RECETA: .aviso --
    El feedback de una accion. Sale entre la tabla y la barra, porque es de la
    fila que estas mirando y no del menu entero. El tono lo decide el prefijo del
-   texto (~r~ / ~g~), que es el mismo criterio que usa el juego. */
+   texto (~r~ / ~g~), que es el mismo criterio que usa el juego.
+
+   CONTRATO
+
+     markup    <p class="aviso aviso--bad hidden"></p>
+
+               modificadores: aviso--bad | aviso--ok | aviso--info | hidden.
+               Sin modificador queda neutro (fondo y filete gris), que es el
+               caso de un aviso informativo sin prefijo de color.
+
+     quien     crearPanel() lo crea UNA vez por panel, nacido "aviso hidden".
+               mostrarAviso(p, texto) en app.js lo escribe, le saca los codigos
+               ~r~ / ~g~ con sinCodigos(), decide el tono con tonoDe() y lo
+               vuelve a ocultar a los segundos. El texto no lo escribe la pagina:
+               viene en el campo notice del snapshot, que arma el mod con
+               setNotice() (gsis_Notice.js).
+
+     orden     panes -> aviso -> accionbar -> pie, que es el orden con que
+               crearPanel() los appendea. Las dos reglas de anclaje de mas abajo
+               dependen de ese orden: el ~ apunta al hermano que le sigue.
+
+     adoptar   los cuatro flujos ya tienen el elemento y ya leen notice, asi que
+               un menu nuevo que mande aviso lo muestra sin tocar CSS ni JS.
+               Solo hay que escribir el texto con el prefijo del tono. */
 .aviso {
   font-size: var(--fs-2xs);
   padding: var(--sp-1) var(--spw-2);
@@ -1269,6 +1450,30 @@ body {
   border-left-color: var(--divider);
 }
 
+/* El anclaje al fondo del panel: el que absorbe el sobrante es el AVISO si se
+   esta mostrando, y la BARRA si el aviso esta oculto. Los dos casos dejan el
+   aviso (cuando hay) + la barra + el pie pegados abajo, y la barra no se mueve
+   ni un pixel cuando el aviso aparece o se va - mostrarAviso() lo apaga a los
+   segundos, y un pie que saltaria cada vez que el menu se llena seria peor que
+   el vacio.
+
+   Sin el segundo selector no hay forma de cubrir el oculto: .aviso con
+   display:none no genera caja, no absorbe nada, y la barra volaria hacia arriba
+   cada vez que no hay aviso. El ~ apunta al hermano que viene despues, que es
+   siempre la barra (crearPanel los arma en ese orden, ver el CONTRATO arriba).
+
+   Estas dos reglas comparten selector con la barra, y por eso el orden no las
+   salva: ganan por especificidad - (0,3,0) contra (0,1,0) de .aviso y (0,3,1)
+   contra (0,1,0) de .accionbar - y se las dejo junto al aviso para que la
+   receta sea una sola pieza. */
+.panel--flujo .aviso:not(.hidden) {
+  margin-top: auto;
+}
+
+.panel--flujo .aviso.hidden ~ .accionbar {
+  margin-top: auto;
+}
+
 /* ------------------------------------------------------- BARRA DE ACCION --
    Que se hace y cuantos. Es la misma pieza en los cuatro menus: el nombre de la
    fila, los campos y el boton. Va entre la tabla y el pie, y es lo que uno ve
@@ -1290,23 +1495,9 @@ body {
    dejaba media pantalla de vacio abajo de la barra y el panel se leia a medio
    llenar.
 
-   El que absorbe el sobrante es el AVISO si se esta mostrando, y la barra si
-   esta oculto. Los dos casos dejan el aviso (cuando hay) + la barra + el pie
-   pegados abajo, y la barra no se mueve ni un pixel cuando el aviso aparece o
-   se va - mostrarAviso() lo apaga a los segundos, y un pie que saltaria cada
-   vez que el baul se llena seria peor que el vacio.
-
-   Sin el segundo selector no hay forma de cubrir el oculto: .aviso con
-   display:none no genera caja, no absorbe nada, y la barra volaria hacia arriba
-   cada vez que no hay aviso. El ~ apunta al hermano que viene despues, que es
-   siempre la barra (crearPanel los arma en ese orden). */
-.panel--flujo .aviso:not(.hidden) {
-  margin-top: auto;
-}
-
-.panel--flujo .aviso.hidden ~ .accionbar {
-  margin-top: auto;
-}
+   Quien absorbe ese sobrante cuando NO hay aviso es la barra, y las dos reglas
+   que lo hacen viven en la receta .aviso de arriba: comparten selector con el
+   aviso, no con la barra. */
 
 .accionbar__item {
   display: inline-flex;
@@ -1327,12 +1518,26 @@ body {
   white-space: nowrap;
 }
 
-/* A donde se va la fila: el destino de la transferencia, pegado al nombre.
+/* ================================================ RECETA: .accionbar__dir --
+   A donde se va la fila: el destino de la transferencia, pegado al nombre.
    Con dos listas el sentido del boton dependia de cual esta mirando el jugador y
    eso solo estaba escrito en el texto del boton, abajo a la derecha; aca se lee
-   junto al item ("AK-47 → MALETERO"), que es donde esta la decision. En acento, la
-   misma marca que el titulo de la lista activa. Solo existe en las pantallas con
-   dos listas (ver renderAccionBar). */
+   junto al item ("AK-47 → MALETERO"), que es donde esta la decision. En acento,
+   la misma marca que el titulo de la lista activa.
+
+   CONTRATO
+
+     markup    <span class="accionbar__dir">→ MALETERO</span>
+
+     quien     renderAccionBar() lo inserta DESPUES del nombre de la fila, y solo
+               cuando flowData.panes.length > 1. El texto es el titulo del pane
+               al que se esta yendo y la flecha es el sentido desde la lista que
+               se esta mirando.
+
+     depende   la receta .flow__panes (dos listas). Con una no hay destino que
+               nombrar y el chip no se dibuja.
+
+     adoptar   no hay gate de pantalla: con dos panes en el snapshot aparece solo. */
 .accionbar__dir {
   font-size: var(--fs-2xs);
   font-weight: 700;
@@ -1389,10 +1594,27 @@ body {
   background: var(--surface-raised);
 }
 
-/* El chip "Todo" al lado del stepper: la cantidad completa del stack en un solo
+/* =============================================== RECETA: .accionbar__todo --
+   El chip "Todo" al lado del stepper: la cantidad completa del stack en un solo
    click. Mismo corte que los +/- (borde, fondo, alto) para que los tres se leyan
-   como un mismo control, con la palabra adentro. Solo se dibuja cuando el tope
-   es mas de 1, ver crearCampo() en app.js. */
+   como un mismo control, con la palabra adentro.
+
+   CONTRATO
+
+     markup    <button class="accionbar__todo" type="button">Todo</button>
+
+     quien     crearCampo() lo dibuja despues del "+" SOLO si el campo declara
+               todo: true y el tope (maxDe()) es mayor que 1. El click escribe el
+               tope en _valores[campo.key] y redibuja barra y pesos, que es lo
+               que hace falta para que el "Todo" se refleje en la proyeccion.
+
+     cortes    mismo borde, fondo y alto que .accionbar__paso: los tres son un
+               mismo control. Con tope 1 no aparece - en un arma o un cargador la
+               cantidad es siempre 1 y un chip que pone 1 sobre 1 no es control,
+               es ruido.
+
+     adoptar   una linea en PANTALLAS[id].barra: { ..., todo: true }. Sin esa
+               linea el chip no se dibuja en esa pantalla, aunque el CSS este. */
 .accionbar__todo {
   height: 2.6vh;
   padding: 0 var(--spw-2);

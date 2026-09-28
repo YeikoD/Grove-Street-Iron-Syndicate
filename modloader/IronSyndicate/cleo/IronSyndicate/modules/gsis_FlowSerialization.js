@@ -55,7 +55,7 @@
 // ============================================================================
 
 import { MISC } from "../core/gsis_Config.js";
-import { t } from "../core/gsis_L10n.js";
+import { t, money } from "../core/gsis_L10n.js";
 import { query } from "../core/gsis_EventBus.js";
 import { getModuleData } from "../core/gsis_SaveManager.js";
 import { getItemWeight } from "../data/gsis_item_data.js";
@@ -242,6 +242,7 @@ function _snapDealer() {
     var cart = getCart();
 
     var rows = [];
+    var cartRows = [];
     for (var i = 0; i < WEAPON_DATA.length; i++) {
         var w = WEAPON_DATA[i];
         if (!w.itemId) continue;
@@ -252,15 +253,47 @@ function _snapDealer() {
         fila.precio = p;
         fila.enCarrito = cart[w.itemId] || 0;
         rows.push(fila);
+
+        // La segunda lista es el carrito: las mismas filas de arriba (mismas
+        // columnas, mismas bandas — el jugador compara catalogo contra carrito
+        // con los mismos numeros) pero SOLO las elegidas, y con maxQty, el
+        // tope de cuanto se puede sacar.
+        //
+        // Va en una COPIA y no en la misma fila: maxQty es tope de la barra
+        // (la pagina lo lee en r.maxQty), y si viviera en la fila del catalogo
+        // agregar tambien se toparia contra lo que ya esta en el carrito —
+        // "tenes 2, no puedes pedir un tercero", que no es ninguna regla.
+        //
+        // La copia reasigna "fila" a proposito: la del catalogo ya quedo en
+        // rows, y a partir de aca esa variable ES la del carrito (y por eso
+        // la linea de abajo es fila.maxQty, que es como check_pantallas lee
+        // que este snapshot escribe esa clave).
+        if (fila.enCarrito > 0) {
+            var enCarrito = fila.enCarrito;
+            var copia = {};
+            for (var k in fila) {
+                if (fila.hasOwnProperty(k)) copia[k] = fila[k];
+            }
+            fila = copia;
+            fila.maxQty = enCarrito;
+            cartRows.push(fila);
+        }
     }
 
     return {
         titulo: t("DLR_TTL"),
         subtitulo: _subtitulo(_dealerName(charId)),
-        panes: [{ key: "catalogo", titulo: t("DLR_CAT"), vacio: t("DLR_NON"), weight: 0, max: 0, rows: rows }],
+        panes: [
+            { key: "catalogo", titulo: t("DLR_CAT"), vacio: t("DLR_NON"), weight: 0, max: 0, rows: rows },
+            { key: "carrito", titulo: t("DLR_CRT"), vacio: t("CRT_NON"), weight: 0, max: 0, rows: cartRows }
+        ],
+        // money() va en TODOS los numeros del pie: la pagina parsea estos
+        // textos para el total del carrito y el saldo (renderPie), y sin el
+        // punto de miles "Tu dinero: $4200" no se leia como la misma cifra de
+        // las columnas ("$4.200", fmtDinero en app.js).
         pie: {
-            izq: t("DLR_DIN", { n: getCJMoney() }),
-            der: _cartVacio(cart) ? t("CRT_UI") : t("DLR_TOT", { n: getCartTotal() })
+            izq: t("DLR_DIN", { n: money(getCJMoney()) }),
+            der: _cartVacio(cart) ? t("CRT_UI") : t("DLR_TOT", { n: money(getCartTotal()) })
         }
     };
 }
@@ -309,7 +342,7 @@ function _snapSeller() {
         subtitulo: _subtitulo(t("SEL_BUS", { list: st.interests.length ? st.interests.join(", ") : "-" })),
         panes: [{ key: "venta", titulo: t("SEL_ARMAS"), vacio: t("SEL_NON"), weight: 0, max: 0, rows: rows }],
         pie: {
-            izq: st.budget == null ? t("SEL_BUDH") : t("SEL_BUD", { n: st.budget }),
+            izq: st.budget == null ? t("SEL_BUDH") : t("SEL_BUD", { n: money(st.budget) }),
             der: st.fulfilled ? t("SEL_OK") : ""
         }
     };
@@ -336,7 +369,7 @@ function _snapPickup() {
 
     return {
         titulo: t("PKC_TTL"),
-        subtitulo: _subtitulo(t("PKC_ORD", { n: order.total, w: _round(peso) })),
+        subtitulo: _subtitulo(t("PKC_ORD", { n: money(order.total), w: _round(peso) })),
         panes: [{ key: "pedido", titulo: t("PKC_LIN"), vacio: t("PKC_NON"), weight: 0, max: 0, rows: rows }],
         pie: {
             izq: t("PKC_LIB", { free: _round(MISC.MAX_INVENTORY_WEIGHT - getTotalWeight()) }),

@@ -103,10 +103,16 @@ function equipadasSnap() {
         // pudo leer, y null es lo que ammoCell necesita para NO invente un
         // cargador lleno: esVivo desactiva el fallback.
         var live = getEquippedAmmo(slot);
+        // salud y hasMag SI estan en el registro (Ballistic.equipped[slot]), asi
+        // que viajan tal cual. hasMag antes no viajava y la fila no podia
+        // distinguir un arma descargada de un cargador vacio montado —las dos
+        // salian "0/17"—; ahora ademas lo dice el tooltip ("sin cargador").
         var w = itemRow({
             id: eq[slot].id,
             qty: 1,
-            ammo: live == null ? null : String(live)
+            ammo: live == null ? null : String(live),
+            salud: eq[slot].salud,
+            hasMag: eq[slot].hasMag
         }, true);
         w.equipado = true;
         w.ranura = "arma";
@@ -121,7 +127,7 @@ function equipadasSnap() {
             id: belt[i].id,
             qty: 1,
             ammo: belt[i].ammo,
-            quality: belt[i].quality
+            salud: belt[i].salud
         });
         m.equipado = true;
         m.ranura = "cinturon";

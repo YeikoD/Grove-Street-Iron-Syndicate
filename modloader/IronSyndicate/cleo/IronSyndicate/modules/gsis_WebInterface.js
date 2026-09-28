@@ -85,7 +85,7 @@ import { currentFlow, closeFlow, openFlow, snapFlow } from "./gsis_FlowSerializa
 import { equipWeapon, unequipWeapon } from "./gsis_Ballistic.js";
 import { removeItem, equipMagToBelt, unequipBeltMag } from "./gsis_Items.js";
 import { putInTrunk, takeFromTrunk } from "./gsis_Trunk.js";
-import { addToCart, resetCart, checkout } from "./gsis_WeaponDealer.js";
+import { addToCart, removeFromCart, resetCart, checkout } from "./gsis_WeaponDealer.js";
 import { doOffer } from "./gsis_WeaponSeller.js";
 import { collectItem, collectAll } from "./gsis_DealerPickup.js";
 import { clearNotice, hasNotice, takeNotice } from "../core/gsis_Notice.js";
@@ -905,6 +905,16 @@ function handleCommand(cmd) {
                 clearNotice();
                 addToCart(id, cmd.qty);
                 log("[WebInterface] carrito +" + (cmd.qty || 1) + " " + id);
+                return true;
+
+            // Quitar de la lista del carrito (el pane derecho de la armeria).
+            // Mismo esquema que dealer:add: el modulo decide si habia algo que
+            // sacar, y el aviso lo escribe el (ver removeFromCart / setNotice).
+            case "dealer:cart:remove":
+                if (!id) return false;
+                clearNotice();
+                removeFromCart(id, cmd.qty);
+                log("[WebInterface] carrito -" + (cmd.qty || 1) + " " + id);
                 return true;
 
             case "dealer:cart:clear":

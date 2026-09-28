@@ -4,6 +4,28 @@
 
 // GSIS Item Data - Catalogo de items (pesos en kg/unidad)
 // Fuente: docs/gsis_INVENTORY.md
+//
+// EL CATALOGO NO LLEVA SALUD. La salud es estado de una INSTANCIA, no de un
+// tipo: todas las unidades nacen a SALUD_MAX y cada una se desgasta por su
+// cuenta. Ponerla aca (ITEMS[id].salud) la volveria un default por tipo, que
+// es otra cosa — dos chatarras con distinta salud son el mismo
+// ITEMS["scrap_metal"] — y ese default no podria expresar una instancia
+// gastada mientras el resto del stack esta nueva.
+//
+// SALUD_MAX vive aca y no en Config porque no es un ajuste del juego: es la
+// escala del dato. Config es para lo que se tunea (MISC.MAX_INVENTORY_WEIGHT,
+// MISC.MAG_BELT_SLOTS). El clamp tambien va aca, junto a la escala que
+// define: los dos son la misma regla y basta una fuente.
+export var SALUD_MAX = 100;
+
+export function clampSalud(v) {
+    if (v === undefined || v === null) return SALUD_MAX;
+    var n = Math.round(Number(v));
+    if (!isFinite(n)) return SALUD_MAX;  // no es numero: queda nueva, no se inventa
+    if (n < 0) return 0;
+    if (n > SALUD_MAX) return SALUD_MAX;
+    return n;
+}
 
 export var ITEMS = {
     // Materias primas
@@ -41,8 +63,8 @@ export var ITEMS = {
     "minigun":       { name: "Minigun",         weight: 10.0, type: "weapon" },
     "body_armor":    { name: "Chaleco antibalas", weight: 2.0, type: "weapon" },
 
-    // Cargadores (type magazine; capacity = WEAPON_DATA.clipSize via getClipSizeByItemId)
-    // Instancia en inventario/baul: { id, qty:1, ammo, quality } — no se apilan
+    // Cargadores (type magazine; capacidad = WEAPON_DATA.clipSize via getClipSizeByItemId)
+    // Instancia { id, qty:1, ammo, salud } — no se apilan
     "mag_9mm":           { name: "Cargador 9mm",             weight: 0.2, type: "magazine" },
     "mag_silenced_9mm":  { name: "Cargador 9mm con silenciador", weight: 0.2, type: "magazine" },
     "mag_desert_eagle":  { name: "Cargador Desert Eagle",    weight: 0.2, type: "magazine" },
@@ -81,12 +103,9 @@ export function getItemType(id) {
     return def ? def.type : "material";  // Retorna tipo del item o default
 }
 
-// Nombre visible de una instancia de cargador: "Cargador 9mm - Cal: 1"
-// item: { id, quality? } o id suelto (quality default 1)
-export function getMagazineDisplayName(item) {
-    var id = typeof item === "string" ? item : item.id;
-    var def = ITEMS[id];
-    if (!def) return id;
-    var q = (typeof item === "object" && item.quality) ? item.quality : 1;
-    return def.name + " - Cal: " + q;
-}
+// No hay getMagazineDisplayName. Antes el nombre del cargador llevaba el estado
+// pegado ("Cargador 9mm - Cal: 1"): la salud vive en su propia columna
+// (celdaSalud, UI/app.js) y en el tooltip de la fila (tipFor, gsis_ItemRow.js).
+// Un nombre con estado dentro se desincroniza del dato —el mismo cargador se
+// llama distinto segun cuando se lea— y la fila y su tooltip tienen que decir
+// lo mismo. El nombre es el nombre: getItemName.

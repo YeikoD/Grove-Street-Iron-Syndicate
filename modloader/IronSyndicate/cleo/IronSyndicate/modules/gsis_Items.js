@@ -10,7 +10,7 @@ import { register } from "../core/gsis_ModuleRegistry.js";
 import { on } from "../core/gsis_EventBus.js";
 import { t } from "../core/gsis_L10n.js";
 import { getVehicleTrunkCapacity } from "../data/gsis_vehicle_data.js";
-import { ITEMS, getItemDef, getItemName, getItemWeight, getItemType } from "../data/gsis_item_data.js";
+import { ITEMS, getItemDef, getItemName, getItemWeight, getItemType, SALUD_MAX, clampSalud } from "../data/gsis_item_data.js";
 import { getClipSizeByItemId, getWeaponByItemId } from "../data/gsis_weapon_data.js";
 
 // Catalogo re-exportado (compat con UI)
@@ -36,35 +36,37 @@ export function isInstanced(id) {
     return !!(wd && wd.weaponId !== null && wd.weaponId !== undefined);
 }
 
-// Instancia de cargador: qty=1, ammo=capacidad, quality=1 (no stack)
-function makeMagazineInstance(id, ammo, quality) {
+// Instancia de cargador: qty=1, ammo=capacidad, salud=100 (no stack)
+function makeMagazineInstance(id, ammo, salud) {
     var cap = getClipSizeByItemId(id);
     return {
         id: id,
         qty: 1,
         ammo: (ammo === undefined || ammo === null) ? (cap || 0) : ammo,
-        quality: quality || 1
+        salud: clampSalud(salud)
     };
 }
 
 // Instancia de arma: qty=1, cargador montado por defecto (hasMag=true, ammo=cap)
-function makeWeaponInstance(id, hasMag, ammo) {
+function makeWeaponInstance(id, hasMag, ammo, salud) {
     var cap = getClipSizeByItemId(id) || 0;
     var mounted = (hasMag === undefined || hasMag === null) ? true : !!hasMag;
     return {
         id: id,
         qty: 1,
         hasMag: mounted,
-        ammo: (ammo === undefined || ammo === null) ? (mounted ? cap : 0) : ammo
+        ammo: (ammo === undefined || ammo === null) ? (mounted ? cap : 0) : ammo,
+        salud: clampSalud(salud)
     };
 }
 
-// Instancia generica (cargador o arma) con opts { ammo, quality, hasMag }
+// Instancia generica (cargador o arma) con opts { ammo, salud, hasMag }
 function makeInstance(id, opts) {
     if (isMagazine(id)) {
-        return makeMagazineInstance(id, opts ? opts.ammo : undefined, opts ? opts.quality : undefined);
+        return makeMagazineInstance(id, opts ? opts.ammo : undefined, opts ? opts.salud : undefined);
     }
-    return makeWeaponInstance(id, opts ? opts.hasMag : undefined, opts ? opts.ammo : undefined);
+    return makeWeaponInstance(id, opts ? opts.hasMag : undefined, opts ? opts.ammo : undefined,
+        opts ? opts.salud : undefined);
 }
 
 // Saves viejos: { id, qty > 1 } de un item instanciado → una entrada por unidad
@@ -89,14 +91,56 @@ function _splitStacks(list) {
     return true;
 }
 
-// Normaliza items[] y todos los trunks al cargar partida
+// Migracion de salud, una fila por fila. Devuelve true si cambio algo.
+//
+// El campo viejo era `quality`: entero 1..N, mostrado como "Cal: N" pegado al
+// nombre. Se unifica en `salud` (0..100, columna propia) y `quality` desaparece.
+//
+// La conversion es exacta: `quality` solo valia 1 — makeMagazineInstance hacia
+// `quality || 1` y NADIE pasaba opts.quality, asi que nunca se escribio otro
+// valor — y 1 era "como nuevo", que es SALUD_MAX. Asi que toda fila vieja vale
+// SALUD_MAX y no se pierde estado que valiera la pena.
+//
+// Se aplica a items[], a TODOS los baules y tambien a belt[]: el cinturon es un
+// contenedor de ItemManager mas y sus cargadores son filas como las otras. Antes
+// la migracion no lo miraba, y un cinturon de un save viejo se quedaba sin
+// salud — la pagina la dibujaba al 100% por el fallback, sin que nadie lo supiera.
+function _migrateSalud(list) {
+    if (!list) return false;
+    var changed = false;
+    for (var i = 0; i < list.length; i++) {
+        var it = list[i];
+        if (!it) continue;
+        if (it.quality !== undefined) {
+            delete it.quality;
+            changed = true;
+        }
+        var s = clampSalud(it.salud);
+        if (it.salud !== s) {
+            it.salud = s;
+            changed = true;
+        }
+    }
+    return changed;
+}
+
+// Normaliza items[], trunks y belt al cargar partida.
+//
+// El orden importa. _splitStacks va PRIMERO porque crea filas nuevas con
+// makeInstance, que ya escribe salud; si _migrateSalud corriera antes, todavia
+// no existirian. Al reves es un gasto inutil, no un error: _migrateSalud es
+// idempotente.
 function _normalizeInstances(data) {
     if (!data) return false;
-    var changed = _splitStacks(data.items);
+    var changed = false;
+    if (_splitStacks(data.items)) changed = true;
+    if (_migrateSalud(data.items)) changed = true;
+    if (data.belt && _migrateSalud(data.belt)) changed = true;
     if (data.trunks) {
         for (var key in data.trunks) {
             if (Object.prototype.hasOwnProperty.call(data.trunks, key)) {
                 if (_splitStacks(data.trunks[key])) changed = true;
+                if (_migrateSalud(data.trunks[key])) changed = true;
             }
         }
     }
@@ -152,7 +196,7 @@ export function getTotalWeight() {
 }
 
 // Agregar item al inventario (verifica MISC.MAX_INVENTORY_WEIGHT)
-// opts por instancia: { ammo, quality, hasMag } · opts.force = ignora peso
+// opts por instancia: { ammo, salud, hasMag } · opts.force = ignora peso
 // (adopcion de armas del ped: ya iban encima del jugador)
 export function addItem(id, qty, opts) {
     if (!ITEMS[id]) return false;  // Verifica que item exista en catalogo
@@ -178,12 +222,16 @@ export function addItem(id, qty, opts) {
 
     for (var i = 0; i < data.items.length; i++) {
         if (data.items[i].id === id) {
-            data.items[i].qty += qty;  // Actualiza cantidad si item ya existe
+            // Une al stack que ya esta: NO se toca su salud. El stack es una
+            // fila con una salud, y agregar no esmbia la unidad que ya estaba
+            // ahi. La regla de "gastar de un stack gastado" la aplica quien
+            // consuma, no la alta.
+            data.items[i].qty += qty;
             setModuleData("ItemManager", data);  // Guarda cambios
             return true;
         }
     }
-    data.items.push({ id: id, qty: qty });  // Agrega nuevo item
+    data.items.push({ id: id, qty: qty, salud: SALUD_MAX });  // Agrega nuevo item
     setModuleData("ItemManager", data);  // Guarda cambios
     return true;
 }
@@ -304,10 +352,14 @@ export function addToTrunk(vehicleId, id, qty) {
         return true;
     }
 
-    // Quitar del inventario
+    // Quitar del inventario. La salud sale de la fila que se saca (antes del
+    // splice), por el mismo motivo que en removeFromTrunk: la unidad no llega
+    // nueva al baul, llega con la salud que tenia.
     var found = false;
+    var salud = SALUD_MAX;
     for (var j = 0; j < data.items.length; j++) {
         if (data.items[j].id === id) {
+            salud = clampSalud(data.items[j].salud);
             data.items[j].qty -= qty;
             if (data.items[j].qty <= 0) data.items.splice(j, 1);
             found = true;
@@ -324,7 +376,7 @@ export function addToTrunk(vehicleId, id, qty) {
             return true;
         }
     }
-    trunkArr.push({ id: id, qty: qty });
+    trunkArr.push({ id: id, qty: qty, salud: salud });
     setModuleData("ItemManager", data);
     return true;
 }
@@ -364,10 +416,14 @@ export function removeFromTrunk(vehicleId, id, qty) {
         return true;
     }
 
-    // Quitar del baul
+    // Quitar del baul. La salud sale DE LA FILA QUE SE SACA, no de un default:
+    // un stack de chatarra al 40% en el baul sigue al 40% cuando llega a la
+    // mochila. Se lee ANTES del splice, que se lleva la fila.
     var found = false;
+    var salud = SALUD_MAX;
     for (var i = 0; i < trunkArr.length; i++) {
         if (trunkArr[i].id === id) {
+            salud = clampSalud(trunkArr[i].salud);
             trunkArr[i].qty -= qty;
             if (trunkArr[i].qty <= 0) trunkArr.splice(i, 1);
             found = true;
@@ -384,7 +440,7 @@ export function removeFromTrunk(vehicleId, id, qty) {
             return true;
         }
     }
-    data.items.push({ id: id, qty: qty });
+    data.items.push({ id: id, qty: qty, salud: salud });
     setModuleData("ItemManager", data);
     return true;
 }
@@ -497,7 +553,11 @@ on("items:extractMagazine", function (e) {
 });
 
 // query("items:takeWeapon", { id }) — saca 1 instancia de arma del inventario
-// y responde su estado { hasMag, ammo }, o null si no hay (equipar).
+// y responde su estado { hasMag, ammo, salud }, o null si no hay (equipar).
+//
+// `salud` viaja en la respuesta porque el arma sale de items[] y se va a un
+// slot de GTA, donde no hay items[]: si no cruzara aqui, se perderia al
+// equipar. equipped[slot] la guarda.
 on("items:takeWeapon", function (e) {
     var data = getModuleData("ItemManager");
     if (!data || !data.items) { e.respond(null); return; }
@@ -520,19 +580,21 @@ on("items:takeWeapon", function (e) {
     var ammoT = (taken.ammo === undefined || taken.ammo === null)
         ? (hasMagT ? capT : 0)
         : taken.ammo;
+    var saludT = clampSalud(taken.salud);
     if ((taken.qty || 1) > 1) taken.qty -= 1; // por si queda un stack heredado
     else data.items.splice(best, 1);
     setModuleData("ItemManager", data);
-    e.respond({ hasMag: hasMagT, ammo: ammoT });
+    e.respond({ hasMag: hasMagT, ammo: ammoT, salud: saludT });
 });
 
-// query("items:storeWeapon", { id, hasMag, ammo, force }) — guarda 1 instancia
-// de arma con su estado (desequipar / adopcion del ped). "force" ignora el
-// peso (adopcion). Responde { ok } o null si no cabe (INV_FUL).
+// query("items:storeWeapon", { id, hasMag, ammo, salud, force }) — guarda 1
+// instancia de arma con su estado (desequipar / adopcion del ped). "force"
+// ignora el peso (adopcion). Responde { ok } o null si no cabe (INV_FUL).
 on("items:storeWeapon", function (e) {
     var ok = addItem(e.data.id, 1, {
         hasMag: e.data.hasMag,
         ammo: e.data.ammo,
+        salud: e.data.salud,
         force: e.data.force === true
     });
     e.respond(ok ? { ok: true } : null);
@@ -540,5 +602,5 @@ on("items:storeWeapon", function (e) {
 
 // Re-export helpers de catalogo
 export { getItemDef, getItemName, getItemWeight, getItemType };
-export { getMagazineDisplayName } from "../data/gsis_item_data.js";
+export { SALUD_MAX, clampSalud } from "../data/gsis_item_data.js";
 export { getClipSizeByItemId } from "../data/gsis_weapon_data.js";

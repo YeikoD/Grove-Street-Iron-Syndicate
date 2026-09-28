@@ -20,7 +20,7 @@
 // No depende de: ningun modulo del juego, ningun estado global
 // ============================================================================
 
-import { getItemName, getItemWeight, getItemType } from "../data/gsis_item_data.js";
+import { getItemName, getItemWeight, getItemType, clampSalud } from "../data/gsis_item_data.js";
 import { getClipSizeByItemId, getSellPrice } from "../data/gsis_weapon_data.js";
 
 // --------------------------------------------------------------------------- //
@@ -66,8 +66,12 @@ export function valueCell(id) {
 
 // Una fila de la tabla. Los items instanciados (cargadores, armas) llegan del
 // mod como un elemento por unidad con su propia municion; los materiales llegan
-// apilados con qty > 1. El nombre lo arma la pagina, que es quien decide si
-// muestra "x5" segun el tipo.
+// apilados con qty > 1 y una salud para todo el stack. El nombre lo arma la
+// pagina, que es quien decide si muestra "x5" segun el tipo.
+//
+// salud: 0..100, y SIEMPRE sale. Sin salud es 100 —que es como nace todo— y la
+// celda lo pinta igual, asi que la fila nunca queda con un hueco que el jugador
+// lea como "esto no tiene salud" cuando en realidad esta nuevo.
 //
 // esVivo: la fila no viene del save sino del arma equipada ahora. Solo cambia
 // la municion —ver ammoCell—: el resto de la fila es la misma.
@@ -79,6 +83,7 @@ export function itemRow(it, esVivo) {
         name: getItemName(it.id),
         qty: it.qty || 1,
         ammo: ammoCell(it, esVivo),
+        salud: clampSalud(it.salud),
         weight: Math.round(w * 100) / 100,
         value: valueCell(it.id),
         tip: tipFor(it)
@@ -86,8 +91,12 @@ export function itemRow(it, esVivo) {
 }
 
 // El texto que aparece con el mouse sobre la fila. No lo lee nada por codigo:
-// es la unica ajuda de una tabla de ids, asi que tiene que decir que es, si
-// apila o es una unidad, cuanto pesa y si tiene cargador.
+// es la unica ayuda de una tabla de ids, asi que tiene que decir que es, si
+// apila o es una unidad, cuanto pesa, cuanto tiene de salud y si lleva cargador.
+//
+// La salud va SIEMPRE y antes del cargador: es el dato que aplica a los tres
+// tipos (material, cargador, arma) y el cargador montado solo a dos. Al reves la
+// ultima parte del tooltip seria distinta segun el item y la primera igual.
 export function tipFor(it) {
     var parts = [getItemName(it.id)];
     if (it.qty > 1) {
@@ -100,9 +109,7 @@ export function tipFor(it) {
     if (a) {
         parts.push(a + " balas");
     }
-    if (it.quality !== undefined && it.quality !== null) {
-        parts.push("calidad " + it.quality);
-    }
+    parts.push("salud " + clampSalud(it.salud) + "%");
     if (it.hasMag === false) {
         parts.push("sin cargador");
     }

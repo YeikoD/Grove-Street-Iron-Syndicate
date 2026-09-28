@@ -160,6 +160,25 @@ export var STRINGS = {
         es: "~g~Pedido confirmado (-${n})",
         en: "~g~Order confirmed (-${n})"
     },
+    // Feedback del carrito: el modulo lo escribe con setNotice() y viaja en el
+    // campo notice del proximo snapshot (ver gsis_Notice.js). El tono va en el
+    // texto (~g~ ok, ~r~ rojo) y lo decide la hoja de estilo de la pagina.
+    DLR_ADD: {
+        es: "~g~Agregaste {qty}x {name} al carrito",
+        en: "~g~Added {qty}x {name} to cart"
+    },
+    DLR_REM: {
+        es: "~g~Quitaste {qty}x {name} del carrito",
+        en: "~g~Removed {qty}x {name} from cart"
+    },
+    DLR_CLR: {
+        es: "~g~Carrito vaciado",
+        en: "~g~Cart cleared"
+    },
+    DLR_IVL: {
+        es: "~r~Accion invalida en el carrito",
+        en: "~r~Invalid action on cart"
+    },
 
     // --- Retiro (pickup) ---
     PKC_IVL: {
@@ -298,6 +317,8 @@ export var STRINGS = {
     DLR_TTL: { es: "Armeria Mayorista", en: "Wholesale Arms" },
     DLR_TOT: { es: "Total carrito: ${n}", en: "Cart total: ${n}" },
     DLR_CAT: { es: "Catalogo", en: "Catalog" },
+    DLR_CRT: { es: "Carrito", en: "Cart" },
+    CRT_NON: { es: "(carrito vacio)", en: "(cart empty)" },
     DLR_DIN: { es: "Tu dinero: ${n}", en: "Your money: ${n}" },
     DLR_NON: { es: "Este vendedor no tiene nada en el catalogo", en: "This seller has nothing in the catalog" },
     CRT_UI: { es: "Carrito vacio", en: "Cart empty" },
