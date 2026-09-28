@@ -10,11 +10,12 @@ import { register } from "../core/gsis_ModuleRegistry.js";
 import { on } from "../core/gsis_EventBus.js";
 import { t } from "../core/gsis_L10n.js";
 import { getVehicleTrunkCapacity } from "../data/gsis_vehicle_data.js";
-import { ITEMS, getItemDef, getItemName, getItemWeight, getItemType, SALUD_MAX, clampSalud, isInstanced } from "../data/gsis_item_data.js";
+import { ITEMS, SALUD_MAX, clampSalud, isInstanced } from "../data/gsis_item_data.js";
 import { getClipSizeByItemId } from "../data/gsis_weapon_data.js";
 
-// Catalogo re-exportado (compat con UI)
-export { ITEMS };
+// Sin `export { ITEMS }`: el catalogo se importa directo de data/gsis_item_data.js
+// (lo hacen Trunk, InventorySerialization e ItemRow). El re-export "por compat con
+// la UI" no lo consumia nadie — y la UI no es de JavaScript, es la pagina web.
 
 // true si el item es cargador (type magazine) — no se apila
 function isMagazine(id) {
@@ -165,7 +166,9 @@ function _normalizeInstances(data) {
     return changed;
 }
 
-export function initItemManager() {
+// Sin export: el unico que las llama es el register() de mas abajo. Se registran
+// por el modulo, no por nombre.
+function initItemManager() {
     // belt: cinturon de cargadores equipados (MISC.MAG_BELT_SLOTS casillas)
     registerModule("ItemManager", { items: [], trunks: {}, belt: [] });
     var data = getModuleData("ItemManager");
@@ -179,7 +182,7 @@ export function initItemManager() {
 // la entrega real: el 9mm llega sin cargador y el cargador llega lleno. Si el
 // debug cuelgue del default de addItem, probar el inventario da un arma con
 // municion que en el juego nunca se ve.
-export function updateItemManager() {
+function updateItemManager() {
     if (keyJustPressed(KEYS.DEBUG_ITEM)) {  // Detecta tecla L
         var ok9 = addItem("9mm", 1, entregaOpts("9mm"));  // Arma de prueba, DESNUDA
         var okScrap = addItem("scrap_metal", 5);  // Agrega material de prueba
@@ -259,12 +262,27 @@ export function addItem(id, qty, opts) {
     return true;
 }
 
-// Quitar item del inventario
+// Quitar item del inventario.
+//
+// Contrato: si no hay `qty` unidades, NO se toca nada y se devuelve false. No se
+// quita "lo que haya" y se dice que salio — durante un tiempo si se hacia, y el
+// bug era de las dos formas:
+//
+//   - Pedir 5 con 3 en un stack: `qty - 5` daba negativo, la fila se borraba
+//     entera (3 reales) y la funcion devolvia true. Perdia 3 y reportaba
+//     exito. Ahora devuelve false y el item no se mueve.
+//   - Un id apilable repartido en DOS filas (2 + 1) contaba 3 unidades pero el
+//     bucle solo tocaba la primera: cobrabas 3 y solo se perdia la primera fila.
+//     Ahora se recorren todas.
+//
+// Quien llama decide que hacer con un false: el wrapper de la pagina ya avisa
+// (el modulo no usa setNotice, muestra avisos con showTextBox).
 export function removeItem(id, qty) {
-    qty = qty || 1;  // Default cantidad 1
-    var data = getModuleData("ItemManager");  // Obtiene datos del modulo
-    if (!data) data = { items: [] };  // Crea estructura si no existe
-    if (!data.items) data.items = [];  // Crea array items si no existe
+    if (qty === undefined || qty === null) qty = 1;
+    if (qty < 1) return false;
+    var data = getModuleData("ItemManager");
+    if (!data) data = { items: [] };
+    if (!data.items) data.items = [];
 
     // Instancias (cargadores/armas): quitar instancias sueltas
     if (isInstanced(id)) {
@@ -278,19 +296,38 @@ export function removeItem(id, qty) {
             }
         }
         if (removed <= 0) return false;
+        if (removed < qty) return false;  // no habia todas: no se toca nada (arriba dice por que)
         setModuleData("ItemManager", data);  // Guarda cambios
         return true;
     }
 
-    for (var i = 0; i < data.items.length; i++) {
-        if (data.items[i].id === id) {
-            data.items[i].qty -= qty;  // Resta cantidad
-            if (data.items[i].qty <= 0) data.items.splice(i, 1);  // Elimina si cantidad <= 0
-            setModuleData("ItemManager", data);  // Guarda cambios
-            return true;
+    // Apilables: primero se cuenta cuanto hay, en TODAS las filas del id, y solo
+    // despues se resta. Contar primero es lo que hace seguro al bucle: si se
+    // resta sobre la marcha, un `return` a mitad dejaria el inventario con la
+    // fila ya tocada y sin `setModuleData`.
+    var disponible = 0;
+    for (var c = 0; c < data.items.length; c++) {
+        if (data.items[c].id === id) disponible += (data.items[c].qty || 1);
+    }
+    if (disponible <= 0) return false;
+    if (disponible < qty) return false;  // no hay todas: no se toca nada
+
+    var faltan = qty;
+    for (var i = 0; i < data.items.length && faltan > 0; ) {
+        if (data.items[i].id !== id) { i++; continue; }
+        var toma = data.items[i].qty || 1;
+        if (toma > faltan) toma = faltan;
+        data.items[i].qty -= toma;
+        faltan -= toma;
+        if (data.items[i].qty <= 0) {
+            data.items.splice(i, 1);
+            // NO se avanza i: el splice dejo en i la fila siguiente, que tambien
+            // puede ser del mismo id. Si la fila sobrevive (toma < qty) entonces
+            // faltan quedo en 0 y el for sale solo.
         }
     }
-    return false;  // Retorna false si item no encontrado
+    setModuleData("ItemManager", data);  // Guarda cambios
+    return true;
 }
 
 // ============================================================================
@@ -360,36 +397,58 @@ export function addToTrunk(vehicleId, id, qty) {
 
     // Instancias (cargadores/armas): mover instancias con su estado intacto
     if (isInstanced(id)) {
-        var moved = 0;
-        for (var m = 0; m < data.items.length && moved < qty; ) {
+        var disponible = 0;
+        for (var c = 0; c < data.items.length; c++) {
+            if (data.items[c].id === id) disponible++;
+        }
+        // Menos de las pedidas → no se mueve NADA. Antes se movian las que
+        // hubiera y se devolvia true: el panel informaba "guardaste 5" con 3 en
+        // la mano. Y si no hubiera ninguna, el `moved <= 0` de abajo cortaba
+        // DESPUES de haber hecho push al baul, dejando el clon del cache a medio
+        // camino.
+        if (disponible < qty) return false;
+        // `disponible` es el conteo; el que frena el bucle es `movidos`. (Usar el
+        // conteo como contador movia todas las filas y no las `qty` pedidas.)
+        var movidos = 0;
+        for (var m = 0; m < data.items.length && movidos < qty; ) {
             if (data.items[m].id === id) {
                 trunkArr.push(data.items[m]);
                 data.items.splice(m, 1);
-                moved++;
+                movidos++;
             } else {
                 m++;
             }
         }
-        if (moved <= 0) return false;
         setModuleData("ItemManager", data);
         return true;
     }
 
+    // Apilables: se cuenta antes de restar, por el mismo motivo que removeItem.
+    // La salud que viaja es la de la PRIMERA fila del id: un stack tiene una sola
+    // salud, y si hay varias filas es porque un save viejo las partio, no porque
+    // sean unidades distintas con estados distintos.
+    var hay = 0;
+    var salud = SALUD_MAX;
+    var saludTomada = false;
+    for (var c2 = 0; c2 < data.items.length; c2++) {
+        if (data.items[c2].id !== id) continue;
+        hay += (data.items[c2].qty || 1);
+        if (!saludTomada) { salud = clampSalud(data.items[c2].salud); saludTomada = true; }
+    }
+    if (hay < qty) return false;  // no hay todas: no se crea material de la nada
+
     // Quitar del inventario. La salud sale de la fila que se saca (antes del
     // splice), por el mismo motivo que en removeFromTrunk: la unidad no llega
     // nueva al baul, llega con la salud que tenia.
-    var found = false;
-    var salud = SALUD_MAX;
-    for (var j = 0; j < data.items.length; j++) {
-        if (data.items[j].id === id) {
-            salud = clampSalud(data.items[j].salud);
-            data.items[j].qty -= qty;
-            if (data.items[j].qty <= 0) data.items.splice(j, 1);
-            found = true;
-            break;
-        }
+    var faltan = qty;
+    for (var j = 0; j < data.items.length && faltan > 0; ) {
+        if (data.items[j].id !== id) { j++; continue; }
+        var toma = data.items[j].qty || 1;
+        if (toma > faltan) toma = faltan;
+        data.items[j].qty -= toma;
+        faltan -= toma;
+        if (data.items[j].qty <= 0) data.items.splice(j, 1);
     }
-    if (!found) return false;
 
     // Agregar al baul
     for (var k = 0; k < trunkArr.length; k++) {
@@ -424,36 +483,53 @@ export function removeFromTrunk(vehicleId, id, qty) {
 
     // Instancias (cargadores/armas): mover instancias con su estado intacto
     if (isInstanced(id)) {
-        var moved = 0;
-        for (var m = 0; m < trunkArr.length && moved < qty; ) {
+        var disponible = 0;
+        for (var c = 0; c < trunkArr.length; c++) {
+            if (trunkArr[c].id === id) disponible++;
+        }
+        if (disponible < qty) return false;  // ver addToTrunk: sin movimiento parcial
+        // OJO: `disponible` es el conteo, no el contador del bucle. Si se
+        // decrementa aca, el for termina cuando se acaba el conteo y mueve
+        // TODAS las filas, no `qty`: sacar 1 de 2 llevaria las dos.
+        var movidos = 0;
+        for (var m = 0; m < trunkArr.length && movidos < qty; ) {
             if (trunkArr[m].id === id) {
                 data.items.push(trunkArr[m]);
                 trunkArr.splice(m, 1);
-                moved++;
+                movidos++;
             } else {
                 m++;
             }
         }
-        if (moved <= 0) return false;
         setModuleData("ItemManager", data);
         return true;
     }
 
     // Quitar del baul. La salud sale DE LA FILA QUE SE SACA, no de un default:
     // un stack de chatarra al 40% en el baul sigue al 40% cuando llega a la
-    // mochila. Se lee ANTES del splice, que se lleva la fila.
-    var found = false;
+    // mochila. Se cuenta antes de restar, por el mismo motivo que en addToTrunk:
+    // restar sobre la marcha y cortar despues dejaba el clon del cache a medias
+    // y, sin el conteo previo, restar mas de lo que hay CREABA material (la fila
+    // se borraba entera y el inventario recibia la cantidad completa).
+    var hay = 0;
     var salud = SALUD_MAX;
+    var saludTomada = false;
     for (var i = 0; i < trunkArr.length; i++) {
-        if (trunkArr[i].id === id) {
-            salud = clampSalud(trunkArr[i].salud);
-            trunkArr[i].qty -= qty;
-            if (trunkArr[i].qty <= 0) trunkArr.splice(i, 1);
-            found = true;
-            break;
-        }
+        if (trunkArr[i].id !== id) continue;
+        hay += (trunkArr[i].qty || 1);
+        if (!saludTomada) { salud = clampSalud(trunkArr[i].salud); saludTomada = true; }
     }
-    if (!found) return false;
+    if (hay < qty) return false;
+
+    var faltan = qty;
+    for (var i2 = 0; i2 < trunkArr.length && faltan > 0; ) {
+        if (trunkArr[i2].id !== id) { i2++; continue; }
+        var toma = trunkArr[i2].qty || 1;
+        if (toma > faltan) toma = faltan;
+        trunkArr[i2].qty -= toma;
+        faltan -= toma;
+        if (trunkArr[i2].qty <= 0) trunkArr.splice(i2, 1);
+    }
 
     // Agregar al inventario
     for (var j = 0; j < data.items.length; j++) {
@@ -466,12 +542,6 @@ export function removeFromTrunk(vehicleId, id, qty) {
     data.items.push({ id: id, qty: qty, salud: salud });
     setModuleData("ItemManager", data);
     return true;
-}
-
-// Transferencia generica inventario <-> baul (toTrunk=true: inv→baul)
-export function transferItem(vehicleId, id, qty, toTrunk) {
-    if (toTrunk) return addToTrunk(vehicleId, id, qty);
-    return removeFromTrunk(vehicleId, id, qty);
 }
 
 // ============================================================================
@@ -623,7 +693,12 @@ on("items:storeWeapon", function (e) {
     e.respond(ok ? { ok: true } : null);
 });
 
-// Re-export helpers de catalogo
-export { getItemDef, getItemName, getItemWeight, getItemType };
-export { SALUD_MAX, clampSalud } from "../data/gsis_item_data.js";
-export { getClipSizeByItemId } from "../data/gsis_weapon_data.js";
+// Sin re-exports de catalogo.
+//
+// Este bloque existia "por compat" y no lo consumia nadie: los 8 nombres
+// (getItemDef, getItemName, getItemWeight, getItemType, SALUD_MAX, clampSalud,
+// getClipSizeByItemId) los importa cada modulo directo de data/, que es donde
+// viven. Un re-export sin consumidores es laFacade que la regla de la casa
+// prohibe ("Import/export sin uso -> Borrar en el mismo cambio que lo deja
+// huerfano"): ademas sugiere que el catalogo se puede tocar por aca, y no se
+// puede.

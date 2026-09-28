@@ -201,6 +201,18 @@ export var STRINGS = {
         es: "~g~Pedido recogido completo",
         en: "~g~Order collected in full"
     },
+    PKC_CNC: {
+        es: "~g~Pedido cancelado, devueltos ${n}",
+        en: "~g~Order cancelled, ${n} refunded"
+    },
+    PKC_SIN: {
+        es: "~r~No hay pedido que cancelar",
+        en: "~r~No order to cancel"
+    },
+    PKC_NRF: {
+        es: "~r~No se pudo devolver ${n}. El pedido sigue pendiente.",
+        en: "~r~Could not refund ${n}. The order is still pending."
+    },
 
     // --- Trueque NPC → dialogo (gsis_dialog.fxt); status con ~r~/~g~/~y~ ---
     SEL_NOQ: {
@@ -314,7 +326,7 @@ export var STRINGS = {
     TY_ALM: { es: "almacen", en: "warehouse" },
 
     // --- UI Dealer ---
-    DLR_TTL: { es: "Contrabandista", en: "Contrabandist" },
+    DLR_TTL: { es: "Armero ilegal", en: "Illegal Gunsmith" },
     DLR_TOT: { es: "Total carrito: ${n}", en: "Cart total: ${n}" },
     DLR_CAT: { es: "Catalogo", en: "Catalog" },
     DLR_CRT: { es: "Carrito", en: "Cart" },

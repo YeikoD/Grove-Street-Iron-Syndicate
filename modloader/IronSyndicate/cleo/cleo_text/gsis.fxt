@@ -84,7 +84,7 @@ PRP_CST Costo: ${n} | Nomina: ${w}/dia
 PRP_OWN PROPIA
 TY_TALL taller
 TY_ALM almacen
-DLR_TTL Contrabandista
+DLR_TTL Armero ilegal
 DLR_TOT Total carrito: ${n}
 CRT_UI Carrito vacio
 TRK_TTL Maletero Vehiculo - {name} ({model})

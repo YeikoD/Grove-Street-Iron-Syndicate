@@ -2283,7 +2283,7 @@ const PANTALLAS = {
   // elegida sino sobre el carrito entero, que no es ninguna fila. Por eso
   // pieAcciones vive aparte de acciones.
   dealer: {
-    titulo: "Contrabandista",
+    titulo: "Armero ilegal",
     // Lista apilada y panel al borde izquierdo, como el inventario: el carrito
     // va DEBAJO del catalogo y no a su derecha. En un panel angosto (~30vw) dos
     // columnas dejaban cada tabla de 13vw y los nombres no entraban; apiladas
@@ -2295,7 +2295,7 @@ const PANTALLAS = {
     // vez de un numero suelto por fila. Con un solo pane el jugador tenia que
     // acordarse lo que fue agregando.
     apilado: true,
-    // "Contrabandista / Emmet" es un nombre y un nombre: la segunda linea es un
+    // "Armero ilegal / Emmet" es un nombre y un nombre: la segunda linea es un
     // dato que identifica, no una frase, asi que va en la MISMA linea que el
     // titulo, igual que "Inventario / CJ" (ver .panel-header--linea). Los otros
     // dos (trueque y retiro) traen frases largas y siguen abajo del titulo.
@@ -2417,8 +2417,18 @@ const PANTALLAS = {
     // pie. Es la unica accion del mod que valida el peso del pedido COMPLETO
     // antes de tocar nada (ver collectAll), asi que tiene que estar a un clic,
     // no escondida en el menu de una fila.
+    //
+    // "Cancelar pedido" va al lado por la misma razon: el peso del pedido NO se
+    // reserva al comprar, se valida al recoger, asi que un pedido puede no caber
+    // jamas (2x RPG = 14 kg contra un tope de 12) y sin esto el jugador pago por
+    // algo que no puede recoger ni deshacer. El mod lo reembolsa (cancelOrder).
+    //
+    // Sin `tecla` a proposito: la A ya es de "Recoger todo" y una tecla nueva
+    // por boton es un mapa de atajos que hay que mantener. Y sin `principal`,
+    // porque el Enter del teclado tiene que seguir siendo "Recoger".
     pieAcciones: [
-      { label: "Recoger todo", cmd: () => ({ cmd: "pickup:takeAll" }), tecla: "A", principal: true }
+      { label: "Recoger todo", cmd: () => ({ cmd: "pickup:takeAll" }), tecla: "A", principal: true },
+      { label: "Cancelar pedido", cmd: () => ({ cmd: "pickup:cancel" }) }
     ]
   }
 };
@@ -2811,6 +2821,38 @@ function cajaDeScroll() {
   const activa = cajas[paneActual] || p.panes.children[paneActual];
   return activa ? activa.querySelector(".pane__rows") : rowsBox;
 }
+
+// La rueda del raton sobre una lista. El scroll nativo va con la sensibilidad
+// de una pagina web y estas listas (filas chicas, cajas de ~460px) recorren
+// apenas unas filas por muesca: el jugador se queda picando la rueda. La
+// pagina toma el wheel, busca la caja debajo del puntero y la scrollea ELLA,
+// con su propio multiplicador, cancelando el nativo — si no lo cancelara, los
+// dos scrolleos se sumarian y la lista saltaria doble.
+//
+// Es UNA regla para el inventario (#rows) y para los paneles del flujo
+// (.pane__rows): las dos listas se sienten igual y RUEDA_MULT —el unico
+// numero a tocar si se quiere mas o menos vueltas por muesca— vive en un solo
+// lugar.
+//
+// El { passive: false } de abajo tambien es obligatorio: Chrome declara
+// passive por defecto el wheel del documento, y ahi preventDefault() no hace
+// nada (el scroll nativo correria igual, despues del nuestro).
+const RUEDA_MULT = 6;
+
+document.addEventListener("wheel", (e) => {
+  const alvo = e.target || null;
+  if (!alvo || !alvo.closest) return;
+  const caja = alvo.closest(".pane__rows, #rows");
+  if (!caja) return;
+  e.preventDefault();
+  // deltaMode del estandar: 0 pixel, 1 linea, 2 pagina. Los tres se pasan a
+  // pixeles antes de multiplicar, para que la sensibilidad no dependa del modo
+  // en que el motor mande la rueda.
+  const px = e.deltaMode === 1 ? e.deltaY * 16
+    : e.deltaMode === 2 ? e.deltaY * (caja.clientHeight || 400)
+    : e.deltaY;
+  caja.scrollTop = (caja.scrollTop || 0) + px * RUEDA_MULT;
+}, { passive: false });
 
 function correrPrincipal(cfg) {
   const r = selectedRow();

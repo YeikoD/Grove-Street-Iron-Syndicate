@@ -1,16 +1,18 @@
 /* SAWebUI РІР‚вЂќ EstР“В©tica Vanilla Pantalla Stats & GuР“В­a Interactiva para Modders.
    Proporciones medidas sobre captura real de GTA SA (1200x675) en vw/vh. */
 
-/* Las dos fuentes del encabezado, una por linea. Los archivos se llaman asi a
-   proposito —DIPLOMA_titulo y PRICEDOW_subtitulo— y aca se declaran en el mismo
-   orden: el TITULO va en Diploma y el SUBTITULO en PriceDown. El nombre del
-   archivo es el contrato; si se cambia una fuente hay que cambiar de fila el
-   @font-face y el token que la lee, no una regla cualquiera.
+/* Las tres fuentes del sistema, una por rol, en el mismo orden en que se usan.
+   Los archivos se llaman asi a    proposito —DIPLOMA_titulo, PRICEDOWN_subtitulo, FUTURA_BOLD_textos—: el TITULO
+   va en Diploma, el SUBTITULO en PriceDown y todo el texto normal (tabla, botones,
+   pie, flujos) en Futura. El nombre del archivo
+   es el contrato; si se cambia una fuente hay que cambiar de fila el @font-face
+   y el token que la lee, no una regla cualquiera.
 
-   format("truetype") y no woff/woff2: los dos archivos son TTF pelados. Y
-   font-display: block por lo de siempre —el panel se dibuja una vez y no se
-   vuelve a pintar, asi que un texto que recien carga sale con la fuente del
-   sistema y aluego se corrige solo, que en el juego se ve como un parpadeo. */
+   format() y no woff/woff2: los tres archivos van pelados (titulo TTF, subtitulo
+   y textos OTF). Y font-display: block por lo de siempre —el panel se dibuja
+   una vez y no se vuelve a pintar, asi que un texto que recien carga sale con la
+   fuente del sistema y aluego se corrige solo, que en el juego se ve como un
+   parpadeo. */
 @font-face {
   font-family: "Diploma";
   src: url("assets/fonts/DIPLOMA_titulo.ttf") format("truetype");
@@ -21,8 +23,20 @@
 
 @font-face {
   font-family: "PriceDown";
-  src: url("assets/fonts/PRICEDOW_subtitulo.TTF") format("truetype");
+  src: url("assets/fonts/PRICEDOWN_subtitulo.otf") format("opentype");
   font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+
+@font-face {
+  font-family: "Futura";
+  src: url("assets/fonts/FUTURA_BOLD_textos.otf") format("opentype");
+  /* rango abierto a proposito: el archivo ya viene bold y si declaramos solo
+     400, las ~15 reglas con font-weight: 700 le pedirian al navegador un bold
+     sintetizado encima (engordado feo). Con el rango, el 700 usa el archivo tal
+     cual. */
+  font-weight: 100 900;
   font-style: normal;
   font-display: block;
 }
@@ -118,20 +132,28 @@
   /* Sombras. */
   --shadow-panel: 0 0.5vh 2vh rgba(0, 0, 0, 0.5);
 
+  /* La sombra del TEXTO NORMAL, estilo menu vanilla del juego: dura (sin blur),
+     negro puro, fuerte — en el SA el texto se dibujaba dos veces con offset,
+     asi que casi parece un borde que asoma por abajo. Se aplica UNA vez en body
+     y hereda todo el texto — tablas, pies, pesos, botones, avisos, peceras.
+     Los titulos y subtitulos del encabezado NO la usan: ellos tienen los suyos
+     propios (--title-shadow y --subtitle-shadow). */
+  --shadow-text: 1px 2px 0 var(--g-1000), 2px 2px 0 var(--g-1000);
+
   /* Tipografia. Los stacks estaban repetidos 2 o 3 veces.
 
-     Tres familias y cada una con un rol, uno por linea del encabezado:
+     Tres familias y cada una con un rol:
      --font-title      Diploma, la del titulo.
      --font-subtitle   PriceDown, la del subtitulo.
-     --font-ui         la sans de todo el resto —tabla, botones, pie— que no es
-                        una fuente del encabezado: es la que lee el dato.
+     --font-ui         Futura, la de todo el texto normal —tabla, botones,
+                        pie—: es la que lee el dato.
 
      El subtitulo lleva la sans al final de su stack a proposito: es una fuente
      de display, y si el archivo no llegara a cargar lo que sale es texto de
      veras antes que texto en otra fuente de adorno. */
   --font-title: "Diploma", serif;
   --font-subtitle: "PriceDown", var(--font-ui);
-  --font-ui: "Arial Narrow", "Liberation Sans Narrow", Arial, sans-serif;
+  --font-ui: "Futura", "Arial Narrow", "Liberation Sans Narrow", Arial, sans-serif;
   --font-mono: "Consolas", "Courier New", monospace;
 
   /* Escala de type. Colapsa los 10 tamanhos que habia en 7 pasos; los 1.3 /
@@ -142,6 +164,27 @@
   --fs-md: 1.75vh;
   --fs-lg: 2.2vh;
   --fs-xl: 3.2vh;
+
+  /* Los numeros de ESTADO de todos los menus: las celdas de datos de la tabla,
+     el pie (dinero, total, libre), el peso por lista y el peso del inventario,
+     y los conteos de las bandas de grupo. UN solo token para que el dato pese
+     igual en todos lados; si hay que moverlo se mueve una linea.
+
+     Su linea propia y no la escala global: --fs-sm es ademas el cuerpo de .btn
+     y de .row, y subirlo traeria los botones con el. */
+  --stat-fs: 1.4vh;
+
+  /* El nombre del ITEM en cualquier menu. Vive en la raiz y no adentro de la
+     receta .table porque es del item, no de la tabla: cualquier render futuro
+     de un nombre tiene que leer este token. La escalera queda:
+     nombre 1.5 > stat 1.4 > titulo 1.25. */
+  --name-fs: 1.5vh;
+
+  /* Los titulos de seccion: titulo de lista (.pane__title), banda de categoria
+     (.table__group) y encabezados de columna (.table__head y su variante de
+     texto). UN token donde antes habia dos cuerpos (1.35vh la palabra "Objeto"
+     y 1.25vh todo lo demas): mismo titulo, mismo cuerpo, en todos los menus. */
+  --title-fs: 1.25vh;
 
   /* Espaciado vertical. */
   --sp-1: 0.2vh;
@@ -274,6 +317,8 @@ body {
   background: transparent;
   color: var(--text-body);
   font-family: var(--font-ui);
+  /* Sombra vanilla para todo el texto normal (hereda; ver --shadow-text). */
+  text-shadow: var(--shadow-text);
   user-select: none;
   cursor: default;
 }
@@ -302,32 +347,26 @@ body {
 
   /* icon | nombre | cant | salud | peso | valor. El 1fr es el nombre, que
      absorbe lo que sobre y por eso el nombre nunca queda desalineado al
-     cambiar el ancho del panel.
+     cambiar el ancho del panel. Este valor lo repite .table--6 a proposito.
 
-     Las cuatro columnas numericas estan dimensionadas para que entre la
-     CABECERA, no el dato. Antes iban en 2.4 / 3.6 / 2.8 / 3.6vw y "CANT" no
-     entraba en 2.4vw: como las celdas van con text-align:right, lo que
-     desborda se come el gap de la izquierda y las etiquetas quedaban pegadas
-     ("CANTPESOVALOR"). El dato nunca fue el que manda: la palabra mas
-     larga de cada columna es su encabezado. */
-  --table-cols: var(--table-icon-w) 1fr 3.2vw 3.8vw 3.2vw 3.8vw;
+     Las cuatro numericas van en VH y no en vw: el cuerpo con el que se
+     miden —el dato (--stat-fs) y el encabezado (--title-fs)— es vh, y en una
+     ventana mas alta (1452x926) los tracks en vw no crecian al ritmo del
+     cuerpo y el dato se cortaba. En vh el ancho mide lo mismo que la
+     tipografia en los dos aspectos. El numero de cada track sale de measure.mjs
+     (lo mas ancho de ENCABEZADO o DATO en ambos aspectos + un pelo de aire). */
+  --table-cols: var(--table-icon-w) 1fr 5.45vh 5vh 2.85vh 6.15vh;
   --table-gap: var(--spw-2);
-  /* Alto de fila y cuerpo propios de la tabla, sueltos de --row-h y --fs-sm.
-     Cuando el panel se ensancho a 38vw, filas de 3.1vh con texto de 1.6vh
-     quedaron chicas para el ancho que tienen. Se desacoplan a proposito:
-      --fs-sm es ademas el cuerpo de .btn, asi que subirlo por la escala global
-      venia con los botones enganados al inventario.
-     --row-h sigue siendo el alto de las listas de las otras pestanas, que van
-     con .row y no con la tabla. Sube con --table-icon-w (ver alla): el icono
-     tiene que entrar en la fila. */
+  /* Alto de fila propio de la tabla, suelto de --row-h: el cuerpo del nombre
+     ya no vive aca (es --name-fs en la raiz). --row-h sigue siendo el alto de
+     las listas de las otras pestanas, que van con .row y no con la tabla.
+     Sube con --table-icon-w (ver alla): el icono tiene que entrar en la fila. */
   --table-row-h: 3.7vh;
-  --table-fs: 1.8vh;
   /* El tracking cerrado sigue, pero solo le sirve a la celda del nombre: las
      otras cuatro son iconos y el ancho de columna lo define --headicon, no la
      tipografia. Cuando eran texto, el tracking se pagaba dos veces porque el
      encabezado es lo que dimensiona la columna; ahora eso es un problema de
      una sola celda. */
-  --table-head-fs: 1.35vh;
   --table-head-track: 0.08vw;
 
   /* Grosor de las dos guias verticales de la tabla: el filete gris de la banda
@@ -362,8 +401,17 @@ body {
   --table-cols: var(--table-icon-w) 1fr 3.2vw 3.6vw 3.6vw;
 }
 
+/* 6 columnas: icono | nombre | cant | salud | peso | valor. La del inventario
+   y ademas la del maletero y la del retiro. Repite el valor de .table a
+   proposito (ver arriba).
+
+   Los numericos van en vh —mismo eje que el cuerpo que los mide— y los
+   valores salen de measure.mjs en los dos aspectos: "30/30" 5.32vh y "100%"
+   4.87vh son lo mas ancho, y 5.45 / 5 / 2.85 / 6.15 les dejan aire en los
+   dos aspectos. Si un dato futuro se corta, se suma a SU track y se lo
+   quita al 1fr del nombre antes que a las columnas vecinas. */
 .table--6 {
-  --table-cols: var(--table-icon-w) 1fr 3.2vw 3.8vw 3.2vw 3.8vw;
+  --table-cols: var(--table-icon-w) 1fr 5.45vh 5vh 2.85vh 6.15vh;
 }
 
 /* 7 columnas: icono | nombre | 5 datos. Dos pantallas: el TRUEQUE —inventario
@@ -371,27 +419,20 @@ body {
    valor, mas precio de compra (la columna Carrito se fue al panel del carrito,
    ver PANTALLAS.dealer en app.js)—.
 
-   El reparto no es uniforme a proposito y sigue la misma regla que --6: el
-   ancho lo mide lo mas ancho de ENCABEZADO o DATO de cada columna. Salud se
-   queda en 2.9vw porque su dato mas largo es "100%" (y su encabezado "Salud"
-   manda); municion/peso/valor/precio bajaron a 2.7 / 1.6 / 3.5 / 3.5: sus
-   datos mas largos son "Munición", "3.5", "$1.500" y la palabra "PRECIO", y
-   traian holgura de sobra. La que la necesita es el NOMBRE: la armeria va en
-   el panel CENTRO de dos columnas —cada lista vive en media panel—, y en esa
-   lista el nombre lleva el chip "(2 en carrito)" al lado (buildTableRow en
-   app.js); con la holgura vieja el chip comprimia el nombre a "9..." y "AK..."
-   a 1452x926. Medir con measure.mjs en los dos aspectos; si vuelve a
-   cortarse, se le suma QUITANDO de municion/peso antes que de las de dinero.
+   Las cuatro primeras repiten el reparto de --6 (cant/municion, salud, peso,
+   valor/base comparten cuerpo y datos). La QUINTA es la que mas trae: en la
+   armeria es la PALABRA "PRECIO" con .table__headtext y en el trueque la
+   palabra "OFERTA", y "OFERTA" con --title-fs mide 6.27vh — con 6.04vh (lo
+   que necesita "$1.800") se cortaba. 6.45vh cubre la palabra en los dos
+   aspectos y el dato de dinero con aire.
 
-   Las de dinero (valor/base 3.9, precio/oferta 3.9) son las que mas traen:
-   la cifra es "$1.500" —6 caracteres con el punto de miles— y el encabezado
-   de armeria es la PALABRA "PRECIO" con .table__headtext. Con 3.2vw los dos
-   se cortaban: la palabra salia "PRE..." y en la captura dos cifras seguidas
-   ("$400 $480") terminaban pegadas, porque el texto overflow se come el gap y
-   no hay aviso — solo la palabra partida. Medir con measure.mjs; si vuelve a
-   cortarse a algun aspecto, se agranda ESTE track y no el nombre. */
+   La que mas margen tiene es el NOMBRE (1fr): la armeria va en el panel CENTRO
+   de dos columnas —cada lista vive en media panel— y ahi el nombre lleva el
+   chip "(2 en carrito)" al lado (buildTableRow en app.js). Medir con
+   measure.mjs en los dos aspectos; si vuelve a cortarse, se le suma al nombre
+   QUITANDO de la quinta y de municion/peso antes que de salud/valor. */
 .table--7 {
-  --table-cols: var(--table-icon-w) 1fr 2.7vw 2.9vw 1.6vw 3.5vw 3.5vw;
+  --table-cols: var(--table-icon-w) 1fr 5.45vh 5vh 2.85vh 6.15vh 6.45vh;
 }
 
 .table__head,
@@ -403,31 +444,52 @@ body {
 }
 
 /* Cabecera. Se corre con el mismo grid que las filas para que las columnas
-   caigan exactamente arriba de sus datos. nowrap + overflow hidden son la
-   defensa: si un encabezado futuro no entra en su columna, se recorta en vez
-   de invadir la vecina y volver a pegarlas.
-
-   Solo el nombre de la columna usa la tipografia: las cuatro celdas numericas
-   van con un icono (abajo, .table__headicon), asi que el color, el uppercase y
-   el tracking de acá los muestran el texto y los iconos los heredan. */
+   caigan exactamente arriba de sus datos. Solo grilla y filete: el estilo del
+   texto esta centralizado en el bloque de abajo (.table__head>span). */
 .table__head {
-  font-size: var(--table-head-fs);
-  font-weight: 700;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: var(--table-head-track);
   padding: 0 var(--table-row-pad-x) var(--sp-2);
   border-bottom: 1px solid var(--divider);
 }
 
+/* ESTILO UNICO de los spans que titulan o categorizan la caja —"OBJETO",
+   "PRECIO", "CARRITO"—. Todo el look vive en UNA sola regla: cuerpo, color,
+   mayusculas, tracking, corte y sombra. Para tocar a todos de una (por
+   ejemplo, apagar la sombra de todos los encabezados) se cambia UNA linea
+   aca y no hay reglas repartidas que rastrear.
+
+   nowrap + overflow hidden son la defensa: si un encabezado futuro no entra
+   en su columna, se recorta en vez de invadir la vecina y volver a pegarlas.
+   Los iconos numericos (abajo, .table__headicon) heredan el color de aca.
+   Sin sombra: el texto normal la hereda de body, pero estos titulos van
+   planos (como las bandas de grupo). text-align left pisa al de .table__num
+   (que es right): los encabezados van todos pegados al inicio de su columna,
+   sin importar si son palabra o icono. */
 .table__head>span {
+  font-size: var(--title-fs);
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: var(--table-head-track);
+  text-align: left;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  text-shadow: none;
 }
 
-/* Encabezado de TEXTO en una columna de datos. Hereda bold, muted, uppercase y
-   el overflow de .table__head; lo que saca es el tracking y baja un cuerpo.
+/* El titulo de la caja ("Objeto", "Arma", "Pedido") es la UNICA celda sin
+   .table__num, y cae en la columna 2 —detras del track del icono—, asi que el
+   texto arrancaba ~30px a la derecha de las bandas de grupo. Se corre a la
+   izquierda por el ancho del icono + el gap para que "OBJETO" y "ARMAS"
+   arranquen en el mismo filete: los dos titulan la misma lista y ver dos
+   sangrados distintos se leia como dos listas. El --guide-w del medio es el
+   border-left de la banda, que tambien empuja su texto. */
+.table__head>span:not(.table__num) {
+  margin-left: calc(var(--guide-w) - var(--table-icon-w) - var(--table-gap));
+}
+
+/* Encabezado de TEXTO en una columna de datos: el cuerpo y el color ya vienen
+   del bloque de arriba, lo propio es sacarle el tracking.
 
    El motivo es que una palabra no mide lo mismo que un icono: los encabezados
    numericos del inventario son svgs de 1.85vh y entran en 2.9vw, pero "PRECIO"
@@ -435,9 +497,9 @@ body {
    comia el gap de la izquierda y las dos palabras quedaban pegadas, que es el
    mismo modo de fallar que ya tenian las etiquetas cuando eran todas texto.
 
-   Solo la del nombre no la lleva: es 1fr y no tiene ese techo. */
-.table__headtext {
-  font-size: var(--fs-2xs);
+   Solo la del nombre no la lleva: es 1fr y no tiene ese techo. Va con
+   .table__head>span adelante para ganarle en especificidad a la regla base. */
+.table__head>span.table__headtext {
   letter-spacing: 0;
 }
 
@@ -453,12 +515,11 @@ body {
 .table__headicon {
   --headicon: 1.85vh;
 
-  /* inline-block, NO block, y esto es lo que alinea los iconos con los datos.
-     El header hereda text-align: right de .table__num, y text-align solo mueve
-     contenido inline: un bloque de ancho fijo se pegaba al inicio del span y
-     los cuatro iconos quedaban corridos a la izquierda de sus columnas,
-     mientras los numeros de abajo seguian a la derecha. Con inline-block el
-     text-align los pega al borde derecho igual que a los datos.
+  /* inline-block, NO block: text-align solo mueve contenido inline, y el
+     encabezado va con text-align: left (ver .table__head>span), asi que con
+     inline-block el icono se pega al inicio de su columna junto con el resto
+     de los titulos. Un bloque de ancho fijo tambien entraria, pero el span ya
+     recorta con overflow y el inline respeta mejor el corte.
 
      vertical-align: middle los centra en la linea. Sin eso se apoyan sobre la
      baseline y quedan un pelo arriba: como el span ya no tiene texto, la
@@ -486,11 +547,13 @@ body {
   display: flex;
   align-items: center;
   gap: var(--spw-2);
-  font-size: var(--fs-2xs);
+  font-size: var(--title-fs);
   font-weight: 700;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: var(--spw-1);
+  /* Las bandas llevan fondo propio: sin sombra heredada se ven planas. */
+  text-shadow: none;
   background: var(--surface-hover);
   border-left: var(--guide-w) solid var(--g-600);
   padding: var(--sp-1) var(--group-indent);
@@ -503,13 +566,14 @@ body {
 
 .table__group-count {
   margin-left: auto;
+  font-size: var(--stat-fs);
   color: var(--text-inverse);
   opacity: 0.6;
 }
 
 .table__row {
   height: var(--table-row-h);
-  font-size: var(--table-fs);
+  font-size: var(--name-fs);
   padding: 0 var(--table-row-pad-x);
   cursor: pointer;
   transition: background var(--dur-fast) ease;
@@ -548,8 +612,13 @@ body {
 
 /* Cifras: a la derecha y con ancho de digito fijo, para que los decimales
    queden en columna en vez de bailar. Sin color propio a proposito РІР‚вЂќ heredan el
-   de la fila, que es el mismo que el del nombre. */
+   de la fila, que es el mismo que el del nombre. El cuerpo lo manda --stat-fs
+   (un escalon abajo del nombre: la columna del nombre manda y las cifras se
+   leen igual mas chicas). Bajar el cuerpo no toca las columnas: el ancho de
+   cada track lo definen el ENCABEZADO (--title-fs) o el dato mas ancho
+   (--stat-fs), asi que un cuerpo mas chico solo gana holgura. */
 .table__num {
+  font-size: var(--stat-fs);
   text-align: right;
   font-variant-numeric: tabular-nums;
   color: inherit;
@@ -1081,7 +1150,7 @@ body {
    margen de aca es el que separa el pie de las listas o del aviso. */
 
 .panel-foot__txt {
-  font-size: var(--fs-2xs);
+  font-size: var(--stat-fs);
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
@@ -1355,7 +1424,7 @@ body {
 }
 
 .pane__title {
-  font-size: var(--fs-2xs);
+  font-size: var(--title-fs);
   font-weight: 700;
   color: var(--text-muted);
   text-transform: uppercase;
@@ -1395,7 +1464,7 @@ body {
                lo hace el maletero. Nunca apaga el boton por este calculo, solo
                pinta - el que valida es el mod. */
 .pane__peso {
-  font-size: var(--fs-2xs);
+  font-size: var(--stat-fs);
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
@@ -1534,11 +1603,11 @@ body {
    en el HTML, asi el peso y los verbos de las teclas se leen con la misma
    capitalizacion y no conviven PESO: 3.2KG/12KG al lado de "Equipar". */
 #weight {
-  font-size: var(--fs-2xs);
+  font-size: var(--stat-fs);
   font-weight: 700;
   color: var(--text-accent);
   letter-spacing: var(--spw-1);
-  text-shadow: 1px 1px 2px var(--g-1000);
+  text-shadow: var(--shadow-text);
   white-space: nowrap;
 }
 

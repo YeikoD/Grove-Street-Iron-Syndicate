@@ -20,7 +20,7 @@ import { MISC } from "../core/gsis_Config.js";
 import { register } from "../core/gsis_ModuleRegistry.js";
 import { registerMenuSource } from "../core/gsis_Input.js";
 import { getModuleData, setModuleData } from "../core/gsis_SaveManager.js";
-import { t } from "../core/gsis_L10n.js";
+import { t, money } from "../core/gsis_L10n.js";
 import { setNotice } from "../core/gsis_Notice.js";
 import { getItemName, getItemWeight } from "../data/gsis_item_data.js";
 import { getSpots } from "../data/gsis_spot_data.js";
@@ -75,17 +75,54 @@ export function getOrder() {
 // en el proximo frame: el pedido vacio es la causa, y el update es el unico que
 // mira la causa. Tocar las esferas desde aca seria tener dos caminos para la misma
 // decision, y ahi es donde se desincronizan.
-export function clearOrder() {
+function clearOrder() {
     setModuleData("DealerOrders", { items: [], total: 0, purchasedAt: 0 });
     _showPickupMenu = false;
+    return true;
+}
+
+// Devuelve el dinero del pedido pendiente y lo borra. Sin esto el pedido era un
+// callejon sin salida: el peso NO se reserva al comprar, se valida recien al
+// recoger, y `free` nunca pasa de MISC.MAX_INVENTORY_WEIGHT. Con 12 kg de tope,
+// un pedido de 2x RPG (14 kg) o de 2x minigun (20 kg) es imparable siempre, y
+// `clearOrder` no lo llamaba nadie — no habia forma de deshacer la compra.
+//
+// El dinero es el NATIVO de CJ, no el cleanMoney del save: lo cobro
+// WeaponDealer.checkout con p.addScore(-total), asi que se devuelve igual, con
+// el mismo signo al reves. Tocar cleanOrder sin tocar el score dejaria el
+// pedido borrado y el dinero gastado.
+export function cancelOrder() {
+    var order = getOrder();
+    if (!order || !order.total || order.total <= 0) {
+        setNotice(t("PKC_SIN"));
+        return false;
+    }
+    var refund = order.total;
+    var txt = money(refund);   // "15000" -> "15.000"; el "$" lo pone la plantilla
+    try {
+        new Player(0).addScore(refund);  // 0109: positivo suma dinero de CJ
+    } catch (e) {
+        // Sin pago no se borra el pedido: si el reembolso falla y borramos igual,
+        // el jugador pierde la plata sin poder recuperarla.
+        log("[DealerPickup] no se pudo devolver el dinero: " + e.message);
+        setNotice(t("PKC_NRF", { n: txt }));
+        return false;
+    }
+    clearOrder();
+    setNotice(t("PKC_CNC", { n: txt }));
+    log("[DealerPickup] Pedido cancelado, devueltos " + refund);
     return true;
 }
 
 // Quita qty de un item del pedido (retiro parcial).
 // Si el pedido queda vacio → destruye esfera y cierra menu.
 // Devuelve false si el item/qty no coincide (no toca nada).
-export function removeFromOrder(itemId, qty) {
-    qty = qty || 1;
+function removeFromOrder(itemId, qty) {
+    // SIN `qty = qty || 1`: con qty 0 (una linea ya vacia) eso promovia la
+    // llamada a quitar 1, y el `for u` de quien la llama no corre con 0 — o sea
+    // que una linea con qty 0 le pagaba una unidad a la linea de al lado con el
+    // mismo id. Un default solo cuando no hay valor, no cuando el valor es 0.
+    if (qty === undefined || qty === null) qty = 1;
     if (qty < 1 || !itemId) return false;
 
     var order = getModuleData("DealerOrders");
@@ -165,19 +202,29 @@ export function collectItem(itemId, qty) {
         return false;
     }
 
-    // Primero entra el item, recien despues sale del pedido. Al reves, un fallo
-    // de addItem deja la linea cobrada y el arma perdida, que es el peor de los
-    // dos mundos.
+    // UNA sola llamada a addItem con la cantidad completa, no un bucle de a uno.
+    //
+    // addItem valida el peso de las N unidades de una vez (ITEMS[id].weight * qty)
+    // y las mete todas, asi que es atomico por construccion: entra todo o no entra
+    // nada. El bucle de a uno NO lo era, y por ahi se perdian items:
+    //
+    //   El precheque de 163 y el chequeo interno de addItem son la MISMA condicion
+    //   matematica pero distinta aritmetica de punto flotante — w*qty de una vez
+    //   contra una suma acumulada. Hay bases de inventario donde el prechece
+    //   pasa y addItem rechaza en la unidad N-1 (por ejemplo: 20 cañones de
+    //   pistola = 8 kg y pedir 10 mas, o 10 cañones cortos = 8 kg y pedir 5).
+    //   Con el bucle, lo entregado queda en la mochila y el `return` de abajo
+    //   salta el removeFromOrder: la linea del pedido conserva su cantidad
+    //   completa y el jugador puede repetir el click para cobrar las mismas
+    //   unidades otra vez, sin limite.
     //
     // entregaOpts: el arma comprada llega SIN cargador (hasMag:false, 0 balas).
     // No es una cortesia del dealer, es la regla del mod —misma funcion que usa
     // el preview del pedido, para que el panel y la entrega digan lo mismo.
     var opts = entregaOpts(itemId);
-    for (var u = 0; u < qty; u++) {
-        if (!addItem(itemId, 1, opts)) {
-            setNotice(t("PKC_ERR", { name: getItemName(itemId) }));
-            return false;
-        }
+    if (!addItem(itemId, qty, opts)) {
+        setNotice(t("PKC_ERR", { name: getItemName(itemId) }));
+        return false;
     }
     if (!removeFromOrder(itemId, qty)) {
         setNotice(t("PKC_ERR", { name: getItemName(itemId) }));
@@ -208,20 +255,30 @@ export function collectAll() {
     }
 
     // Linea por linea, con su propio removeFromOrder: el pedido se va vaciando
-    // en el mismo orden en que se leyo, y un addItem que falle a la mitad deja el
-    // pedido en el estado real de lo que si entro, no en uno inventado.
+    // en el mismo orden en que se leyo.
+    //
+    // UNA llamada a addItem por linea, con la cantidad completa — el mismo
+    // criterio que collectItem, y por el mismo motivo: el bucle de a uno dejaba
+    // la linea cobrada y las unidades metidas (ver el comentario de collectItem).
+    // Una linea es atomica o no es nada.
+    //
+    // El chequeo de peso de 215 es sobre el pedido COMPLETO, asi que si pasa, a
+    // este punto todas las lineas entran: no hay forma de que una falle por
+    // peso.(addItem igual valida, y si algo se colara devuelve false sin haber
+    // tocado el pedido de esa linea.)
     // entregaOpts por linea, igual que collectItem: cada id decide su estado.
     for (var j = 0; j < order.items.length; j++) {
         var id = order.items[j].id;
         var qty = order.items[j].qty;
         var optsLinea = entregaOpts(id);
-        for (var u = 0; u < qty; u++) {
-            if (!addItem(id, 1, optsLinea)) {
-                setNotice(t("PKC_ERR", { name: getItemName(id) }));
-                return false;
-            }
+        if (!addItem(id, qty, optsLinea)) {
+            setNotice(t("PKC_ERR", { name: getItemName(id) }));
+            return false;
         }
-        removeFromOrder(id, qty);
+        if (!removeFromOrder(id, qty)) {
+            setNotice(t("PKC_ERR", { name: getItemName(id) }));
+            return false;
+        }
     }
 
     setNotice(t("PKC_ALL"));

@@ -87,7 +87,7 @@ import { removeItem, equipMagToBelt, unequipBeltMag } from "./gsis_Items.js";
 import { putInTrunk, takeFromTrunk } from "./gsis_Trunk.js";
 import { addToCart, removeFromCart, resetCart, checkout } from "./gsis_WeaponDealer.js";
 import { doOffer } from "./gsis_WeaponSeller.js";
-import { collectItem, collectAll } from "./gsis_DealerPickup.js";
+import { collectItem, collectAll, cancelOrder } from "./gsis_DealerPickup.js";
 import { clearNotice, hasNotice, takeNotice } from "../core/gsis_Notice.js";
 import SAWeb from "../../../../SAWebUI/cleo/SAWebUI/SAWeb.js";
 
@@ -829,10 +829,14 @@ function handleCommand(cmd) {
                 // dos funciones peleandose por la misma clase, y eso solo se
                 // diferencia mirando el resultado.
                 case "ui:diag":
-                    log("[WebInterface] pagina dice: " + (data && data.dice) +
-                        " flow=\"" + (data && data.flow) + "\"" +
-                        " menu=" + (data && data.menu) +
-                        " #panel" + (data && data.hidden ? " OCULTO" : " VISIBLE"));
+                    // Los campos vienen en `cmd`, no en un `data`: handleCommand
+                    // declara `what` e `id` y nada mas, asi que leer `data` era un
+                    // ReferenceError tragado por el catch de abajo — el canal de
+                    // diagnostico nunca se emitio.
+                    log("[WebInterface] pagina dice: " + (cmd && cmd.dice) +
+                        " flow=\"" + (cmd && cmd.flow) + "\"" +
+                        " menu=" + (cmd && cmd.menu) +
+                        " #panel" + (cmd && cmd.hidden ? " OCULTO" : " VISIBLE"));
                     return false;
 
                 case "inv:equip":
@@ -930,6 +934,7 @@ function handleCommand(cmd) {
                 return true;
 
             case "pickup:take":
+                clearNotice();
                 if (!id) return false;
                 collectItem(id, cmd.qty);
                 log("[WebInterface] retiro " + id + " x" + cmd.qty);
@@ -939,6 +944,16 @@ function handleCommand(cmd) {
                 clearNotice();
                 collectAll();
                 log("[WebInterface] retiro de todo el pedido");
+                return true;
+
+            case "pickup:cancel":
+                // clearNotice() SI va, aunque no haya id que validar: cancelOrder
+                // escribe su propio aviso (cancelado / no hay pedido), y sin
+                // limpiar el aviso anterior de la pantalla sobrevive a este
+                // comando y la pagina lo repite como si fuera la respuesta.
+                clearNotice();
+                cancelOrder();
+                log("[WebInterface] cancelacion del pedido pendiente");
                 return true;
 
             case "seller:offer":

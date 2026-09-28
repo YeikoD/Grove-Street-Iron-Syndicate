@@ -122,11 +122,22 @@ export function getSellState() {
 }
 
 // Evaluacion de oferta sobre el NPC activo.
-// Devuelve { ok, total, interest, msgKey, msgParams } — UI orquesta removeItem/addScore
-// y muestra msgKey via characters:say (subtitulos 00BB con nombre).
-export function offerWeapon(itemId, qty, unitPrice) {
+// Devuelve { ok, total, interest, msgKey, msgParams } — la orquestacion (doOffer)
+// saca el item, aplica el commit y paga.
+//
+// `commit` (por defecto true) decide si se MUEVE el estado del NPC. En false es
+// una simulacion: decide lo mismo, tira el mismo dado, y no toca ni presupuesto
+// ni salesCompleted ni fulfilled. Es lo que permite que doOffer mire primero si
+// el NPC compra y solo despues cobre — antes el descuento pasaba antes de saber
+// si el item salia de la mochila, y sin rollback: si removeItem fallaba, el NPC
+// ya habia pagado y el jugador se llevaba el arma gratis.
+function offerWeapon(itemId, qty, unitPrice, commit) {
+    if (commit === undefined || commit === null) commit = true;
     qty = qty || 1;
-    if (qty < 1 || !itemId || unitPrice < 0) {
+    // `<= 0` y no `< 0`: doOffer clampa a Math.max(0, ...), asi que un 0 pasaba
+    // el filtro, daba `techo * 0.85 >= 0` (acepta seguro), `budget -= 0` y el
+    // jugador entregaba el arma por nada. Aceptar un precio 0 es regalar.
+    if (qty < 1 || !itemId || unitPrice <= 0) {
         return { ok: false, total: 0, interest: false, msgKey: "SEL_IVL", msgParams: null };
     }
 
@@ -187,11 +198,7 @@ export function offerWeapon(itemId, qty, unitPrice) {
             };
         }
         // acepta con flavor de "un poco caro"
-        st.budget -= total;
-        if (isInterest) {
-            st.salesCompleted++;
-            _checkFulfilled(st);
-        }
+        if (commit) _commitOffer(st, total, isInterest);
         return {
             ok: true, total: total, interest: isInterest,
             msgKey: "SEL_A2", msgParams: { n: total }
@@ -199,25 +206,43 @@ export function offerWeapon(itemId, qty, unitPrice) {
     }
 
     // Acepta seguro
-    st.budget -= total;
-    if (isInterest) {
-        st.salesCompleted++;
-        _checkFulfilled(st);
-    }
+    if (commit) _commitOffer(st, total, isInterest);
     return {
         ok: true, total: total, interest: isInterest,
         msgKey: "SEL_A1", msgParams: { n: total }
     };
 }
 
-// La oferta del jugador. Es la orquestacion que vivia en el ui/gsis_SellMenu.js:
-// offerWeapon() solo EVALUA (y descuenta del presupuesto del NPC si acepta), asi
-// que el que mete el item en la mochila, le paga al jugador y le hace hablar al
-// NPC es este.
+// El unico lugar que mueve el estado del NPC por una venta. Vive aparte de
+// offerWeapon para que la evaluacion y el commit sean dos pasos: doOffer
+// simula (commit=false), saca el item del jugador, y recien ahi llama esto.
 //
-// El orden es el que importa: primero que el jugador tenga la cantidad, despues
-// la evaluacion, y solo si acepto se saca el item y se paga. Al reves, un NPC que
-// acepta un item que el jugador no tiene deja plata regalada.
+// Concentrarlo aca tambien cierra el otro agujero que tenia el codigo en dos
+// ramas: si mañana aparece una tercera forma de aceptar, no puede olvidarse de
+// descontar el presupuesto.
+function _commitOffer(st, total, isInterest) {
+    st.budget -= total;
+    if (isInterest) {
+        st.salesCompleted++;
+        _checkFulfilled(st);
+    }
+}
+
+// La oferta del jugador. Es la orquestacion que vivia en el ui/gsis_SellMenu.js:
+// offerWeapon() EVALUA, y este mete el item en la mochila, mueve el estado del
+// NPC, le paga al jugador y le hace hablar.
+//
+// EL ORDEN ES TODO, y va asi a proposito:
+//   1. el jugador tiene la cantidad
+//   2. SIMULACION de la oferta (commit=false): el NPC no paga todavia
+//   3. el item sale de la mochila
+//   4. el commit: se descuenta el presupuesto del NPC
+//   5. se paga al jugador
+//
+// Antes el descuento pasaba en el paso 2 y el item se sacaba en el 3, sin
+// rollback: si removeItem fallaba (o si addScore tiraba) el NPC ya habia pagado
+// y el jugador conservaba el arma. Ahora la simulacion no toca nada, y entre el
+// paso 3 y el 4 no hay nada que pueda fallar.
 export function doOffer(itemId, qty, unitPrice) {
     qty = Math.max(1, parseInt(qty, 10) || 1);
     unitPrice = Math.max(0, Math.round(Number(unitPrice) || 0));
@@ -232,22 +257,28 @@ export function doOffer(itemId, qty, unitPrice) {
     //idgetre el rechazo por caro: el jugador ya sabe cuanto tiene el NPC.
     _activeState().offered = true;
 
-    var res = offerWeapon(itemId, qty, unitPrice);
+    var res = offerWeapon(itemId, qty, unitPrice, false);
     _say(res.msgKey, res.msgParams);
     setNotice(t(res.msgKey, res.msgParams));
 
     if (!res.ok) return false;
 
-    // removeItem es el que valida el peso: si no entra despues de haber aceptado
-    // el NPC, el aviso es el del modulo y el item no sale de la mochila.
+    // El item sale PRIMERO. Si esto falla, el NPC no pago nada todavia.
     if (!removeItem(itemId, qty)) {
         setNotice(t("SEL_ERR"));
         return false;
     }
+    // Ahora si: el NPC acepta y se descuenta. A partir de aca el item ya no es
+    // del jugador, asi que el commit tiene que ocurrir pase lo que pase.
+    _commitOffer(_activeState(), res.total, res.interest);
     try {
         new Player(0).addScore(res.total);
     } catch (e) {
+        // El presupuesto ya se desconto y el item ya salio: revertir el NPC seria
+        // peor que dejar el pago pendiente, porque el item ya no se puede
+        // devolver. Se avisa igual para que el jugador sepa que no cobró.
         log("[WeaponSeller] no se pudo pagar: " + e.message);
+        setNotice(t("SEL_ERR"));
         return false;
     }
     return true;

@@ -45,7 +45,7 @@ function _getOwnedItems() {
 }
 
 // Aparecer bolso
-export function showBag(char) {
+function showBag(char) {
     if (_bagRenderObject) return;
     if (_bagLoading) return;
     _bagLoading = true;
@@ -76,7 +76,7 @@ export function hideBag() {
     _bagRenderObject = null;
 }
 
-export function isBagVisible() {
+function isBagVisible() {
     return _bagRenderObject !== null;
 }
 
