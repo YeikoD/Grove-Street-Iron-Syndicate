@@ -208,11 +208,61 @@ export var SPECIAL_MODELS = {
     // mismo ID, el segundo que se cargara pisa al primero y el arma aparece con
     // el cuerpo de un personaje (o al reves). Son rangos separados y no se tocan.
     //
-    // Lo que vive aca es el CONTRATO con un .ASI que registre armas: el plugin
+    // Lo que vive aca es el CONTRATO con un plugin que registre armas: el plugin
     // reserva sus modelos en WEAPON_RANGE y el mod los lee de ahi. Por eso el
     // rango esta en el Config y no en una constante del modulo: es un acuerdo
     // entre dos cosas, y un numero agreementado en un solo lugar.
-    WEAPON_RANGE: { START: 15025, END: 15099 }
+    WEAPON_RANGE: { START: 15025, END: 15099 },
+
+    // Apagada la carga de modelos PROPIOS DE ARMA.
+    //
+    // Esto es WEAPON_MODELS.ENABLED y NO el ENABLED de arriba: ese de la linea
+    // 200 es de los PERSONAJES (los que usan fam5), y apagarlo ahi dejaba a los
+    // dealers sin modelo. Ya paso: se confundo el nivel y el mod crasheo.
+    //
+    // Cargar un .dff con LOAD_SPECIAL_MODEL entra al streamer y CLEO+ da 2
+    // segundos por ejecucion de script. Con la carga en el init el script moria
+    // antes de terminar; repartida por frame el script arranca pero el updateAll
+    // se corta a los 2 segundos, y el sintoma no dice "el modelo": dice que el
+    // inventario no responde y que los actores son esferas, porque el loop muere
+    // y los NPC nunca spawnean.
+    //
+    // Apagada, el mod funciona entero y la Colt .45 con cargador de 15 sale con
+    // el modelo de vanilla. Prenderla es cambiar esto a true.
+    WEAPON_MODELS_ENABLED: false,
+
+    // Que archivo .dff/.txd hay detras de cada modelo de arma.
+    //
+    // EL ID NO ESTA ACA, Y ESA ES LA RAZON DE QUE ESTA TABLA NO TENGAS CLAVES.
+    //
+    // La primera version fijaba un ID a mano (15025) dentro de WEAPON_RANGE y
+    // lo pasaba a LOAD_SPECIAL_CHARACTER_FOR_ID. Se podia hacer asi, pero
+    // obligaba a que el .dat, el Config y WEAPON_VARIANTS tuvieran el MISMO
+    // numero en tres lugares que ningun modulo puede cruzar, y una divergencia
+    // ahi se ve como un arma con el modelo de la pistola de siempre.
+    //
+    // LOAD_SPECIAL_MODEL (0F00) hace las dos cosas de una vez: carga el .dff con
+    // su .txd y DEVUELVE el modelId que el juego le asigno. El ID es del juego
+    // y no se elige, asi que no hay nada que mantener sincronizado: se usa el
+    // que vino.
+    //
+    // La clave de esta tabla es un NOMBRE, y las variantes lo referencian por
+    // nombre. El nombre es estable y esta escrito a mano; el ID cambia solo.
+    //
+    //   name  como se lo referencia desde WEAPON_VARIANTS
+    //   dff   ruta RELATIVA a la carpeta models\ del mod, con extension
+    //   txd   idem. Los dos hacen falta: el comando los recibe por separado y el
+    //         .dff sin .txd sale sin textura.
+    //
+    // Mayusculas: el juego las baja a minusculas por su cuenta, asi que los
+    // nombres van en minuscula.
+    WEAPON_MODELS: {
+        colt45_c15: {
+            name: "colt45_c15",
+            dff: "weapons/colt45/colt45_c15.dff",
+            txd: "weapons/colt45/colt45_c15.txd"
+        }
+    }
 };
 
 // Rango de weaponId que reservan los plugins (.asi) para sus armas.

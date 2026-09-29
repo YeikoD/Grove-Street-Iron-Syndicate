@@ -2,6 +2,11 @@
 // Copyright (C) 2026  YeikoD
 // License: GNU GPL v3 or later (full text in LICENSE).
 
+// Import del UNICO lado de este archivo. La dependencia va en una sola
+// direccion: weapon_variants no importa nada de aca, asi que el grafo es aciclico
+// y los dos archivos siguen siendo datos puros, sin log ni natives.
+import { getVariantProfile } from "./gsis_weapon_variants.js";
+
 // GSIS Weapon Data - Armas de fuego de GTA SA (stats y IDs reales del juego)
 // Fuentes: SA-MP/open.mp (weaponId, modelId, clip), gtabase.com (damage/fireRate/range/accuracy),
 //          gta.fandom.com/es (nombres HUD ES), gtabase (realWorldName)
@@ -75,38 +80,36 @@
 // ============================================================================
 
 export const WEAPON_DATA = [
-    // Arma de PLUGIN. Va PRIMERO a proposito, antes que las de vanilla.
+    // ========================================================================
+    // FAMILIA colt45  — el item de inventario
+    // ========================================================================
+    // Esta fila es la IDENTIDAD. weaponId 22 es solo la variante BASE (sin
+    // accesorios): el .dat no esta atado al item, y por eso el mismo "colt45"
+    // aparece en el collar con el tipo 22, 60, 23 o 61 segun que tenga montado.
     //
-    // El weaponId 60 no existe en GTA: lo da de alta gsisWeaponLimiter.asi, que
-    // escribe su CWeaponInfo y la sirve por GetWeaponInfo. Aca el catalogo solo
-    // necesita saber lo que el .asi NO sabe: como se llama, cuanto pesa, cuanto
-    // cuesta y, sobre todo, quantas balas tiene el cargador.
+    // clipSize 8: la Colt .45 de vanilla (weapon.dat, fila 22) lleva 8 balas en
+    // el cargador, no 17. Lo de 17 venia de que esta fila se copio de la Glock.
     //
-    // clipSize 30 es lo que une las dos mitades. El cargador mag_gsis_pistol saca
-    // su capacidad de aca (getClipSizeByItemId parte el prefijo "mag_" y busca el
-    // arma), y el .asi lo puso en m_nAmmoClip de las cuatro skill rows. Mismo
-    // numero de los dos lados: si divergieran, el mod montaria un cargador de un
-    // tamaño y el engine recortaria al otro.
-    //
-    // NO lleva clipSource. El default es CLIP_SOURCE_CATALOG, y eso es lo
-    // correcto: la capacidad la manda el catalogo, y _aplicarCapacidad la
-    // escribe en la CWeaponInfo al equipar. Si alguna vez el cargador de esta
-    // pistola fuera variable (un tambor, digamos), el camino ya esta.
+    // Las otras configuraciones NO son filas aca: son WEAPON_VARIANTS en
+    // gsis_weapon_variants.js, que es donde vive la tabla familia+accesorios ->
+    // weaponType. Ver getWeaponProfileByWeaponId, que es el helper que Ballistic
+    // usa para preguntar por cualquier tipo, sea de familia o no.
     {
-        itemId: "gsis_pistol",
-        magIds: ["mag_gsis_pistol"],
-        magId: "mag_gsis_pistol",
-        name: "Pistola GSIS",
-        weaponId: 60,
+        itemId: "colt45",
+        magIds: ["mag_colt45", "mag_colt45_replica", "mag_colt45_extended"],
+        magId: "mag_colt45",
+        family: "colt45",
+        name: "Colt .45",
+        weaponId: 22,
         modelId: 346,
         slot: 2,
-        clipSize: 30,
+        clipSize: 8,
         damage: 25,
         fireRate: 20,
         range: 30,
         reloadTime: null,
         accuracy: 25,
-        ammoType: "9mm Parabellum",
+        ammoType: ".45 ACP",
         category: "Pistolas",
         realWorldName: "Colt M1911A1",
         weight: 1.5,
@@ -114,70 +117,14 @@ export const WEAPON_DATA = [
         price: 550
     },
     // Pistolas
-    {
-        itemId: "9mm",
-        magIds: ["mag_9mm", "mag_9mm_replica", "mag_9mm_extended"],
-        magId: "mag_9mm",
-        name: "9mm",
-        weaponId: 22,
-        modelId: 346,
-        slot: 2,
-        clipSize: 17,
-        damage: 25,
-        fireRate: 20,
-        range: 30,
-        reloadTime: null,
-        accuracy: 25,
-        ammoType: "9mm Parabellum",
-        category: "Pistolas",
-        realWorldName: "Colt M1911A1",
-        weight: 1.5,
-        isLong: false,
-        price: 550
-    },
-    {
-        itemId: "pistol_assembled",
-        magId: "mag_9mm",
-        name: "9mm",
-        weaponId: 22,
-        modelId: 346,
-        slot: 2,
-        clipSize: 17,
-        damage: 25,
-        fireRate: 20,
-        range: 30,
-        reloadTime: null,
-        accuracy: 25,
-        ammoType: "9mm Parabellum",
-        category: "Pistolas",
-        realWorldName: "Colt M1911A1",
-        weight: 1.2,
-        isLong: false,
-        price: 0
-    },
-    {
-        itemId: "silenced_9mm",
-        // La silenciada comparte cargador con la normal, como antes: el silenciador
-        // no cambia el cargador. Por eso el extendido de 33 le sirve tambien.
-        magIds: ["mag_silenced_9mm", "mag_9mm_replica", "mag_9mm_extended"],
-        magId: "mag_silenced_9mm",
-        name: "Pistola con silenciador",
-        weaponId: 23,
-        modelId: 347,
-        slot: 2,
-        clipSize: 17,
-        damage: 40,
-        fireRate: 25,
-        range: 30,
-        reloadTime: null,
-        accuracy: 16,
-        ammoType: "9mm Parabellum",
-        category: "Pistolas",
-        realWorldName: "Colt M1911A1 con silenciador",
-        weight: 1.5,
-        isLong: false,
-        price: 1800
-    },
+    // La pistola con silenciador YA NO ESTA ACA. Era un segundo item de
+    // inventario, con su precio y su fila, cuando en la realidad es la misma
+    // Colt .45 con un silenciador montado. Ahora es la variante weaponType 23 de
+    // la familia colt45, y el silenciador se compra suelto como accesorio.
+    //
+    // El weaponType 23 no desaparece: sigue siendo el que ejecuta el arma con
+    // silenciador, y sigue teniendo su anim, su sonido y su modelo (347) de
+    // vanilla. Lo que se fue es la fila de inventario.
     {
         itemId: "desert_eagle",
         magId: "mag_desert_eagle",
@@ -543,11 +490,10 @@ export const WEAPON_DATA = [
     //                    seria una segunda fuente de la misma relacion.
     //   sin clipSize    → (ver abajo)
     //
-    // SIN `clipSize` a proposito. La capacidad de un cargador ES el clipSize de su
-    // arma: getClipSizeByItemId("mag_9mm") hace strip del prefijo "mag_" y lee el
-    // de "9mm". Copiarlo aca crearia un segundo valor que puede divergir del arma
-    // sin que nada avise — y la capacidad de un cargador no es una propiedad del
-    // cargador, es de la boca del arma que alimenta.
+    // SIN `clipSize` a proposito. La capacidad de un cargador base ES el clipSize
+    // de su familia: getClipSizeByItemId("mag_colt45") hace strip del prefijo
+    // "mag_" y lee el de "colt45". Copiarlo aca crearia un segundo valor que puede
+    // divergir sin que nada avise.
     //
     // OJO con los nombres: el catalogo de ITEMS llama "Cartucho ..." a los de
     // escopeta, rifle y francotirador, no "Cargador". No es un descuido, es que en
@@ -555,26 +501,26 @@ export const WEAPON_DATA = [
     // recarga cartucho a cartucho). El precio lo ancla la pieza real equivalente:
     // un tubo de extension, no una caja desmontable.
     {
-        itemId: "mag_gsis_pistol",
+        itemId: "mag_colt45",
         magId: null,
-        name: "Cargador pistola 30",
+        name: "Cargador Colt .45",
         weaponId: null,
         slot: null,
         category: "Cargadores",
-        realWorldName: "Colt M1911A1",
+        realWorldName: "Colt 1911 magazine 8 rds",
         isLong: false,
         price: 220
     },
     {
-        itemId: "mag_9mm",
+        itemId: "suppressor",
         magId: null,
-        name: "Cargador 9mm",
+        name: "Silenciador",
         weaponId: null,
         slot: null,
-        category: "Cargadores",
-        realWorldName: "Glock 17 OEM 17 Fairbanks",
+        category: "Accesorios",
+        realWorldName: "Colt M1911A1 con silenciador",
         isLong: false,
-        price: 220
+        price: 1200
     },
     // ========================================================================
     // VARIANTES DE CARGADOR
@@ -584,33 +530,33 @@ export const WEAPON_DATA = [
     // es la capacidad que el motor usa para ese tipo de arma. El arma vive en
     // una sola fila de la tabla; el cargador se cambia en el cinturon.
     //
-    // Por eso los 9 de abajo declaran su `capacity` y NO la derivan por el
+    // Por eso los de abajo declaran su `capacity` y NO la derivan por el
     // prefijo "mag_": la convencia era "mag_" + <itemId del arma>, y estos no
     // siguen ese nombre (mag_ak47_drum apunta a mag_ak47_drum, que no es un
     // arma). Declararla es tambien lo que hace explicito lo que se esta
     // comprando: un tambor de 75 SIEMPRE tiene 75, y no "las que le queden al
     // arma".
     {
-        itemId: "mag_9mm_replica",
+        itemId: "mag_colt45_replica",
         magId: null,
-        name: "Cargador 9mm replica",
+        name: "Cargador Colt .45 replica",
         weaponId: null,
         slot: null,
-        capacity: 17,
+        capacity: 8,
         category: "Cargadores",
-        realWorldName: "Cargador 9mm generico 17 rds",
+        realWorldName: "Colt .45 magazine replica 8 rds",
         isLong: false,
         price: 18
     },
     {
-        itemId: "mag_9mm_extended",
+        itemId: "mag_colt45_extended",
         magId: null,
-        name: "Cargador 9mm extendido",
+        name: "Cargador Colt .45 extendido",
         weaponId: null,
         slot: null,
-        capacity: 33,
+        capacity: 15,
         category: "Cargadores",
-        realWorldName: "Glock 18 extended 33 rds",
+        realWorldName: "Colt .45 extended magazine 15 rds",
         isLong: false,
         price: 45
     },
@@ -697,17 +643,6 @@ export const WEAPON_DATA = [
         realWorldName: "Magpul D-60 5.56x45 60 rds",
         isLong: false,
         price: 135
-    },
-    {
-        itemId: "mag_silenced_9mm",
-        magId: null,
-        name: "Cargador 9mm con silenciador",
-        weaponId: null,
-        slot: null,
-        category: "Cargadores",
-        realWorldName: "Beretta 92FS 15/17",
-        isLong: false,
-        price: 250
     },
     {
         itemId: "mag_desert_eagle",
@@ -963,9 +898,65 @@ export function getWeaponByItemId(itemId) {
 
 // Helper: entrada de catalogo por weaponId del juego (22 -> la entrada "9mm").
 // Es el canonico de ese weaponId. null si el mod no conoce el weaponId.
+// ============================================================================
+// PUENTE CON LAS VARIANTES
+// ============================================================================
+// Todo lo de arriba resuelve por "un item de inventario = un weaponId". Eso era
+// cierto mientras cada configuracion era un item, y deja de serlo con las
+// variantes: la colt45 tiene cuatro weaponTypes (22, 60, 23, 61) y UN item.
+//
+// Sin este puente, los ~30 lugares del mod que llaman a getModelIdByWeaponId o
+// getClipSizeByWeaponId con el tipo que tiene el ped en la mano devolverian null
+// para tres de los cuatro casos de la colt45, y el arma aparecia sin modelo o sin
+// capacidad.
+//
+// El puente devuelve la MISMA forma de objeto que devuelve WEAPON_DATA, con los
+// campos que dependen del tipo sobreescritos por los de la variante. Asi el
+// resto del mod no necesita saber que existen las variantes: sigue leyendo un
+// objeto con itemId, modelId, clipSize y magIds.
+//
+// Por que NO se meten las variantes adentro de _buildRegistry: el registro se
+// construye con "el primero con ese weaponId gana", y las variantes no son
+// entradas propias de WEAPON_DATA — son filas de otra tabla. Meterlas ahi
+// obligaria a duplicar precio y categoria de la familia en cada variante, que es
+// justamente el dato que tiene que ser UNO por arma.
+function _aplicarVariante(w, weaponId) {
+    if (!w) return null;
+    var v = getVariantProfile(weaponId);
+    if (!v) return w;
+
+    // El itemId es el de la FAMILIA, no el de la variante: en el collar hay una
+    // sola colt45, mounts o no. Es el punto entero del refactor.
+    var r = {};
+    for (var k in w) {
+        if (Object.prototype.hasOwnProperty.call(w, k)) r[k] = w[k];
+    }
+    if (v.modelId !== null && v.modelId !== undefined) r.modelId = v.modelId;
+    if (v.clipSize !== null && v.clipSize !== undefined) r.clipSize = v.clipSize;
+    if (v.itemId) r.itemId = v.itemId;
+    r.family = v.family;
+    r.variantAttachments = v.attachments;
+    r.variantWeaponType = v.weaponType;
+    return r;
+}
+
+// El helper que Ballistic y el resto del mod usan para "de que arma se trata".
+//
+// La diferencia con getWeaponByWeaponId es lo unico: este devuelve un objeto
+// YA RESUELTO para el tipo concreto. Los que no son de ninguna familia devuelven
+// la fila de WEAPON_DATA tal cual, sin cambios, que es lo que pasaba antes.
 export function getWeaponByWeaponId(weaponId) {
     if (weaponId === null || weaponId === undefined) return null;
-    return _REGISTRY.byWeapon[weaponId] || null;
+    var base = _REGISTRY.byWeapon[weaponId];
+    if (base) return _aplicarVariante(base, weaponId);
+    // Un tipo de variante puede no estar en WEAPON_DATA (el 60 y el 61 no lo
+    // estan: son configuraciones, no items). Se busca por la familia.
+    var v = getVariantProfile(weaponId);
+    if (v) {
+        var fam = _REGISTRY.byItem[v.itemId];
+        if (fam) return _aplicarVariante(fam, weaponId);
+    }
+    return null;
 }
 
 // Helper: cargador (itemId mag_*) del arma equipada, por weaponId del juego.

@@ -176,18 +176,21 @@ function initItemManager() {
     log("[Items] ItemManager inicializado");
 }
 
-// Debug: tecla L agrega 9mm, chatarra y 1 cargador (probar inventario/baul)
+// Debug: tecla L agrega la Colt .45, chatarra y su cargador (probar inventario/baul)
 //
 // entregaOpts en los tres, para que el camino de prueba diga lo mismo que el de
-// la entrega real: el 9mm llega sin cargador y el cargador llega lleno. Si el
+// la entrega real: el arma llega sin cargador y el cargador llega lleno. Si el
 // debug cuelgue del default de addItem, probar el inventario da un arma con
 // municion que en el juego nunca se ve.
 function updateItemManager() {
     if (keyJustPressed(KEYS.DEBUG_ITEM)) {  // Detecta tecla L
-        var ok9 = addItem("9mm", 1, entregaOpts("9mm"));  // Arma de prueba, DESNUDA
+        // La familia completa: el arma desnuda, el cargador base y el extendido,
+        // para poder probar el sistema de variantes sin pasar por el dealer.
+        var okArma = addItem("colt45", 1, entregaOpts("colt45"));      // Arma de prueba, DESNUDA
         var okScrap = addItem("scrap_metal", 5);  // Agrega material de prueba
-        var okMag = addItem("mag_9mm", 1, entregaOpts("mag_9mm"));  // Cargador nuevo, lleno
-        if (ok9 || okScrap || okMag) {
+        var okMag = addItem("mag_colt45", 1, entregaOpts("mag_colt45"));  // Cargador nuevo, lleno
+        var okExt = addItem("mag_colt45_extended", 1, entregaOpts("mag_colt45_extended"));
+        if (okArma || okScrap || okMag || okExt) {
             showTextBox(t("DBG_ITM"));  // Muestra mensaje de exito
         } else {
             showTextBox(t("INV_FUL"));  // Muestra error inventario lleno
@@ -222,7 +225,7 @@ export function getTotalWeight() {
 }
 
 // Agregar item al inventario (verifica MISC.MAX_INVENTORY_WEIGHT)
-// opts por instancia: { ammo, salud, hasMag } · opts.force = ignora peso
+// opts por instancia: { ammo, salud, hasMag } | opts.force = ignora peso
 // (adopcion de armas del ped: ya iban encima del jugador)
 export function addItem(id, qty, opts) {
     if (!ITEMS[id]) return false;  // Verifica que item exista en catalogo
@@ -607,16 +610,30 @@ export function unequipBeltMag(index) {
 // EVENTBUS - equipo y cargadores (Ballistic: equipar, swap y descarga)
 // ============================================================================
 
-// query("items:swapMagazine", { magIds, ammo, mounted }) — atomico, fuente =
-// CINTURON (solo cargadores equipados): sale de la casilla el cargador COMPATIBLE
-// con el arma que mas balas tiene (si sus balas > 0) y, si "mounted" no es
-// false, la casilla que acaba de vaciar se queda con el montado con "ammo" balas
-// (0 si se vacio). "mounted: false" = arma sin cargador: la casilla queda libre
-// (el cargador fresco se fue al arma). Inventario sin tocar.
+// query("items:swapMagazine", { magIds, ammo, mounted, mountedMagId }) — atomico,
+// fuente = CINTURON (solo cargadores equipados): sale de la casilla el cargador
+// COMPATIBLE con el arma que mas balas tiene (si sus balas > 0) y, si "mounted"
+// no es false, la casilla que acaba de vaciar se queda con el MONTADO, con "ammo"
+// balas (0 si se vacio). "mounted: false" = arma sin cargador: la casilla queda
+// libre (el cargador fresco se fue al arma). Inventario sin tocar.
 //
-// Recibe una LISTA y no un id porque un arma puede aceptar varios cargadores: el
-// AK de 30 y el tambor de 75 son el mismo arma con dos cargadores distintos.
-// Para las armas de un solo cargador la lista tiene un elemento y el
+// `mountedMagId` es el id del cargador que estaba en el arma. NO es opcional.
+//
+// Es lo que se devuelve al cinturon, y el que falta hace que el cargador montado
+// se reconstruya con el id del que ENTRA. El sintoma es invisible la primera vez
+// y sobre todo la segunda. Ver el bloque de abajo.
+//
+//   cinturon: [mag_colt45_extended(15)]   arma: colt45 con mag_colt45(8)
+//   R -> entra el de 15, y al cinturon vuelve UN cargador... de 15, con 8 balas.
+//
+// El de 8 desaparece y el de 15 queda con la capacidad del de 8. Al cambiar de
+// nuevo no hay con que volver, y el jugador ve "el cargador de 15 se perdio".
+// Que se pierda AL CAMBIAR y no al volver es lo que lo hace confuso: el bug no
+// esta en la ida, esta en lo que se guarda en la vuelta.
+//
+// Recibe una LISTA de magIds y no un id porque un arma puede aceptar varios
+// cargadores: el AK de 30 y el tambor de 75 son el mismo arma con dos cargadores
+// distintos. Para las armas de un solo cargador la lista tiene un elemento y el
 // comportamiento es el de siempre.
 //
 // Responde { ammo, magId } — el magId matters: es el que le dice a Ballastic que
@@ -643,9 +660,28 @@ on("items:swapMagazine", function (e) {
     if (best < 0) { e.respond(null); return; }
     var magId = belt[best].id;
     var freshAmmo = belt[best].ammo;
-    belt[best] = (e.data.mounted !== false)
-        ? makeMagazineInstance(magId, e.data.ammo)  // usado: ocupa la casilla
-        : null;                                     // descarga: casilla libre
+    if (e.data.mounted !== false) {
+        // Lo que vuelve al cinturon es el MONTADO. Si el llamador no dijo cual
+        // era, se usa el de entrada: es una aproximacion que sale bien solo
+        // cuando el arma no tiene variantes de cargador, y cuando las tiene
+        // cambia un cargador por otro de otra capacidad. Se avisa porque perder un
+        // item en silencio es el peor resultado posible aca.
+        var backId = e.data.mountedMagId || magId;
+        if (backId !== magId) {
+            log("[Items] WARN: el cargador montado (" + backId +
+                ") vuelve al cinturon. Si el llamador no manda mountedMagId, " +
+                "se reconstruye con el id del que entra (" + magId + ").");
+        }
+        // El cargador vuelve con las balas que tenia, recortadas a SU capacidad.
+        // Sin el recorte puede nacer sobrecargado, y un cargador con mas balas
+        // que su capacidad no lo puede recargar el motor despues.
+        var backAmmo = e.data.ammo || 0;
+        var backCap = getClipSizeByItemId(backId);
+        if (backCap && backAmmo > backCap) backAmmo = backCap;
+        belt[best] = makeMagazineInstance(backId, backAmmo);
+    } else {
+        belt[best] = null;  // descarga: casilla libre
+    }
     setModuleData("ItemManager", data);
     e.respond({ ammo: freshAmmo, magId: magId });
 });
@@ -693,12 +729,24 @@ on("items:takeWeapon", function (e) {
     if ((taken.qty || 1) > 1) taken.qty -= 1; // por si queda un stack heredado
     else data.items.splice(best, 1);
     setModuleData("ItemManager", data);
-    e.respond({ hasMag: hasMagT, ammo: ammoT, salud: saludT });
+    e.respond({
+        hasMag: hasMagT,
+        ammo: ammoT,
+        salud: saludT,
+        // La configuracion del arma viaja con la instancia. Sin esto, equipar de
+        // vuelta un arma que se desequipo con silenciador lo deja pelado.
+        attachments: taken.attachments || null
+    });
 });
 
-// query("items:storeWeapon", { id, hasMag, ammo, salud, force }) — guarda 1
-// instancia de arma con su estado (desequipar / adopcion del ped). "force"
-// ignora el peso (adopcion). Responde { ok } o null si no cabe (INV_FUL).
+// query("items:storeWeapon", { id, hasMag, ammo, salud, attachments, force }) —
+// guarda 1 instancia de arma con su estado (desequipar / adopcion del ped).
+// "force" ignora el peso (adopcion). Responde { ok } o null si no cabe (INV_FUL).
+//
+// `attachments` viaja porque la CONFIGURACION del arma es parte de la instancia,
+// no del slot de GTA. Sin eso, desequipar una Colt .45 con silenciador la
+// guardaba como una Colt .45 pelada: el silenciador no estaba ni en el slot ni en
+// el inventario, y no habria forma de recuperarlo salvo comprarlo de nuevo.
 on("items:storeWeapon", function (e) {
     var ok = addItem(e.data.id, 1, {
         hasMag: e.data.hasMag,
@@ -706,6 +754,21 @@ on("items:storeWeapon", function (e) {
         salud: e.data.salud,
         force: e.data.force === true
     });
+    if (ok && e.data.attachments) {
+        // addItem devuelve el id, no la instancia recien creada, asi que el
+        // attachments se pega a la fila por id y no hay que devolverla. Es lo
+        // unico que se escribe aca: el resto del estado lo arma addItem.
+        var data = getModuleData("ItemManager");
+        if (data && data.items) {
+            for (var i = data.items.length - 1; i >= 0; i--) {
+                if (data.items[i].id === e.data.id) {
+                    data.items[i].attachments = e.data.attachments.slice();
+                    break;
+                }
+            }
+            setModuleData("ItemManager", data);
+        }
+    }
     e.respond(ok ? { ok: true } : null);
 });
 

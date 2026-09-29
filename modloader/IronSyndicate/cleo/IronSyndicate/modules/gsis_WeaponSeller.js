@@ -393,7 +393,7 @@ function _ownedQty(itemId) {
 // Hace falta porque WEAPON_DATAGrowing contiene tambien los CARGADORES (tienen
 // precio, y el precio es lo que los hace comprables en el dealer y valiosos en
 // la columna Valor), y con el filtro de antes —precio + categoría— un NPC podia
-// pedir cargadores. No es solo un detalle: el cargador de 9mm se revalúa a 254
+// pedir cargadores. No es solo un detalle: el cargador de la Colt .45 se revalua a 234
 // lleno contra una base de trueque de 130, y un NPC con presupuesto alto
 // pagaria la municion de un jugador.
 //

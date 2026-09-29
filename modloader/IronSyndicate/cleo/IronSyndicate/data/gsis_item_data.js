@@ -45,16 +45,19 @@ export var ITEMS = {
     "rifle_barrel":  { name: "Canon rifle",     weight: 1.0, type: "material" },
 
     // Armas de fuego (nombres = HUD GTA SA ES; IDs estables p/ saves)
-    "9mm":           { name: "9mm",             weight: 1.5, type: "weapon" },
-    "pistol_assembled": { name: "9mm",          weight: 1.2, type: "weapon" },
-    "silenced_9mm":  { name: "Pistola con silenciador", weight: 1.5, type: "weapon" },
+    //
+    // FAMILIA. Esta fila es la IDENTIDAD del armamento, y por lo tanto el item
+    // de inventario. No hay una fila por accesorio montado: la Colt .45 con
+    // silenciador y la Colt .45 sin silenciador son el MISMO item de inventario,
+    // y lo que las diferencia es el estado de sus accesorios. Ver
+    // gsis_weapon_variants.js.
+    //
+    // El nombre viejo era "9mm", que mentia: la pistola de tipo 22 dispara
+    // calibre .45 y su cargador de vanilla son 8 balas, no 17. El item de
+    // ARMAMENTO no se llama por la MUNICION que le cabe. Los cargadores si, y
+    // por eso se llaman mag_colt45_*.
+    "colt45":        { name: "Colt .45",       weight: 1.5, type: "weapon" },
     "desert_eagle":  { name: "Desert Eagle",    weight: 1.8, type: "weapon" },
-    // Arma de PLUGIN. No es un weaponId de vanilla: el 60 lo da de alta
-    // gsisWeaponLimiter.asi y su CWeaponInfo la escribe ese .asi. Acá solo vive
-    // como item del inventario, para que tenga nombre, peso y se pueda vender y
-    // comprar. Lo que el engine sepa de ella (slot, cargador, anim) sale del
-    // catalogo y del .asi, no de aca.
-    "gsis_pistol":   { name: "Pistola GSIS",    weight: 1.5, type: "weapon" },
     "shotgun":       { name: "Escopeta",        weight: 3.0, type: "weapon" },
     "sawed_off":     { name: "Escopeta recortada", weight: 1.0, type: "weapon" },
     "combat_shotgun":{ name: "SPAS 12",         weight: 3.5, type: "weapon" },
@@ -63,7 +66,7 @@ export var ITEMS = {
     "tec9":          { name: "Tec9",            weight: 1.4, type: "weapon" },
     "ak47":          { name: "AK-47",           weight: 3.5, type: "weapon" },
     "m4_assembled":  { name: "M4",              weight: 3.5, type: "weapon" },
-    "country_rifle": { name: "Rifle",           weight: 2.5, type: "weapon" },
+    "country_rifle":  { name: "Rifle",           weight: 2.5, type: "weapon" },
     "sniper_rifle":  { name: "Rifle de francotirador", weight: 4.0, type: "weapon" },
     "rpg":           { name: "Lanzacohetes",    weight: 7.0, type: "weapon" },
     "heat_seeker":   { name: "Lanzacohetes con atraccion al calor", weight: 6.0, type: "weapon" },
@@ -73,10 +76,14 @@ export var ITEMS = {
 
     // Cargadores (type magazine; capacidad = WEAPON_DATA.clipSize via getClipSizeByItemId)
     // Instancia { id, qty:1, ammo, salud } — no se apilan
-    "mag_9mm":           { name: "Cargador 9mm",             weight: 0.2, type: "magazine" },
-    "mag_9mm_replica": { name: "Cargador 9mm replica", weight: 0.2, type: "magazine" },
-    "mag_9mm_extended": { name: "Cargador 9mm extendido", weight: 0.2, type: "magazine" },
-    "mag_gsis_pistol": { name: "Cargador pistola 30", weight: 0.2, type: "magazine" },
+    //
+    // Un cargador es un ACCESORIO, no un arma: no se equipa solo y no tiene
+    // weaponType. Va suelto en el inventario y se monta sobre una familia. Su
+    // capacidad vive en WEAPON_DATA (campo `capacity`) y NO se deriva del arma:
+    // un cargador de 15 SIEMPRE tiene 15. Ver gsis_weapon_variants.js.
+    "mag_colt45":          { name: "Cargador Colt .45",     weight: 0.2, type: "magazine" },
+    "mag_colt45_replica":  { name: "Cargador Colt .45 replica",   weight: 0.2, type: "magazine" },
+    "mag_colt45_extended": { name: "Cargador Colt .45 extendido", weight: 0.2, type: "magazine" },
     "mag_mp5_replica": { name: "Cargador MP5 replica", weight: 0.2, type: "magazine" },
     "mag_ak47_polymer": { name: "Cargador AK polimero", weight: 0.3, type: "magazine" },
     "mag_ak47_bulgarian": { name: "Cargador AK bulgaro", weight: 0.3, type: "magazine" },
@@ -84,7 +91,6 @@ export var ITEMS = {
     "mag_m4_polymer": { name: "Cargador M4 polimero", weight: 0.3, type: "magazine" },
     "mag_m4_lancer": { name: "Cargador M4 Lancer", weight: 0.4, type: "magazine" },
     "mag_m4_drum": { name: "Cargador M4 D-60", weight: 0.9, type: "magazine" },
-    "mag_silenced_9mm":  { name: "Cargador 9mm con silenciador", weight: 0.2, type: "magazine" },
     "mag_desert_eagle":  { name: "Cargador Desert Eagle",    weight: 0.2, type: "magazine" },
     "mag_shotgun":       { name: "Cartucho escopeta",        weight: 0.2, type: "magazine" },
     "mag_sawed_off":     { name: "Cartucho recortada",       weight: 0.2, type: "magazine" },
@@ -99,7 +105,23 @@ export var ITEMS = {
     "mag_rpg":           { name: "Cohete RPG",               weight: 0.5, type: "magazine" },
     "mag_heat_seeker":   { name: "Cohete heat seeker",       weight: 0.5, type: "magazine" },
     "mag_flamethrower":  { name: "Deposito flamethrower",    weight: 0.5, type: "magazine" },
-    "mag_minigun":       { name: "Municion minigun",         weight: 0.5, type: "magazine" }
+    "mag_minigun":       { name: "Municion minigun",         weight: 0.5, type: "magazine" },
+
+    // =========================================================================
+    // ACCESORIOS DE ARMA
+    // =========================================================================
+    // Un accesorio NO es un arma. No se equipa solo, no tiene weaponType y no
+    // tiene slot: se MONTA sobre una familia compatible, y ahi si decide como
+    // se ejecuta el arma.
+    //
+    // El tipo "weapon_attachment" es lo que lo distingue de un "magazine". Los
+    // dos son accesorios y los dos se montan igual; lo unico que los separa es
+    // que un cargador trae `capacity` y el silenciador no.
+    //
+    // La lista de familias compatibles NO es decorativa: es lo que decide si el
+    // accesorio se puede montar. Vive en WEAPON_ATTACHMENTS, en
+    // gsis_weapon_variants.js, y se lee desde aca por id. Ver isAttachmentCompatible.
+    "suppressor": { name: "Silenciador", weight: 0.3, type: "weapon_attachment" }
 };
 
 export function getItemDef(id) {

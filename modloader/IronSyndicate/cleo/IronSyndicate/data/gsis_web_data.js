@@ -33,12 +33,10 @@
 // Cuando WEAPON_DATA crezca un campo "icon", este mapa se borra y pasa a leerse
 // de alla.
 export var WEB_ICONS = {
-    "9mm": "9mm.png",
-    // La variante se ve igual que la 9mm normal: el .asi todavia no registra
-    // modelos propios, asi que el icono es el mismo. Cuando exista el .dff de la
-    // Glock extendida, aca va su propio PNG.
-    "pistol_assembled": "9mm.png",
-    "silenced_9mm": "silenced9mm.png",
+    "colt45": "colt45.png",
+    // Un accesorio que se compra suelto y se ve suelto. El PNG es el de la
+    // pistola silenciada, que es lo que un silenciador produce.
+    "suppressor": "silenced9mm.png",
     "desert_eagle": "desertEagle.png",
     "shotgun": "shotgun.png",
     "sawed_off": "sawnoffShotgun.png",
@@ -59,9 +57,9 @@ export var WEB_ICONS = {
     // cargador por linea: el PNG propio de un arma se cambia aca y en ningun
     // otro lado. El PNG sale de la categoria del arma en WEAPON_DATA: los tres
     // primeros son pistolas, los tres siguientes subfusiles.
-    "mag_9mm": "mag_9mm.png",
-    "mag_9mm_replica": "mag_9mm.png",
-    "mag_9mm_extended": "mag_9mm.png",
+    "mag_colt45": "mag_9mm.png",
+    "mag_colt45_replica": "mag_9mm.png",
+    "mag_colt45_extended": "mag_9mm.png",
     "mag_mp5_replica": "mag_SMG.png",
     "mag_ak47_polymer": "mag_fusil.png",
     "mag_ak47_bulgarian": "mag_fusil.png",
@@ -69,7 +67,6 @@ export var WEB_ICONS = {
     "mag_m4_polymer": "mag_fusil.png",
     "mag_m4_lancer": "mag_fusil.png",
     "mag_m4_drum": "mag_fusil.png",
-    "mag_silenced_9mm": "mag_9mm.png",
     "mag_desert_eagle": "mag_9mm.png",
     "mag_shotgun": "mag_fusil.png",
     "mag_sawed_off": "mag_fusil.png",
@@ -109,12 +106,17 @@ export var WEB_ICONS = {
 // gsis_item_data.js (ITEMS[id].type); esta lista solo los ordena y les pone
 // nombre. snapCatalog() la cruza contra el catalogo y avisa si aparece un tipo
 // que no este aca, para que el desajuste se vea en el log y no en pantalla.
-export var WEB_CAT_ORDER = ["weapon", "magazine", "material"];
+//
+// "weapon_attachment" va despues de los cargadores y antes de los materiales: es
+// una pieza que se monta sobre un arma, asi que junto a las armas tiene mas
+// sentido que al final, y antes de los materiales porque no lo es.
+export var WEB_CAT_ORDER = ["weapon", "magazine", "weapon_attachment", "material"];
 
 // Nombre visible de cada banda. Mismo criterio: la clave tiene que existir en
 // ITEMS, el nombre es de la pagina.
 export var WEB_CAT_LABELS = {
     weapon: "Armas",
     magazine: "Cargadores",
+    weapon_attachment: "Accesorios",
     material: "Materiales"
 };

@@ -126,7 +126,7 @@ export function getCartTotal() {
 }
 
 // Suma qty al carrito activo (qty default 1). El aviso lo escribe este modulo:
-// el exito se ve como "Agregaste 2x 9mm" y el rechazo —item fuera del catalogo
+// el exito se ve como "Agregaste 2x Colt .45" y el rechazo -item fuera del catalogo
 // de este dealer o cantidad ilegal— como aviso rojo, en los dos casos via el
 // notice del proximo snapshot. Sin esto la tecla Entrar parecia morder aire:
 // el comando viajaba, el carrito cambiaba y la pantalla no decia nada hasta que

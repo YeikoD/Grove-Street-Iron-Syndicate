@@ -70,8 +70,17 @@ import { keyJustPressed } from "../core/gsis_Input.js";
 import { t } from "../core/gsis_L10n.js";
     import { WEAPON_DATA, WEAPON_ID_NATIVE_MAX, CLIP_SOURCE_ENGINE, MODEL_SOURCE_SPECIAL, getModelIdByWeaponId, getModelSourceByWeaponId, getMagIdByWeaponId, getMagIdsByWeaponId, getClipSizeByItemId, getClipSizeByWeaponId, getWeaponByItemId, getWeaponByWeaponId } from "../data/gsis_weapon_data.js";
 import { SALUD_MAX, clampSalud } from "../data/gsis_item_data.js";
+// El sistema de familias. Aca esta la costura entre "el item que tiene el
+// jugador" (colt45, uno solo) y "el weaponType que ejecuta el motor" (22, 60, 23
+// o 61 segun la configuracion). Ver la seccion CONFIGURACION DE ARMA.
+import { resolveWeaponType, getVariantProfile, getVariantByWeaponType,
+         isAttachmentCompatible, getAttachmentById, getPluginWeaponTypes,
+         validateVariants, WEAPON_VARIANTS } from "../data/gsis_weapon_variants.js";
 
 var _CLIP_OFF = 0x20; // m_nAmmoClip en CWeaponInfo (uint16)
+// m_modelId en CWeaponInfo (int32). 0x0C sale de la cabecera de FLA
+// (WeaponLimits.h:365), no de un SDK.
+var _MODEL_OFF = 0x0C;
 var _WEAPONS_OFF = 0x5A0; // CPed::m_aWeapons (CWeapon[13])
 var _SLOT_OFF = 0x718; // CPed::m_nSelectedWepSlot (uint8)
 var _SLOT_COUNT = 13; // slots de arma en CPed::m_aWeapons
@@ -183,13 +192,318 @@ export function getEquippedAmmo(slot) {
     var c = _playerChar();
     if (!c) return null;
     try {
-        return native("GET_AMMO_IN_CHAR_WEAPON", c, wd.weaponId) || 0;
+        // Por el TIPO QUE ESTA MONTADO, no por el de la familia. Una colt45 con
+        // cargador de 15 esta en el slot con el weaponType 60, y preguntar por el
+        // 22 (que es lo que dice wd.weaponId) devuelve 0: la fila de municion del
+        // arma muestra guion de balas en una pistola que tiene 15.
+        return native("GET_AMMO_IN_CHAR_WEAPON", c, _tipoEnPies(entry, wd)) || 0;
     } catch (e) {
         return null;
     }
 }
 
-// Direccion de trabajo del modulo (copia de lectura de SaveManager)
+// ============================================================================
+// CONFIGURACION DE ARMA - familia, accesorios y weaponType
+// ============================================================================
+// El weaponType de GTA no es la identidad de un arma: es la REPRESENTACION que
+// el motor necesita para ejecutar una configuracion concreta. La identidad es la
+// familia, y las configuraciones de la familia son las variantes.
+//
+// Antes, WEAPON_DATA ataba las dos: un item de inventario era un weaponId, y eso
+// obligaba a que "Colt .45", "Colt .45 silenciada" y "Colt .45 con cargador de 15"
+// fueran TRES items en el collar. Ahora son un item y cuatro representaciones.
+//
+// QUE CAMBIA Y QUE NO
+//
+//   NO cambia: el inventario sigue teniendo una sola "colt45". Montar o sacar un
+//   accesorio no crea ni borra un item, y el id del arma no cambia.
+//
+//   SI cambia: el weaponType que el ped tiene en la mano. Sacar el silenciador
+//   lleva de 23 a 22, y eso SI es un REMOVE_WEAPON + GIVE_WEAPON, porque el
+//   motor tiene un CWeapon por slot y su tipo es parte de la identidad. No hay
+//   forma deAvoidlo sin reescribir la CWeapon del ped a mano, que es peor.
+//
+// El WeaponInstance es { id, hasMag, attachments }: el item mas lo que tiene
+// montado. `attachments` es una lista de ids ORDENADA (la ordena el resolver), y
+// se guarda en el save. Se guarda la CONFIGURACION y no el weaponType, por dos
+// razones: el weaponType se renumera solo cuando cambia WEAPON_VARIANTS, y un
+// save que guarde el numero queda con un arma distinta al cambiar la tabla.
+
+// -------- WeaponInstance --------
+
+// Una instancia nueva para un item recien equipado: familia del item, sin
+// accesorios. null si el item no es de ninguna familia, y null significa "arma de
+// una sola configuracion" para todo el codigo de abajo.
+export function newInstance(itemId) {
+    var wd = getWeaponByItemId(itemId);
+    if (!wd || !wd.family) return null;
+    return { id: itemId, family: wd.family, attachments: [] };
+}
+
+// Los accesorios montados de una instancia. Array vacio si no es de una familia,
+// para que el llamador pueda iterar sin preguntar.
+export function getAttachments(instancia) {
+    return (instancia && instancia.attachments) ? instancia.attachments : [];
+}
+
+// Cambia la lista de accesorios de una instancia y devuelve el weaponType que le
+// corresponde, o null si la combinacion no existe.
+//
+// NO muta la instancia. Devuelve la lista nueva y el tipo, y es el llamador
+// quien la guarda: una funcion que muta su argumento y devuelve un codigo de
+// error deja al llamador sin poder distinguir entre "no se pudo" y "quedo como estado".
+export function configure(instancia, attachments) {
+    if (!instancia || !instancia.family) return null;
+    var copia = (attachments || []).slice();
+
+    // Un accesorio repetido no es una configuracion. Sin este chequeo, montar
+    // dos veces el mismo silenciador daba una clave distinta y el resolver
+    // devolvia null por un motivo que el jugador no puede ver.
+    var vistos = {};
+    for (var i = 0; i < copia.length; i++) {
+        if (vistos[copia[i]]) {
+            log("[Ballistic] WARN: " + instancia.family + " con " + copia[i] +
+                " dos veces. No es una configuracion valida.");
+            return null;
+        }
+        vistos[copia[i]] = true;
+    }
+
+    var tipo = resolveWeaponType(instancia.family, copia);
+    if (tipo === null) {
+        log("[Ballistic] WARN: no se puede configurar " + instancia.family +
+            " con [" + copia.join(", ") + "]. La variante no esta declarada.");
+        return null;
+    }
+    return { attachments: copia, weaponType: tipo };
+}
+
+// -------- Montar y desmontar --------
+
+// Montar un accesorio sobre el arma EQUIPADA de ese slot.
+//
+// Devuelve:
+//   { ok: true,  weaponType, instance }   el accesorio quedo montado
+//   { ok: false, motivo }                no se pudo, y por que
+//
+// La razon de que sea UN arma equipada y no cualquier arma del inventario: el
+// weaponType cambia lo que el motor ejecuta, y el motor solo ejecuta lo que el
+// ped tiene en la mano. Montar un silenciador a una colt45 que esta en el baul
+// no tendria ningun efecto observable hasta que se equipe, y para entonces el
+// jugador ya se olvido de que lo monto.
+export function attachAccessory(charId, slot, attachmentId) {
+    var data = _ballisticData();
+    var entry = data.equipped[slot];
+    if (!entry) return { ok: false, motivo: "no hay arma equipada en el slot " + slot };
+
+    var inst = _instanceOf(entry);
+    if (!inst) return { ok: false, motivo: "esa arma no pertenece a ninguna familia" };
+
+    var att = getAttachmentById(attachmentId);
+    if (!att) return { ok: false, motivo: "el accesorio " + attachmentId + " no existe" };
+    if (!isAttachmentCompatible(attachmentId, inst.family)) {
+        return { ok: false, motivo: attachmentId + " no va en " + inst.family };
+    }
+
+    var actual = getAttachments(inst);
+    if (actual.indexOf(attachmentId) !== -1) {
+        return { ok: false, motivo: "ya esta montado" };
+    }
+
+    var nuevo = actual.concat([attachmentId]);
+    return _aplicarConfiguracion(charId, slot, entry, inst.family, nuevo, "montar " + attachmentId);
+}
+
+// Sacar un accesorio del arma equipada de ese slot. Simetrico de attach.
+export function detachAccessory(charId, slot, attachmentId) {
+    var data = _ballisticData();
+    var entry = data.equipped[slot];
+    if (!entry) return { ok: false, motivo: "no hay arma equipada en el slot " + slot };
+
+    var inst = _instanceOf(entry);
+    if (!inst) return { ok: false, motivo: "esa arma no pertenece a ninguna familia" };
+
+    var actual = getAttachments(inst);
+    var quedan = [];
+    for (var i = 0; i < actual.length; i++) {
+        if (actual[i] !== attachmentId) quedan.push(actual[i]);
+    }
+    if (quedan.length === actual.length) {
+        return { ok: false, motivo: "no tiene " + attachmentId + " montado" };
+    }
+
+    return _aplicarConfiguracion(charId, slot, entry, inst.family, quedan, "sacar " + attachmentId);
+}
+
+// El cuerpo comun de montar y sacar.
+//
+// Lo delicateo es la MUNICION. Cambiar el weaponType es un REMOVE + GIVE, y el
+// GIVE arranca con el arma vacia: si no se lee la municion antes y no se
+// escribe despues, montar un silenciador hace que el jugador pierda el cargador
+// que tenia puesto. Y la operation inversa de la de quitar tambien.
+//
+// Ojo con el orden: primero se RESUELVE la configuracion (que puede fallar y no
+// toca nada), despues se lee la municion, despues se cambia el arma, y recien ahi
+// se escribe el estado. Si se escribiera el registro antes de confirmar que el
+// motor acepto el give, un fallo dejaria el save diciendo que el silenciador esta
+// montado y el arma sin silenciador.
+function _aplicarConfiguracion(charId, slot, entry, family, attachments, que) {
+    var cfg = configure({ family: family }, attachments);
+    if (!cfg) return { ok: false, motivo: "la configuracion no existe" };
+
+    var viejo = entry.variantWeaponType || entry.weaponType || null;
+    if (viejo === cfg.weaponType) {
+        return { ok: true, weaponType: cfg.weaponType, instance: entry, sinCambio: true };
+    }
+
+    var wd = getWeaponByItemId(entry.id);
+    if (!wd) return { ok: false, motivo: "el item " + entry.id + " no esta en el catalogo" };
+
+    // La municion se lee por el TIPO NUEVO de la columna? No: por el viejo. Es
+    // la que tiene el ped ahora, y es la que hay que conservar.
+    var ammo = 0;
+    var c = _playerChar();
+    if (c && viejo !== null) {
+        try { ammo = native("GET_AMMO_IN_CHAR_WEAPON", c, viejo) || 0; } catch (e) { ammo = 0; }
+    }
+
+    // Cambio de tipo: el motor no tiene "cambiar el arma", tiene "dar" y "quitar".
+    if (viejo !== null) {
+        try { native("REMOVE_WEAPON_FROM_CHAR", c, viejo); } catch (e) { }
+    }
+    _ensureWeaponModel(cfg.weaponType);
+    try {
+        native("GIVE_WEAPON_TO_CHAR", c, cfg.weaponType, ammo);
+        native("SET_CURRENT_CHAR_WEAPON", c, cfg.weaponType);
+    } catch (e) {
+        return { ok: false, motivo: "el motor no acepto el tipo " + cfg.weaponType };
+    }
+
+    // Capacidad de la configuracion nueva ANTES de normalizar: el motor ya tiene
+    // una CWeaponInfo con el clip del .asi, y _aplicarCapacidad lo pone al del
+    // cargador que quedo.
+    var addr = _weaponAddrByType(_pedPointer(c), cfg.weaponType);
+    if (addr) {
+        var cap = getClipSizeByWeaponId(cfg.weaponType) || 0;
+        if (cap > 0) {
+            Memory.WriteI32(addr + _W_CLIP, Math.min(ammo, cap), false);
+            Memory.WriteI32(addr + _W_AMMO, ammo, false);
+        }
+    }
+
+    // Recien ahora el registro. Antes de esto nada del save cambio.
+    entry.attachments = cfg.attachments;
+    entry.variantWeaponType = cfg.weaponType;
+    setModuleData("Ballistic", data);
+
+    log("[Ballistic] " + que + ": " + entry.id + " -> tipo " +
+        cfg.weaponType + " (era " + viejo + ") | [" + cfg.attachments.join(", ") + "]");
+
+    return { ok: true, weaponType: cfg.weaponType, instance: entry };
+}
+
+// -------- Lectura de la instancia desde el registro --------
+
+// El WeaponInstance de lo que hay en un slot del registro.
+//
+// El registro guarda weaponType en algunos slots viejos y el item en todos. La
+// precedencia es: attachments si estan guardados, si no la variante que
+// declara el weaponType guardado, si no la variante base de la familia.
+//
+// El caso del medio es el que hace que un save viejo siga funcionando: antes de
+// este refactor el registro guardaba el weaponType, y un save con "colt45" y
+// weaponType 23 significa "colt45 con silenciador" aunque nadie lo haya escrito
+// como attachment. Sin esa capa, cargar un save viejo deja el silenciador
+// montado para siempre y no hay forma de sacarlo.
+function _instanceOf(entry) {
+    if (!entry) return null;
+    var wd = getWeaponByItemId(entry.id);
+    if (!wd || !wd.family) return null;
+    return {
+        id: entry.id,
+        family: wd.family,
+        attachments: entry.attachments || null
+    };
+}
+
+// Los accesorios que TIENE montados, resolviendo desde el weaponType si el
+// registro no los guarda. Devuelve una lista nueva.
+export function resolveAttachmentsOf(entry) {
+    if (!entry) return [];
+    var wd = getWeaponByItemId(entry.id);
+    if (!wd || !wd.family) return [];
+    if (entry.attachments) return entry.attachments.slice();
+
+    // Sin attachments guardados: deducir del weaponType registrado.
+    var tipo = entry.variantWeaponType || entry.weaponType || wd.weaponId;
+    var v = getVariantByWeaponType(tipo);
+    if (v && v.family === wd.family) return (v.attachments || []).slice();
+
+    // Y si tampoco hay weaponType, la variante base: sin accesorios.
+    return [];
+}
+
+// ============ Fin CONFIGURACION DE ARMA ============
+// ============================================================================
+// DIRECCION DE TRABAJO
+// ============================================================================
+// Copia de lectura de SaveManager. Aparte de equipped, guarda la CONFIGURACION
+// de cada arma: que familia es y que accesorios tiene montado. Eso es lo que
+// sobrevive a un cambio de weaponType, y por eso no se deduce del tipo.
+//
+// Ver CONFIGURACION DE ARMA mas arriba.
+
+// ¿Este weaponType es una representacion de esa familia?
+//
+// La regla de pertenencia, y por que no es "comparar con el weaponId del item":
+// el item es la FAMILIA y la familia tiene N representaciones. Con una sola
+// variante, la familia tiene un tipo y esto es exactamente lo de antes. Con
+// varias, el arma registrada puede estar en cualquiera de ellas.
+//
+// El caso que NO entra aca: un item sin familia (las armas que todavia no se
+// migraron) cae al weaponId del item, o sea el comportamiento de siempre.
+function _typeBelongsTo(wd, weaponType) {
+    if (!wd) return false;
+    if (wd.weaponId === weaponType) return true;
+    if (!wd.family) return false;
+    var v = getVariantByWeaponType(weaponType);
+    return !!(v && v.family === wd.family);
+}
+
+// El weaponType que el ped tiene REALMENTE en la mano, para la entrada del
+// registro de un slot.
+//
+// Por que hace falta: `_weaponDefByItemId(entry.id)` devuelve la fila de la
+// FAMILIA, y en esa fila `weaponId` es la variante BASE. La colt45 tiene
+// weaponId 22, pero un ped con el cargador de 15 montado tiene el 60, y con el
+// silenciador el 23.
+//
+// Y `wd.weaponId` a secas es un error silencioso, no un detalle:
+//
+//   unequipWeapon con una colt45 de 15 en la mano
+//     GET_AMMO_IN_CHAR_WEAPON(c, 22)      -> 0, porque el 22 no esta en el ped
+//     REMOVE_WEAPON_FROM_CHAR(c, 22)      -> no quita nada, el que esta es el 60
+//     HAS_CHAR_GOT_WEAPON(c, 22)          -> false, "salio del ped"
+//
+//   Y el mod cree que el arma se fue: la guarda en el inventario CON CERO BALAS
+//   y borra la entrada del registro, mientras el 60 sigue fisicamente en la mano
+//   del ped. El arma esta en los dos sitios y el cargador de 15 desaparece con
+//   las 15 balas.
+//
+// La prelación es: la variante guardada en el registro, si esta; si no, el
+// weaponType guardado en el registro (saves viejos); si no, la variante base.
+// Un item sin familia cae al weaponId del item, que es el comportamiento de
+// siempre.
+function _tipoEnPies(entry, wd) {
+    if (entry && entry.variantWeaponType !== null && entry.variantWeaponType !== undefined) {
+        return entry.variantWeaponType;
+    }
+    if (entry && entry.weaponType !== null && entry.weaponType !== undefined) {
+        return entry.weaponType;
+    }
+    return wd ? wd.weaponId : 0;
+}
+
 function _ballisticData() {
     var data = getModuleData("Ballistic");
     if (!data) data = {};
@@ -202,6 +516,19 @@ function _ballisticData() {
     // Ver gsis_WEAPONS.md §3.3.
     if (!data.foreign) data.foreign = {};
     return data;
+}
+
+// Puntero del ped, o 0. Lo usan las operaciones que escriben en CWeapon y
+// necesitan la direccion del ped sin pasar por un charId.
+function _pedPointer(charId) {
+    try {
+        var c = (charId !== undefined && charId !== null) ? charId : _playerChar();
+        if (c === null || c === undefined) return 0;
+        var p = native("GET_PED_POINTER", c);
+        return p || 0;
+    } catch (e) {
+        return 0;
+    }
 }
 
 // Ficha del catalogo por itemId (null si no es arma equipable).
@@ -246,9 +573,336 @@ function _weaponAddrByType(ped, weaponType) {
 // rangos suele ser un typo; uno dentro del rango de personajes es una colision
 // directa. Los dos se avisan al init (una vez) en vez de fallar en juego, que es
 // como un arma invisible se descubre tarde.
+// ============================================================================
+// CONTRATO DE VARIANTES - el cruce con el .asi
+// ============================================================================
+// El .dat lo lee SOLO el .asi, en su DllMain. Este modulo no abre archivos, y no
+// hay forma de que lea el .dat desde CLEO sin meter una API de lectura que el
+// mod no tiene.
+//
+// Asi que el contrato se verifica en dos partes, y conviene saber cual es cual:
+//
+//   1. Lo que se puede verificar aca: que WEAPON_VARIANTS sea consistente. Eso
+//      lo hace validateVariants() y son errores de este lado.
+//
+//   2. Lo que NO se puede verificar desde aca: que el .asi haya dado de alta los
+//      tipos que este lado declara. Para eso se imprime el .dat QUE DEBERIA
+//      tener el .asi, linea por linea, y se compara con el log del .asi
+//      (gsis_limiter.txt). Es una verificacion manual, y se dice.
+//
+// La alternativa —exportar una funcion del .asi para que el mod la llame y le
+// pregunte— es la correcta, y es exactamente lo que se pidio para la fase 2. Es
+// tambien lo que hace que esto deje de ser manual: el .asi podria responder
+// "tengo el 60 y el 61, con estos parent y estos clip".
+//
+// Por que el .asi no lee WEAPON_VARIANTS: son dos languages y un archivo cada
+// uno. La fuente de verdad son las tablas, y mientras no haya un puente el
+// chequeo cruzando logs es lo unico que hay. La duplicacion es real y por eso
+// este log existe: para que cuando diverjan, la culpa sea de una linea y no de
+// una tarde.
+function _validateVariantContract() {
+    // Parte 1: consistencia interna. validateVariants no loguea porque el
+    // modulo de variantes es un modulo de datos puro.
+    var problemas = validateVariants();
+    for (var i = 0; i < problemas.Length; i++) {
+        log("[Variantes] ERROR: " + problemas[i]);
+    }
+
+    // Parte 2: el .dat que el .asi deberia tener.
+    //
+    // Se imprime con el MISMO formato que el parser del .asi, para que se pueda
+// copiar y pegar. Y se distinguen cuales son de plugin y cuales no.
+    var tipos = getPluginWeaponTypes();
+    if (!tipos.length) {
+        log("[Variantes] ninguna variante de plugin: el .asi no necesita tipos nuevos.");
+        return;
+    }
+    log("[Variantes] " + tipos.length + " variante(s) de plugin. El .asi deberia tener estas lineas en gsis_weapons.dat:");
+    for (var j = 0; j < WEAPON_VARIANTS.length; j++) {
+        var v = WEAPON_VARIANTS[j];
+        if (!v.parent) continue;
+        var f = getVariantProfile(v.weaponType);
+        log("[Variantes]   " + v.weaponType + " " + v.parent + " " +
+            (f ? f.modelId : "?") + " " + (f ? f.slot : "?") + " " +
+            (f ? f.clipSize : "?") + " -1" +
+            "   (" + v.family + (v.attachments.length ? " + " + v.attachments.join("+") : "") + ")");
+    }
+    log("[Variantes] verificar contra gsis_limiter.txt: si el .asi no dice 'dado de alta: tipo N', esa variante no existe en el juego.");
+}
+
+// Como se llama un archivo para que el juego lo encuentre.
+//
+// Esto es una caja negra y no se resuelve leyendo el codigo: los actores pasan
+// "fam5" para models\fam5.dff, o sea el nombre pelado, y no hay forma de saber
+// que acepta para un archivo DOS NIVELES mas abajo.
+//
+// Adivinar desde aca es adivinar. Un intento fallido en el log no dice cual de
+// los formatos era el bueno, y probar de a uno obliga a arrancar el juego por
+// cada intento. La alternativa es que el cargador examine los candidatos y
+// ASIENTE en el log el que funciona: una corrida lo resuelve y queda escrito.
+//
+// El orden es el que dice "cada vez mas specfico al ultimo". Si el buscador
+// aceptara cualquier subcarpeta, el nombre pelado bastaria y el camino entero
+// seria innecesario — que es exactamente lo que hay que comprobar primero.
+function _nombresCandidatos(dff) {
+    var sinExt = dff.replace(/\.dff$/i, "");
+    var conBarra = sinExt.replace(/\\/g, "/");
+    var conBackslash = sinExt.replace(/\//g, "\\");
+    var partes = conBarra.split("/");
+    var pelado = partes[partes.length - 1];
+    // Sin la primera carpeta: por si el buscador cuelga de models\<algo>\ y no
+    // de models\.
+    var sinPrimera = partes.slice(1).join("/");
+    var candidatos = [
+        conBarra,                 // weapons/colt45/colt45_c15
+        conBackslash,             // weapons\colt45\colt45_c15
+        sinPrimera,               // colt45/colt45_c15
+        pelado                    // colt45_c15
+    ];
+    // Sin repetidos y en orden: el mismo nombre dos veces no aporta nada y hace
+    // que el log diga que probo cinco cosas cuando probo cuatro.
+    var out = [];
+    for (var i = 0; i < candidatos.length; i++) {
+        if (candidatos[i] && out.indexOf(candidatos[i]) === -1) out.push(candidatos[i]);
+    }
+    return out;
+}
+
+// El .txd que va con un .dff. El comando recibe los dos por separado, asi que
+// el nombre del txd sale del del dff y no hay que mantenerlo a mano en la tabla.
+function _nombreTxd(dff) {
+    return dff.replace(/\.dff$/i, ".txd");
+}
+
+// ============================================================================
+// MODELOS DE ARMA PROPIOS
+// ============================================================================
+// Cargar un .dff con su .txd y quedarse con el modelId que devuelve el juego:
+//
+//   LOAD_SPECIAL_MODEL(dff, txd) -> modelId      (0F00, clase Streaming)
+//
+// QUE HACE DISTINTO DE TODO LO QUE HABIA ANTES
+//
+// El comando ASIGNA el modelId. No lo elegimos nosotros, no vive en
+// WEAPON_RANGE y no hay que reservarlo. Por eso la tabla WEAPON_MODELS no
+// tiene claves numericas: tiene nombres, y las variantes los referencian por
+// nombre. El nombre es estable y esta escrito a mano; el ID lo pone el juego.
+//
+// La version anterior de esto fijaba un ID a mano y usaba
+// LOAD_SPECIAL_CHARACTER_FOR_ID, que si lo permite. Se podia hacer, pero obligaba
+// a que el mismo numero estuviera en el .dat, en el Config y en
+// WEAPON_VARIANTS, y a que divergieran sin que nada lo dijera. Con 0F00 no hay
+// numero que sincronizar.
+//
+// "cutscene object", segun el doc. El punto importante es el ultimo parrafo: el
+// clump se trata como cualquier otro modelo, asi que HAS_MODEL_LOADED lo
+// verifica y LOAD_ALL_MODELS_NOW lo fuerza. Y las mayusculas las baja el juego
+// solo, asi que los nombres van en minuscula.
+var _modelosArma = {};   // nombre -> modelId que devolvio el juego
+
+// EL TIMEOUT DE 2 SEGUNDOS, Y POR QUE LA CARGA NO ESTA EN EL INIT
+//
+// CLEO+ da 2 segundos por ejecucion de script, y el index.js corre TODO el
+// initAll() dentro de una sola. Cargar un modelo con LOAD_SPECIAL_MODEL es
+// una llamada al juego que entra al streamer, y con cuatro nombres candidatos
+// mas el LOAD_ALL_MODELS_NOW final, la carga se comia el presupuesto entero y el
+// script moria con "has timed out after the default timeout of 2 seconds".
+//
+// El sintoma era que el mod no arrancaba: no fallaba UNA cosa, fallaba todo lo
+// que venia despues, porque initAll() se cortaba a mitad.
+//
+// Asi que la carga es una COLA que se drena de a un paso por frame desde
+// update(), no un bloque en init(). El init sigue siendo instantaneo y el
+// modelo esta cargado a los pocos frames — mucho antes de que el jugador pueda
+// sacar un arma del inventario.
+//
+// Consecuencia aceptable: durante esos pocos frames un arma con modelo propio
+// se puede dar y salir invisible. Se arregla sola cuando termina la cola, que
+// escribe el modelId en la CWeaponInfo de las variantes. El fallo es visible y
+// dura menos de un segundo; la alternativa —cargar en el init— es que el mod no
+// arranque nunca.
+var _carga = null;
+
+// Prepara la cola. NO ejecuta nada: solo arma los pasos.
+function _cargarModelosDeArma() {
+    // Apagado por default. Ver WEAPON_MODELS.ENABLED en gsis_Config.js: la
+    // carga entra al streamer y el modo de fallo de que sea lenta no es "el
+    // modelo no carga", es "el script se corta y el mod entero parece roto".
+    //
+    // Se avisa igual, una vez, porque un flag apagado en silencio es un flag que
+    // nadie va a mirar.
+    // El flag es WEAPON_MODELS_ENABLED, NO SPECIAL_MODELS.ENABLED. Ese segundo
+    // es el de los PERSONAJES (los que usan fam5) y apagarlo ahi deja a los
+    // dealers sin modelo. Ya paso una vez: se confundo el nivel y el mod
+    // crasheo con los actores en esferas.
+    if (SPECIAL_MODELS.WEAPON_MODELS_ENABLED === false) {
+        log("[ModelosArma] DESACTIVADO (WEAPON_MODELS_ENABLED = false). " +
+            "La Colt .45 con cargador de 15 sale con el modelo de vanilla.");
+        return;
+    }
+    var tabla = SPECIAL_MODELS.WEAPON_MODELS;
+    if (!tabla) {
+        log("[ModelosArma] sin tabla WEAPON_MODELS: no hay modelos propios que cargar.");
+        return;
+    }
+    var nombres = [];
+    for (var clave in tabla) {
+        if (Object.prototype.hasOwnProperty.call(tabla, clave)) nombres.push(clave);
+    }
+    nombres.sort();
+    if (!nombres.length) return;
+
+    _carga = {
+        tabla: tabla,
+        nombres: nombres,
+        i: 0,          // modelo en curso
+        c: 0,          // candidato en curso
+        id: 0,
+        elegido: null,
+        probados: [],
+        cargados: 0,
+        paso: 0        // 0 = intentos, 1 = LOAD_ALL_MODELS_NOW, 2 = cerrar
+    };
+    log("[ModelosArma] " + nombres.length + " modelo(s) en cola (se cargan por frame).");
+}
+
+// Un paso por frame. El nombre es `_paso` y no `_update` a proposito: update
+// corre en un loop y esto no puede correr cada frame para siempre.
+function _pasoCargaModelos() {
+    if (!_carga) return;
+    var c = _carga;
+
+    if (c.paso === 1) {
+        // FASE B: la carga real, UNA vez por modelo, con el nombre que la fase A
+        // confirmo. Probar formatos CARGANDO es lo que mataba el frame: un
+        // nombre que no existe hace que el streamer lo busque por todo el arbol
+        // de datos. Consultar (fase A) y cargar (fase B) son operaciones de
+        // coste distinto y no se mezclan.
+        var mb = c.tabla[c.nombres[c.i]];
+        var id = 0;
+        try {
+            id = native("LOAD_SPECIAL_MODEL", c.nombre, _nombreTxd(c.nombre)) | 0;
+        } catch (e) {
+            log("[ModelosArma] ERROR LOAD_SPECIAL_MODEL '" + c.nombre + "': " + e.message);
+            id = 0;
+        }
+        if (id) {
+            _modelosArma[c.nombres[c.i]] = id;
+            c.cargados++;
+            log("[ModelosArma] " + c.nombres[c.i] + " -> modelId " + id + "  ('" + c.nombre + "')");
+        } else {
+            log("[ModelosArma] WARN " + c.nombres[c.i] + ": el juego DECLARO que '" +
+                c.nombre + "' existe pero LOAD_SPECIAL_MODEL devolvio 0.");
+        }
+        c.i++; c.c = 0; c.nombre = null; c.probados = [];
+        c.paso = (c.i >= c.nombres.length) ? 2 : 0;
+        return;
+    }
+
+    if (c.paso === 2) {
+        _aplicarModelosAVariantes();
+        log("[ModelosArma] " + c.cargados + " de " + c.nombres.length +
+            " modelo(s) propio(s) cargado(s).");
+        _carga = null;
+        return;
+    }
+
+    // ---- FASE A: encontrar el nombre correcto. Consulta BARATA.
+    //
+    // IS_MODEL_AVAILABLE_BY_NAME no carga nada, solo mira si el archivo esta. Por
+    // eso los cuatro formatos se pueden probar en un MISMO frame: son
+    // consultas, no cargas. Y por eso los cuatro salen juntos en el log, que
+    // es lo que hace falta para corregir la ruta sin adivinar.
+    var nombre = c.nombres[c.i];
+    var m = c.tabla[nombre];
+    if (c.c === 0) c.probados = [];
+
+    var candidatos = _nombresCandidatos(m.dff);
+    if (c.c >= candidatos.length) {
+        log("[ModelosArma] WARN " + nombre + ": el juego no encuentra " + m.dff +
+            " con NINGUN formato. Probados: [" + c.probados.join(" | ") + "]");
+        c.i++; c.c = 0;
+        c.paso = (c.i >= c.nombres.length) ? 2 : 0;
+        return;
+    }
+
+    for (; c.c < candidatos.length; c.c++) {
+        var limpio = candidatos[c.c].replace(/^.*[\\/]/, "");   // el juego baja mayusculas
+        var ok = false;
+        try { ok = native("IS_MODEL_AVAILABLE_BY_NAME", limpio); }
+        catch (e) { log("[ModelosArma] ERROR IS_MODEL_AVAILABLE_BY_NAME: " + e.message); }
+        c.probados.push(limpio + (ok ? " <- SI" : ""));
+        if (ok) {
+            c.nombre = limpio;
+            c.paso = 1;
+            log("[ModelosArma] " + nombre + ": encontrado como '" + limpio + "', cargando...");
+            return;
+        }
+    }
+}
+
+// Escribir el modelId que devolvio la carga en la CWeaponInfo de las variantes
+// que lo usan.
+//
+// POR QUE HAY QUE HACERLO Y NO ALCANZA CON QUE EL .ASI LO PONGA
+//
+// El .asi clona la CWeaponInfo de forma PEREZOSA: la primera vez que el motor
+// pide la ficha del tipo 60, y no al arrancar. Esa clonacion pisa m_modelId con
+// lo que dice el .dat. Si el mod escribiera el ID una sola vez en el init y el
+// clonara despues, la escritura del mod se pierde y el arma vuelve al modelo
+// del padre — sin error, sin aviso, y solo con la primera variante equipada.
+//
+// Por eso se escribe ACAPARANDOSE del arma, en _ensureWeaponModel, que corre
+// justo antes de darla. En ese momento el clon ya ocurrio (dar el arma pide la
+// ficha) y la escritura gana.
+function _aplicarModelosAVariantes() {
+    for (var i = 0; i < WEAPON_VARIANTS.length; i++) {
+        var v = WEAPON_VARIANTS[i];
+        if (!v.model) continue;
+        var id = _modelosArma[v.model];
+        if (!id) continue;
+        _escribirModelId(v.weaponType, id);
+    }
+}
+
+// El modelId que hay que poner en la CWeaponInfo de un tipo, o 0 si no hay.
+// Para un modelo propio es el que devolvio LOAD_SPECIAL_MODEL; para uno de
+// vanilla, el del catalogo.
+function _modelIdDeTipo(weaponType) {
+    var v = getVariantByWeaponType(weaponType);
+    if (v && v.model) return _modelosArma[v.model] || 0;
+    return getModelIdByWeaponId(weaponType) || 0;
+}
+
+// Escribe m_modelId (offset 0x0C) en la CWeaponInfo de las cuatro skills.
+//
+// 0x0C es el offset del modelo en CWeaponInfo, confirmado en la cabecera de FLA
+// (WeaponLimits.h:365, `int m_modelId`). Los offsets de este bloque salen de ahi
+// y no de un SDK.
+//
+// m_modelId2 (0x10) NO se toca: en weapon.dat es -1 para la pistola y el juego
+// lo usa para un segundo modelo en armas de melee combinado. Dejarlo como lo
+// clono la tabla es lo que corresponde.
+function _escribirModelId(weaponType, modelId) {
+    if (!modelId) return false;
+    var n = 0;
+    for (var skill = 0; skill <= 3; skill++) {
+        var info = _weaponInfoAddr(weaponType, skill);
+        if (!info) continue;
+        try {
+            Memory.WriteI32(info + _MODEL_OFF, modelId, false);
+            n++;
+        } catch (e) { /* sin memoria: el modelo no se escribe */ }
+    }
+    return n > 0;
+}
+
 function _validateWeaponModels() {
     var rango = SPECIAL_MODELS.WEAPON_RANGE;
+    var tabla = SPECIAL_MODELS.WEAPON_MODELS || {};
     if (!rango) return;
+
+    // Parte 1: los items de WEAPON_DATA que declaran modelo de plugin.
     for (var i = 0; i < WEAPON_DATA.length; i++) {
         var w = WEAPON_DATA[i];
         if (w.modelSource !== MODEL_SOURCE_SPECIAL) continue;
@@ -264,6 +918,44 @@ function _validateWeaponModels() {
         } else if (m < rango.START || m > rango.END) {
             log("[Ballistic] WARN: " + w.itemId + " usa el modelId " + m +
                 ", fuera del rango de armas (" + rango.START + "-" + rango.END + ")");
+        }
+    }
+
+    // Parte 2: las VARIANTES, que es donde viven hoy los modelos propios.
+    //
+    // El chequeo es por NOMBRE, no por numero: el modelId de un modelo propio lo
+    // asigna el juego cuando lo carga (LOAD_SPECIAL_MODEL lo devuelve), asi que
+    // no hay numero contra el que validar. Lo que si se puede validar es que el
+    // nombre exista en la tabla y que el nombre exista en el archivo.
+    for (var t = 0; t < WEAPON_VARIANTS.length; t++) {
+        var v = WEAPON_VARIANTS[t];
+        if (v.model) {
+            if (!Object.prototype.hasOwnProperty.call(tabla, v.model)) {
+                log("[Ballistic] ERROR: la variante " + v.weaponType + " (" + v.family +
+                    ") pide el modelo '" + v.model + "' y NO esta en SPECIAL_MODELS.WEAPON_MODELS. " +
+                    "El arma va a salir invisible. Agregalo a WEAPON_MODELS en gsis_Config.js.");
+            }
+            if (v.modelSource !== MODEL_SOURCE_SPECIAL) {
+                log("[Ballistic] WARN: la variante " + v.weaponType + " usa el modelo propio '" +
+                    v.model + "' pero no declara modelSource 'special'. Sin eso el mod lo pide " +
+                    "con REQUEST_MODEL, que no lo encuentra, y nunca verifica que haya cargado.");
+            }
+            if (v.modelId !== null && v.modelId !== undefined) {
+                log("[Ballistic] WARN: la variante " + v.weaponType + " declara model '" +
+                    v.model + "' Y modelId " + v.modelId + ". El modelId lo pone el juego; " +
+                    "declararlo tambien es tener dos fuentes para el mismo numero.");
+            }
+            continue;
+        }
+        // Sin modelo propio: tiene que ser uno de vanilla, y tiene que estar en
+        // el rango del juego. Un numero fuera de 15000-15099 y fuera del rango de
+        // vanilla no lo dibuja nadie.
+        var mid = v.modelId;
+        if (mid === null || mid === undefined) continue;
+        if (mid >= SPECIAL_MODELS.RANGE_START && mid <= SPECIAL_MODELS.RANGE_END) {
+            log("[Ballistic] WARN: la variante " + v.weaponType + " (" + v.family +
+                ") usa el modelId " + mid + ", que colisiona con el rango de PERSONAJES (" +
+                SPECIAL_MODELS.RANGE_START + "-" + SPECIAL_MODELS.RANGE_END + ")");
         }
     }
 }
@@ -282,6 +974,29 @@ function _validateWeaponModels() {
 // justamente el modo de fallo que esto previene. Devuelve false si el modelo no
 // se pudo pedir; el give sigue igual (un modelo no cargado no es razon para
 // negarle el arma al jugador), pero quien llame puede saberlo.
+
+// Dirección entera de CWeaponInfo* (handle WeaponInfo → number)
+//
+// Un handle de CLEO no siempre es un numero: puede venir como objeto con
+// `.address`, o como algo que se convierte con valueOf. Por eso prueba las tres
+// y no castea de una.
+//
+// Devuelve 0 cuando no puede, nunca un numero inventado: los tres call sites
+// (expandMagazine, _weaponInfoAddr y _reloadTargets) tratan el 0 como "no hay
+// info", y un numero al azar seria escribir m_nAmmoClip en cualquier lado.
+function _infoAddr(info) {
+    if (!info) return 0;
+    if (typeof info === "number") return info;
+    if (typeof info.address === "number") return info.address;
+    var n = +info;
+    if (n) return n;
+    if (typeof info.valueOf === "function") {
+        var v = info.valueOf();
+        if (typeof v === "number" && v) return v;
+    }
+    return 0;
+}
+
 // El modelo custom ya esta en la memoria del juego (lo registro un plugin), asi
 // que la unica pregunta util es "esta de verdad". Si no esta, se avisa con el id
 // y el weaponId, que es justo lo que hace falta para encontrar al culpable sin
@@ -299,13 +1014,19 @@ function _specialModelReady(modelId) {
 
 function _ensureWeaponModel(weaponId) {
     try {
-        var modelId = getModelIdByWeaponId(weaponId);
+        var modelId = _modelIdDeTipo(weaponId);
         if (!modelId) return false;  // fuera de catalogo: no hay modelo que pedir
         if (getModelSourceByWeaponId(weaponId) === MODEL_SOURCE_SPECIAL) {
-            // El modelo lo registro un plugin en CModelInfo: ya esta en la
-            // memoria del juego y REQUEST_MODEL no es lo que lo trae. Lo que si
-            // tiene que pasar es que este de verdad, porque si falta el arma se
-            // da igual y sale invisible, y eso no se ve solo.
+            // El modelo lo cargo un plugin: ya esta en la memoria del juego y
+            // REQUEST_MODEL no es lo que lo trae. Lo que si tiene que pasar es
+            // que este de verdad, porque si falta el arma se da igual pero sale
+            // invisible, y eso no se ve solo.
+            //
+            // Y ANTES de verificar, escribir el modelId en la CWeaponInfo. Ver
+            // _aplicarModelosAVariantes: el .asi clona de forma perezosa y esa
+            // clonacion pisa m_modelId con lo del .dat, asi que escribir aca y
+            // no en el init es lo que hace que la escritura gane.
+            _escribirModelId(weaponId, modelId);
             return _specialModelReady(modelId);
         }
         native("REQUEST_MODEL", modelId);
@@ -367,28 +1088,55 @@ export function equipWeapon(itemId) {
     if (data.equipped[slot] && !unequipWeapon(slot)) return false;
     var taken = query("items:takeWeapon", { id: itemId });
     if (!taken) return false; // esa arma no esta en el inventario
-    var cap = getClipSizeByItemId(itemId) || 0;
+
+    // La configuracion que se esta equipando. Vuelve con la instancia si el arma
+    // se desequipo con accesorios puestos; si no, es la variante base.
+    //
+    // Sin esto, reequipar una Colt .45 que estaba con silenciador la deja pelada
+    // Y con el cargador de 15 en la mano del ped, que es un estado que el
+    // inventario no puede describir. Ojo con null contra []: significan cosas
+    // distintas, y la primera es la de un arma recien comprada.
+    var attachments = taken.attachments || [];
+    var tipo = wd.weaponId;
+    if (attachments.length) {
+        var t = resolveWeaponType(wd.family, attachments);
+        if (t !== null) {
+            tipo = t;
+        } else {
+            log("[Ballistic] WARN: " + itemId + " vuelve con [" +
+                attachments.join(", ") + "] pero esa configuracion no existe. Queda como variante base.");
+        }
+    }
+
+    var cap = getClipSizeByWeaponId(tipo) || getClipSizeByItemId(itemId) || 0;
     var ammo = Math.min(taken.ammo || 0, cap);
-    if (!_giveWeapon(c, wd.weaponId, ammo, taken.hasMag !== false)) {
+    if (!_giveWeapon(c, tipo, ammo, taken.hasMag !== false)) {
         // native fallido: la instancia vuelve al inventario (no se pierde)
         query("items:storeWeapon", {
-            id: itemId, hasMag: taken.hasMag, ammo: taken.ammo, salud: taken.salud, force: true
+            id: itemId, hasMag: taken.hasMag, ammo: taken.ammo, salud: taken.salud,
+            attachments: taken.attachments || null, force: true
         });
         return false;
     }
     // El cargador que trae el arma se anota en el registro, porque es lo que
     // decide su capacidad. Un arma que llega sin cargador (que es como las
     // entrega el dealer) deja magId en null y usa la del arma.
+    //
+    // variantWeaponType y attachments van porque el weaponType de la familia es
+    // la variante BASE: sin ellos, el slot 2 con una colt45 no dice si lo que hay
+    // en la mano es el 22, el 23 o el 60. Ver _tipoEnPies.
     data.equipped[slot] = {
         id: itemId,
         hasMag: taken.hasMag !== false,
         salud: taken.salud,
-        magId: taken.magId || (taken.hasMag !== false ? (getMagIdsByWeaponId(wd.weaponId)[0] || null) : null)
+        magId: taken.magId || (taken.hasMag !== false ? (getMagIdsByWeaponId(tipo)[0] || null) : null),
+        attachments: attachments,
+        variantWeaponType: tipo
     };
     setModuleData("Ballistic", data);
-    _aplicarCapacidad(slot); // el motor usa la capacidad del cargador que entró
+    _aplicarCapacidad(slot); // el motor usa la capacidad del cargador que entro
     try {
-        native("SET_CURRENT_CHAR_WEAPON", c, wd.weaponId);
+        native("SET_CURRENT_CHAR_WEAPON", c, tipo);
     } catch (e) { /* sin native: el jugador cambia a mano */ }
     showTextBox(t("EQP_OK"));
     return true;
@@ -405,30 +1153,40 @@ export function unequipWeapon(slot) {
     var c = _playerChar();
     if (!wd || !c) return false;
     var hasMag = entry.hasMag !== false;
+    // El tipo que el ped tiene EN LA MANO, que con variantes no es el de la
+    // familia. Con una colt45 de cargador de 15 mounted es 60, no 22, y usar
+    // wd.weaponId a secas hace que el GET_AMMO devuelva 0, que el REMOVE no
+    // quite nada, y que el "salio del ped" de mas: el arma queda en el
+    // inventario con cero balas mientras sigue en la mano del ped. Ver _tipoEnPies.
+    var tipo = _tipoEnPies(entry, wd);
     var ammo = 0;
     try {
-        ammo = native("GET_AMMO_IN_CHAR_WEAPON", c, wd.weaponId) || 0;
+        ammo = native("GET_AMMO_IN_CHAR_WEAPON", c, tipo) || 0;
     } catch (e) { /* sin native: se guarda sin balas */ }
     // La capacidad con la que hay que guardar las balas que quedan es la del
     // CARGADOR MONTADO, no la del arma: con un tambor de 75, guardar con la
-    // capacidad del base (30) tiraria 45 balas a la basura.
-    var cap = _capacidadMontada(slot) || getClipSizeByItemId(entry.id) || 0;
+    // capacidad del base (30) tiraria 45 balas a la basura. Y es la del TIPO
+    // montado, que con variantes no es la del item.
+    var cap = _capacidadMontada(slot) || getClipSizeByWeaponId(tipo) || getClipSizeByItemId(entry.id) || 0;
     if (ammo > cap) ammo = cap;
     try {
-        native("REMOVE_WEAPON_FROM_CHAR", c, wd.weaponId);
+        native("REMOVE_WEAPON_FROM_CHAR", c, tipo);
     } catch (e) { /* sin native: se verificara abajo */ }
     // Solo se guarda el item si el arma salio del ped (si no, habria copias)
     var stillThere = false;
     try {
         var ped = native("GET_PED_POINTER", c);
-        var addr = ped ? _weaponAddrByType(ped, wd.weaponId) : 0;
-        if (addr && Memory.ReadI32(addr, false) === wd.weaponId) stillThere = true;
-        if (native("HAS_CHAR_GOT_WEAPON", c, wd.weaponId)) stillThere = true;
+        var addr = ped ? _weaponAddrByType(ped, tipo) : 0;
+        if (addr && Memory.ReadI32(addr, false) === tipo) stillThere = true;
+        if (native("HAS_CHAR_GOT_WEAPON", c, tipo)) stillThere = true;
     } catch (e) { /* sin verificacion: confiamos en el native */ }
     if (stillThere) return false;
-    if (!query("items:storeWeapon", { id: entry.id, hasMag: hasMag, ammo: ammo, salud: entry.salud })) {
-        // sin espacio en el inventario: la arma sigue siendo tuya → se recupera
-        _giveWeapon(c, wd.weaponId, ammo, hasMag);
+    if (!query("items:storeWeapon", {
+        id: entry.id, hasMag: hasMag, ammo: ammo, salud: entry.salud,
+        attachments: entry.attachments || null
+    })) {
+        // sin espacio en el inventario: el arma sigue siendo tuya→ se recupera
+        _giveWeapon(c, tipo, ammo, hasMag);
         return false;
     }
     delete data.equipped[slot];
@@ -437,17 +1195,10 @@ export function unequipWeapon(slot) {
     // de su tipo vuelve a la del arma. Sin esto, un AK con tambor le dejaria 75
     // balas a todos los AK del juego para siempre, y con el arma guardada en la
     // mochila que ya no hay de donde sacar el tambor.
-    if (_slotConArma(wd.weaponId) === null) {
-        var base = getClipSizeByWeaponId(wd.weaponId) || 0;
-        if (base > 0) _escribirClip(wd.weaponId, base);
+    if (_slotConArma(tipo) === null) {
+        var base = getClipSizeByWeaponId(tipo) || 0;
+        if (base > 0) _escribirClip(tipo, base);
     }
-    showTextBox(t("EQP_OUT"));
-    return true;
-}
-
-// Dirección entera de CWeaponInfo* (handle WeaponInfo → number)
-function _infoAddr(info) {
-    if (!info) return 0;
     if (typeof info === "number") return info;
     if (typeof info.address === "number") return info.address;
     var n = +info;
@@ -592,15 +1343,38 @@ function _capacidadMontada(slot) {
     return getClipSizeByItemId(entry.magId) || 0;
 }
 
-// Que slot del jugador esta usando este tipo de arma ahora mismo, o null.
-// Un tipo de arma no puede estar en dos slots a la vez, asi que el primero que
-// coincide es el unico.
+// Que slot del jugador esta usando ESTE TIPO DE ARMA ahora mismo, o null.
+//
+// Acepta tanto un weaponType (60, 23) como un itemId ("colt45"), porque hay dos
+// formas legitimas de preguntar y antes cada una fallaba por su cuenta:
+//
+//   por itemId   → el slot que tiene esa FAMILIA, este el tipo o no
+//   por weaponType→ el slot que tiene esa REPRESENTACION
+//
+// El caso que rompia antes: el item colt45 tiene weaponId 22 en su fila (la
+// variante base), asi que buscar el tipo 60 comparando `wd.weaponId === 60` no
+// encontraba NADA. No es un caso raro: es el caso normal de un arma con
+// cargador de 15, que es el 60.
+//
+// Y el efecto era malo en los dos sentidos. `_aplicarCapacidad` caia al
+// `getClipSizeByWeaponId` de emergencia y escribia la capacidad en el tipo BASE
+// — la pistola de vanilla — en vez de en el tipo que el ped tiene en la mano. Eso
+// deja la capacidad del 60 sin tocar y le pone a TODAS las pistolas de 22 balas
+// del juego la del cargador montado. La recarga lee la capacidad del tipo que
+// esta en la mano, asi que el arma se queda con la que no le corresponde.
 function _slotConArma(weaponType) {
+    if (weaponType === null || weaponType === undefined) return null;
+    var porItemId = (typeof weaponType === "string");
     var eq = getEquipped();
     for (var i = 1; i < _SLOT_COUNT; i++) {
-        if (!eq[i]) continue;
-        var wd = _weaponDefByItemId(eq[i].id);
-        if (wd && wd.weaponId === weaponType) return i;
+        var entry = eq[i];
+        if (!entry) continue;
+        var wd = _weaponDefByItemId(entry.id);
+        if (!wd) continue;
+        var coincide = porItemId
+            ? (entry.id === weaponType)
+            : (wd.weaponId === weaponType || _tipoEnPies(entry, wd) === weaponType);
+        if (coincide) return i;
     }
     return null;
 }
@@ -655,15 +1429,21 @@ function _escribirClip(weaponType, cap) {
 
 // Deja la capacidad que le corresponde al slot: la del cargador montado, o la
 // base del arma si esta sin cargador. Se llama al montar, al sacar y al equipar.
+//
+// Escribe en el TIPO QUE ESTA MONTADO, no en el weaponId de la familia. Con
+// variantes son distintos y la diferencia no es academica: escribir en la base
+// deja la variante sin capacidad correcta y le escribe la del cargador a todas
+// las armas vanilla de ese tipo. Ver _tipoEnPies y _slotConArma.
 function _aplicarCapacidad(slot) {
     var entry = getEquipped()[slot];
     if (!entry) return;
     var wd = _weaponDefByItemId(entry.id);
     if (!wd) return;
     if (wd.clipSource === CLIP_SOURCE_ENGINE) return; // la tiene el motor
+    var tipo = _tipoEnPies(entry, wd);
     var montada = _capacidadMontada(slot);
-    var cap = montada > 0 ? montada : (getClipSizeByWeaponId(wd.weaponId) || 0);
-    _escribirClip(wd.weaponId, cap);
+    var cap = montada > 0 ? montada : (getClipSizeByWeaponId(tipo) || 0);
+    _escribirClip(tipo, cap);
 }
 
 // Monta un cargador completo en la direccion de memoria del arma.
@@ -736,9 +1516,21 @@ function _reconcileLoadout() {
             if (data.foreign[i]) { delete data.foreign[i]; changed = true; }
             continue;
         }
-        // ¿El arma del ped es la registrada? (mismo weaponId)
+        // ¿El arma del ped es la registrada?
+        //
+        // ANTES: wd.weaponId === type. Eso era correcto cuando un item de
+        // inventario era un weaponId, y es exactamente el bug que este refactor
+        // arregla: la colt45 tiene los tipos 22, 60, 23 y 61, y con la
+        // comparacion vieja el ped con la variante 23 en la mano se reconocia
+        // como "no registrada" y la linea de abajo le borraba el arma del save
+        // en el primer frame. El sintoma (el arma desaparece del inventario al
+        // tocar cualquier tecla) es indistinguible de "se perdio".
+        //
+        // AHORA: la pregunta es si el tipo pertenece a la FAMILIA del item
+        // registrado. Un item con una sola variante se comporta igual que antes,
+        // porque su familia tiene un solo tipo.
         var wd = entry ? _weaponDefByItemId(entry.id) : null;
-        var registered = !!(wd && wd.weaponId === type);
+        var registered = !!wd && _typeBelongsTo(wd, type);
         if (!registered) {
             // Fuera de catalogo (melee/granadas): no es nuestra, pero si había
             // una registrada en este slot, acaba de perderse
@@ -841,27 +1633,55 @@ function _reconcileLoadout() {
 function _reloadTargets(w) {
     try {
         // 09E7 — si el control esta off (cutscene/mission) no recargamos
-        if (!native("IS_PLAYER_CONTROL_ON", new Player(0))) return null;
+        if (!native("IS_PLAYER_CONTROL_ON", new Player(0))) return _sinRecarga("control del player apagado", w);
     } catch (e) { /* guard opcional: si falla el native seguimos */ }
     try {
-        if (native("IS_CHAR_DEAD", w.char)) return null;
-        if (_NO_ANIM.indexOf(w.type) >= 0) return null; // sin anim de recarga
+        if (native("IS_CHAR_DEAD", w.char)) return _sinRecarga("ped muerto", w);
+        if (_NO_ANIM.indexOf(w.type) >= 0) return _sinRecarga("el tipo " + w.type + " no tiene anim de recarga", w);
         var ped = native("GET_PED_POINTER", w.char);
-        if (!ped) return null;
+        if (!ped) return _sinRecarga("sin puntero de ped", w);
         var slot = Memory.ReadU8(ped + _SLOT_OFF, false);
-        if (!slot) return null; // slot 0 = sin arma
+        if (!slot) return _sinRecarga("slot 0 = sin arma", w);
         var weapon = ped + _WEAPONS_OFF + slot * _WEAPON_SIZE;
-        if (Memory.ReadI32(weapon + _W_STATE, false) === _STATE_RELOADING) return null; // ya recargando
+        if (Memory.ReadI32(weapon + _W_STATE, false) === _STATE_RELOADING) return _sinRecarga("ya recargando", w);
         var info = _infoAddr(native("GET_CURRENT_CHAR_WEAPONINFO", w.char));
-        if (!info) return null;
+        // Esta es la guarda que mas se ha partido. Sin info no hay ni flags ni
+        // tiempo de recarga, y como el return era silencioso el sintoma era
+        // "no recarga" sin ninguna pista de cual de las cinco guards habia
+        // cortado. Se loguea cada una, una vez por combinacion.
+        if (!info) return _sinRecarga("GET_CURRENT_CHAR_WEAPONINFO no devolvio info", w);
         // WEAPON_RELOAD (0x1000) — solo armas con anim de recarga
-        if (!(native("GET_WEAPONINFO_FLAGS", info) & 0x1000)) return null;
+        if (!(native("GET_WEAPONINFO_FLAGS", info) & 0x1000)) {
+            return _sinRecarga("el tipo " + w.type + " no tiene el flag WEAPON_RELOAD (0x1000) en su CWeaponInfo", w);
+        }
         var ms = Memory.CallMethodReturn(_RELOAD_TIME_FN, info, 0, 0);
-        if (ms <= 0) return null;
-        return { weapon: weapon, ms: ms };
+        if (ms <= 0) return _sinRecarga("GetWeaponReloadTime devolvio " + ms + " para el tipo " + w.type, w);
+        return { weapon: weapon, ms: ms, info: info };
     } catch (e) {
-        return null;
+        return _sinRecarga("excepcion: " + e.message, w);
     }
+}
+
+// Por que NO se recargo. Loguea el motivo y devuelve null, que es lo que espera
+// el llamador.
+//
+// Un `_reloadTargets` que devuelve null sin decir por que es el peor tipo de
+// falla para debuggear: hay CINCO guards y todas se ven igual desde afuera —
+// "no recarga". Con esto, el log dice exactamente cual corto, con el tipo y el
+// slot, y la primera vez que aparece ya dice la causa.
+//
+// Se loguea una vez por (motivo, tipo): si no, recargar 60 veces por minuto
+// llena el log y el motivo real queda tapado por 3000 copias.
+var _sinRecargaVisto = {};
+function _sinRecarga(motivo, w) {
+    var tipo = w && w.type !== undefined ? w.type : "?";
+    var clave = tipo + "|" + motivo;
+    if (!_sinRecargaVisto[clave]) {
+        _sinRecargaVisto[clave] = true;
+        log("[Ballistic] NO recarga (tipo " + tipo + ", slot " + (w ? w.slot : "?") +
+            "): " + motivo);
+    }
+    return null;
 }
 
 // Dispara la recarga nativa: CWeapon::m_nTimeForNextShot = ahora + reloadTime
@@ -951,19 +1771,30 @@ function tryReload(w) {
     // monta. Para las armas sin variantes la lista tiene un elemento y el
     // comportamiento es el de siempre.
     var magIds = getMagIdsByWeaponId(w.type);
-    if (!magIds.length) return; // melee, granadas, armas fuera de catalogo
-    if (!w.clip || w.clip < 1) return; // sin capacidad = no hay cargador valido
+    if (!magIds.length) return _sinRecarga("el tipo " + w.type + " no tiene cargadores en el catalogo", w);
+    // La capacidad del arma en la mano. Si esto da 0 el arma no tiene donde
+    // recargar y es el corte mas silencioso de todos: la capacidad sale de la
+    // CWeaponInfo del TIPO que esta montado, y con variantes ese tipo no es
+    // el weaponId de la familia.
+    if (!w.clip || w.clip < 1) return _sinRecarga("la capacidad del tipo " + w.type + " es " + w.clip, w);
     var targets = _reloadTargets(w);
     if (!targets) return;
     var entry = getEquipped()[w.slot];
-    if (!entry) return; // sin registrar: no es tuya (el reconcile la adopta)
+    if (!entry) return _sinRecarga("el slot " + w.slot + " no esta en el registro", w);
     var hasMag = entry.hasMag !== false;
     // El cargador montado sale con min(balas, capacidad): no puede haber mas
     // balas fuera de catalogo que capacidad
+    //
+    // `mountedMagId` es el cargador que ESTA EN EL ARMA, y Items lo necesita para
+    // devolverlo al cinturon. Sin esto el swap solo sabe el cargador que ENTRA, y
+    // un cargador que sale solo se puede describir por el de entrada — que es
+    // como un cargador de 15 se convierte en uno de 8 y se pierde el otro. Ver
+    // "items:swapMagazine" en gsis_Items.js.
     var resp = query("items:swapMagazine", {
         magIds: magIds,
         ammo: Math.min(w.ammo || 0, w.clip),
-        mounted: hasMag
+        mounted: hasMag,
+        mountedMagId: entry.magId || null
     });
     if (resp) {
         // La capacidad es la del cargador que ENTRÓ, no la que tenia el arma
@@ -975,6 +1806,8 @@ function tryReload(w) {
         _aplicarCapacidad(w.slot); // el motor pasa a usar la capacidad del tambor
         setMagazine(w, Math.min(resp.ammo, cap));
         _startReloadAnim(targets, w, Math.min(resp.ammo, cap));
+        log("[Ballistic] recarga: " + w.type + " coge " + resp.magId +
+            " con " + resp.ammo + " (cap " + cap + ")");
         return;
     }
     // Sin recambio en el cinturon → descarga: el cargador montado pasa al
@@ -990,7 +1823,10 @@ function tryReload(w) {
         } // si no cabe: INV_FUL lo muestra Items y el arma no cambia
         return;
     }
-    showTextBox(t("NO_MAG")); // sin cargador montado y sin recambio equipado
+    showTextBox(t("NO_MAG"));
+    log("[Ballistic] recarga sin resultado: tipo " + w.type +
+        " | hay cargador montado=" + hasMag + " ammo=" + w.ammo +
+        " | cinturon sin recambio util");
 }
 
 // ============================================================================
@@ -1043,16 +1879,30 @@ register({
         // Modelos custom: valida que los ids no colisionen con el rango de
         // personajes antes de que un arma salga invisible en juego
         _validateWeaponModels();
+        // Modelos propios de arma. _cargarModelosDeArma SOLO arma la cola: la
+        // carga corre de a un paso por frame desde update(), porque en el init
+        // se comia el timeout de 2 segundos de CLEO+ y el mod no arrancaba.
+        _cargarModelosDeArma();
+        // Variantes: que la tabla de este lado y la del .asi no se separen.
+        // Corre DESPUES de todo lo de arriba porque es el unico chequeo que ve
+        // las dos mitades, y necesita el catalogo ya construido.
+        _validateVariantContract();
         // Capacidades: clip de juego = clipSize del catalogo (igual que mag_*)
         syncClipSizes();
     },
     update: function (now) {
+        // Un paso de la carga de modelos por frame. Va PRIMERO y no al final a
+        // proposito: si el arma con modelo propio se da este mismo frame, el
+        // paso ya escribio el modelId en la CWeaponInfo y sale con el modelo
+        // correcto en vez de invisible. Runs una vez por frame mientras la cola
+        // este viva, y una vez mas cuando _carga queda en null, que no hace nada.
+        _pasoCargaModelos();
         _reconcileLoadout();
         _watchdogReload();
         var cur = _readSlotAndType();
         if (keyJustPressed(KEYS.RELOAD)) tryReload(cur);
         if (!cur) return;
-        // Solo actúa al cambiar de slot de arma
+        // Solo actua al cambiar de slot de arma
         if (_lastSlot !== null && cur.slot === _lastSlot) return;
         _lastSlot = cur.slot;
     }

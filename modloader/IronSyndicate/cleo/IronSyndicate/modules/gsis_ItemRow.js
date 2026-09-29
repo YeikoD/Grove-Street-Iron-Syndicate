@@ -39,7 +39,7 @@ export function ammoCell(it, esVivo) {
     // capacidad del arma, y con el arma sin cargador no hay ningun cargador que
     // la lleno: leerlo asi dice "tiene un cargador de 17 y esta vacio", que es
     // justo lo contrario de lo que hay. Y el numero varia por calibre —7 en la
-    // Desert Eagle, 17 en la 9mm, 50 en la M4, 500 en el minigun—, asi que el
+    // Desert Eagle, 8 en la Colt .45, 50 en la M4, 500 en el minigun-, asi que el
     // denominador tampoco es un dato constante que el jugador pueda leer como
     // "el cargador que le viene".
     //

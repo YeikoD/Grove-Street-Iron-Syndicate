@@ -7,6 +7,7 @@
 // ============================================================================
 
 import { TIMERS, MISC } from "./gsis_Config.js";
+import { migrateSave } from "./gsis_SaveMigration.js";
 
 var GameState = {
     version: "1.0",  // Version del formato de guardado
@@ -257,6 +258,24 @@ function loadGame(slot) {
             _log("No se carga nada de este slot — se conserva el estado actual.");
             return false;
         }
+    }
+
+    // Migracion de ids ANTES de que GameState reciba nada. Si se hiciera despues
+    // de la linea de abajo, el modulo de inventario ya habria desconocido los
+    // items viejos (no estan en ITEMS todavia) y los habria descartado antes de
+    // que la migracion pudiera tocarlos.
+    //
+    // El contador importa: si un save se carga y dice 0, o no tenia items viejos
+    // o la migracion no se esta corriendo, y son dos cosas que hay que poder
+    // distinguir desde el log sin abrir el save.
+    try {
+        var renombrados = migrateSave(parsed);
+        if (renombrados > 0) _log("Migracion: " + renombrados + " item(s) con id viejo renombrado(s).");
+    } catch (e) {
+        // Un save que no se puede migrar se carga igual. Perder una partida
+        // entera por un renombre mal escrito es peor que cargar con items
+        // viejos que el catalogo no va a reconocer.
+        _log("WARN migracion fallo (" + e.message + "); se carga el save sin migrar.");
     }
 
     try {
