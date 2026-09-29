@@ -72,6 +72,6 @@
 # siempre, sin error en ninguna parte.
 
 # 60 22 346 2 15 -1    <-- colt45 + cargador 15 (el modelo lo pone el mod)
-60 22 15065 2 30 -1
+60 22 346 2 15 -1
 # 61 23 346 2 15 -1    <-- colt45 + silenciador + cargador 15 (modelo: el mod)
 61 23 346 2 15 -1
