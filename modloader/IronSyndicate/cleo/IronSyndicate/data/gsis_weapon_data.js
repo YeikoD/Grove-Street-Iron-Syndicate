@@ -75,6 +75,44 @@
 // ============================================================================
 
 export const WEAPON_DATA = [
+    // Arma de PLUGIN. Va PRIMERO a proposito, antes que las de vanilla.
+    //
+    // El weaponId 60 no existe en GTA: lo da de alta gsisWeaponLimiter.asi, que
+    // escribe su CWeaponInfo y la sirve por GetWeaponInfo. Aca el catalogo solo
+    // necesita saber lo que el .asi NO sabe: como se llama, cuanto pesa, cuanto
+    // cuesta y, sobre todo, quantas balas tiene el cargador.
+    //
+    // clipSize 30 es lo que une las dos mitades. El cargador mag_gsis_pistol saca
+    // su capacidad de aca (getClipSizeByItemId parte el prefijo "mag_" y busca el
+    // arma), y el .asi lo puso en m_nAmmoClip de las cuatro skill rows. Mismo
+    // numero de los dos lados: si divergieran, el mod montaria un cargador de un
+    // tamaño y el engine recortaria al otro.
+    //
+    // NO lleva clipSource. El default es CLIP_SOURCE_CATALOG, y eso es lo
+    // correcto: la capacidad la manda el catalogo, y _aplicarCapacidad la
+    // escribe en la CWeaponInfo al equipar. Si alguna vez el cargador de esta
+    // pistola fuera variable (un tambor, digamos), el camino ya esta.
+    {
+        itemId: "gsis_pistol",
+        magIds: ["mag_gsis_pistol"],
+        magId: "mag_gsis_pistol",
+        name: "Pistola GSIS",
+        weaponId: 60,
+        modelId: 346,
+        slot: 2,
+        clipSize: 30,
+        damage: 25,
+        fireRate: 20,
+        range: 30,
+        reloadTime: null,
+        accuracy: 25,
+        ammoType: "9mm Parabellum",
+        category: "Pistolas",
+        realWorldName: "Colt M1911A1",
+        weight: 1.5,
+        isLong: false,
+        price: 550
+    },
     // Pistolas
     {
         itemId: "9mm",
@@ -516,6 +554,17 @@ export const WEAPON_DATA = [
     // el mod son TUBOS (clipSize 1 en el rifle y el francotirador, y la escopeta
     // recarga cartucho a cartucho). El precio lo ancla la pieza real equivalente:
     // un tubo de extension, no una caja desmontable.
+    {
+        itemId: "mag_gsis_pistol",
+        magId: null,
+        name: "Cargador pistola 30",
+        weaponId: null,
+        slot: null,
+        category: "Cargadores",
+        realWorldName: "Colt M1911A1",
+        isLong: false,
+        price: 220
+    },
     {
         itemId: "mag_9mm",
         magId: null,

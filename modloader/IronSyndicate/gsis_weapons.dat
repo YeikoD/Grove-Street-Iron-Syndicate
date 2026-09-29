@@ -1,0 +1,21 @@
+# GSIS Weapon Limiter -- configuracion de armas
+#
+# <tipo> <padre> <modelId> <slot> <cargador> <damage>
+#
+# tipo      60..79. 60..69 es la franja que FLA reserva para si; no la estamos
+#           usando. 49..59 NO se tocan: son los pseudo-tipos de muerte
+#           (atropellado, ahogado, explosion) y el motor los consulta de verdad.
+# padre     un tipo real de GTA. 22..32 son los que tienen skills (pistola,
+#           escopeta, subfusil, ametralladora, fusil). Si el padre esta fuera
+#           de 22..32 el arma no sube de skill nunca.
+# modelId   id de modelo de arma. 346 = pistola normal. Un id que no exista en
+#           models\weapon\ simply no dibuja nada, pero no rompe.
+# slot      WEAPONSLOT: 1 melee, 2 pistola, 3 escopeta, 4 subfusil, 5 MG,
+#           6 fusil, 7 pesado, 8 lanzado, 9 especial.
+# cargador  -1 = hereda del padre.
+# damage    -1 = hereda del padre. Un 0 aca significa "cero dano", no "no tocar".
+#
+# El archivo se relee en cada arranque. Comentar con #.
+
+# 60 22 346 2 30 -1
+60 22 346 2 30 -1

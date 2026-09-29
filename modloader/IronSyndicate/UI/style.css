@@ -178,8 +178,8 @@
   /* El nombre del ITEM en cualquier menu. Vive en la raiz y no adentro de la
      receta .table porque es del item, no de la tabla: cualquier render futuro
      de un nombre tiene que leer este token. La escalera queda:
-     nombre 1.5 > stat 1.4 > titulo 1.25. */
-  --name-fs: 1.5vh;
+     nombre 1.6 > stat 1.4 > titulo 1.25. Aumentado para mejor prominencia. */
+  --name-fs: 1.6vh;
 
   /* Los titulos de seccion: titulo de lista (.pane__title), banda de categoria
      (.table__group) y encabezados de columna (.table__head y su variante de
@@ -194,6 +194,7 @@
   --sp-4: 0.8vh;
   --sp-5: 1vh;
   --sp-6: 1.2vh;
+  --sp-7: 1.4vh;
 
   /* Espaciado horizontal. */
   --spw-1: 0.2vw;
@@ -204,9 +205,9 @@
 
   /* Formas y movimiento. */
   --radius-sm: 2px;
-  --dur-fast: 0.1s;
-  --dur: 0.15s;
-  --dur-slow: 0.2s;
+  --dur-fast: 0.15s;
+  --dur: 0.2s;
+  --dur-slow: 0.25s;
 
   /* ------------------------------------------------ CAPA 2: SEMANTICOS -- */
 
@@ -242,7 +243,8 @@
   --state-info: var(--blue);
 
   --text-body: var(--g-100);
-  --text-muted: var(--g-300);
+  /* Mejor contraste para texto secundario: aumentado de g-300 a g-200 para mejor legibilidad */
+  --text-muted: var(--g-200);
   --text-inverse: var(--g-000);
   --text-gold: var(--gold);
   --text-accent: var(--accent);
@@ -342,9 +344,9 @@ body {
      OJO: este token y --table-row-h estan atados. .table__row tiene height
      fijo, asi que un icono mas alto que la fila se sale de la fila y pisa la de
      arriba: por eso cuando el icono sube, la fila sube con el. La proporcion
-     se mantiene (icono 3.1/fila 3.4 antes, 3.4/3.7 ahora), o sea que el aire
+     se mantiene (icono 3.1/fila 3.4 antes, 3.6/3.9 ahora), o sea que el aire
      de arriba y de abajo es el de siempre. */
-  --table-icon-w: 3.4vh;
+  --table-icon-w: 3.6vh;
 
   /* icon | nombre | cant | salud | peso | valor. El 1fr es el nombre, que
      absorbe lo que sobre y por eso el nombre nunca queda desalineado al
@@ -361,8 +363,9 @@ body {
   /* Alto de fila propio de la tabla, suelto de --row-h: el cuerpo del nombre
      ya no vive aca (es --name-fs en la raiz). --row-h sigue siendo el alto de
      las listas de las otras pestanas, que van con .row y no con la tabla.
-     Sube con --table-icon-w (ver alla): el icono tiene que entrar en la fila. */
-  --table-row-h: 3.7vh;
+     Sube con --table-icon-w (ver alla): el icono tiene que entrar en la fila.
+     Aumentado para mejor espaciado y legibilidad con el nombre mas grande. */
+  --table-row-h: 3.9vh;
   /* El tracking cerrado sigue, pero solo le sirve a la celda del nombre: las
      otras cuatro son iconos y el ancho de columna lo define --headicon, no la
      tipografia. Cuando eran texto, el tracking se pagaba dos veces porque el
@@ -537,14 +540,14 @@ body {
 }
 
 /* Banda de grupo. El filete izquierdo es --g-600, el mismo gris del thumb del
-   scrollbar, para que las dos guias de la UI se lean como el mismo material y
+   scrollbar, para que las dos guías de la UI se lean como el mismo material y
    el verde quede reservado para el acento y los estados.
 
-   El sangrado de la etiqueta es propio y corto a proposito. Alinearla con la
-   columna del nombre (icono + gap + padding = ~40px) la hacia leer como un item
-   mas: la banda dejaba de ser cabecera y parecia contenido. Con un espaciado
-   de escala propio la etiqueta queda pegada al filete, que es donde un titulo
-   de seccion tiene que estar. */
+   El sangrado de la etiqueta es propio y corto a propósito. Alinearla con la
+   columna del nombre (icono + gap + padding = ~40px) la hacía leer como un item
+   más: la banda dejaba de ser cabecera y parecía contenido. Con un espaciado
+   de escala propio la etiqueta queda pegada al filete, que es donde un título
+   de sección tiene que estar. */
 .table__group {
   --group-indent: var(--spw-3);
 
@@ -560,8 +563,8 @@ body {
   text-shadow: none;
   background: var(--surface-hover);
   border-left: var(--guide-w) solid var(--g-600);
-  padding: var(--sp-1) var(--group-indent);
-  margin-top: var(--sp-3);
+  padding: var(--sp-2) var(--group-indent);
+  margin-top: var(--sp-4);
 }
 
 .table__group:first-of-type {
@@ -572,7 +575,7 @@ body {
   margin-left: auto;
   font-size: var(--stat-fs);
   color: var(--text-inverse);
-  opacity: 0.6;
+  opacity: 0.7;
 }
 
 .table__row {
@@ -580,7 +583,7 @@ body {
   font-size: var(--name-fs);
   padding: 0 var(--table-row-pad-x);
   cursor: pointer;
-  transition: background var(--dur-fast) ease;
+  transition: background var(--dur) ease, color var(--dur) ease;
 }
 
 /* Fila del catalogo de la armeria que ya tiene unidades en el carrito. Va
@@ -594,18 +597,19 @@ body {
 }
 
 .table__row:hover {
-  background: var(--w-04);
+  background: var(--w-08);
 }
 
 /* Fila elegida: banda de tinte con filete de acento. El color del texto va en
    la FILA y no en el nombre, para que el nombre y las cifras sean del mismo
-   color por construccion. Si el color estuviera en .table__name, las celdas
-   numericas РІР‚вЂќ que tienen el suyo РІР‚вЂќ se desfasarian apenas una de las dos
-   cambiara, y en la fila elegida se leia nombre en oro con cifras en gris. */
+   color por construcción. Si el color estuviera en .table__name, las celdas
+   numéricas — que tienen el suyo — se desfasarían apenas una de las dos
+   cambiara, y en la fila elegida se leía nombre en oro con cifras en gris. */
 .table__row--selected {
   background: var(--tint-ok-bg);
   box-shadow: inset var(--guide-w) 0 0 var(--accent);
   color: var(--text-gold);
+  transition: background var(--dur) ease, color var(--dur) ease, box-shadow var(--dur) ease;
 }
 
 /* El peso sigue siendo solo del nombre: el color es de toda la fila, el grosor
@@ -615,7 +619,7 @@ body {
 }
 
 /* Cifras: a la derecha y con ancho de digito fijo, para que los decimales
-   queden en columna en vez de bailar. Sin color propio a proposito РІР‚вЂќ heredan el
+   queden en columna en vez de bailar. Sin color propio a proposito - heredan el
    de la fila, que es el mismo que el del nombre. El cuerpo lo manda --stat-fs
    (un escalon abajo del nombre: la columna del nombre manda y las cifras se
    leen igual mas chicas). Bajar el cuerpo no toca las columnas: el ancho de
@@ -626,6 +630,8 @@ body {
   text-align: right;
   font-variant-numeric: tabular-nums;
   color: inherit;
+  /* Mejor jerarquía: peso ligeramente reducido para que compitan menos con el nombre */
+  font-weight: 400;
 }
 
 /* Sin dato: la celda no queda vacia, queda con un guion para que la columna
@@ -686,6 +692,8 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  /* Mejor prominencia: peso ligeramente aumentado para mejor legibilidad */
+  font-weight: 500;
 }
 
 /* La marca de equipado. Muted y chica a proposito: informa, no compite con el
@@ -756,30 +764,31 @@ body {
   color: var(--btn-text-hover);
 }
 
-/* PestaР“В±as: llenar el ancho disponible, texto chico y bold. */
+/* Pestañas: llenar el ancho disponible, texto chico y bold. */
 .btn--tab {
   /* Cuadrado, no estirado. flex-basis en 0 los estiraba a todo el ancho
-     disponible y con 54px de alto salian ovales: border-radius:50% da un
-     circulo solo si ancho y alto son iguales. Por eso el ancho sale del alto
-     y flex-grow se apaga — el boton toma lo que mide. */
+     disponible y con 54px de alto salían óvalos: border-radius:50% da un
+     círculo solo si ancho y alto son iguales. Por eso el ancho sale del alto
+     y flex-grow se apaga — el botón toma lo que mide. */
   flex: 0 0 auto;
   width: var(--btn-height);
   /* 5.6vh, no 5vh: el alto tiene que alcanzar para que el icono quepa DENTRO
-     del circulo, no reaching las esquinas. El cuadrado inscrito de un
-     circulo de diametro D mide D/raiz(2), o sea que para un icono de 3.9vh hace
-     falta un circulo de 3.9 x 1.414 = 5.5vh. Con 5.6vh queda medio pixel de
+     del círculo, no reaching las esquinas. El cuadrado inscrito de un
+     círculo de diámetro D mide D/raiz(2), o sea que para un icono de 3.9vh hace
+     falta un círculo de 3.9 x 1.414 = 5.5vh. Con 5.6vh queda medio pixel de
      aire; con 5vh --el doble exacto del 2.5vh original-- las esquinas del PNG
      se salen del borde redondeado y se ven como un cuadrado encima. */
   --btn-height: 5.6vh;
   --btn-fs: var(--fs-xs);
   --btn-weight: 700;
-  /* Los botones no llevan texto: son imagenes. El fondo del boton tiene que
+  /* Los botones no llevan texto: son imágenes. El fondo del botón tiene que
      quedar opaco para que el PNG no se transparente sobre el panel. Los PNG
-     traen su propio fondo (no son alfa), asi que sin esto se ve un rectangulo
-     del color del boton alrededor de la imagen. */
+     traen su propio fondo (no son alfa), así que sin esto se ve un rectángulo
+     del color del botón alrededor de la imagen. */
   padding: 0;
-  /* 50% del lado corto. Como ancho == alto, sale un circulo y no un ovalo. */
+  /* 50% del lado corto. Como ancho == alto, sale un círculo y no un óvalo. */
   border-radius: 50%;
+  transition: background var(--dur) ease, border-color var(--dur) ease, transform var(--dur-fast) ease;
 }
 
 /* El icono del filtro. 3.9vh es el doble de los 1.95vh de antes, que salian
@@ -811,17 +820,18 @@ body {
 }
 
 /* El hover de los filtros NO es el de .btn. El de .btn aclaraba el borde a
-   --g-500, un gris, y sobre un circulo de 5.6vh eso se leia como un aro suelto
-   que no queria decir nada.
+   --g-500, un gris, y sobre un círculo de 5.6vh eso se leía como un aro suelto
+   que no quería decir nada.
 
-   Hover es SOLO fondo e icono: el fondo un paso mas alto y el icono a opaco. El
-   borde se queda en su gris de reposo a proposito — el verde del borde es lo
-   unico que marca el filtro activo, y si el hover tambien lo pone, con el mouse
-   parado encima del filtro que ya estas viendo los dos se confunden. Por eso
-   hover levanta el fondo y nada mas. */
+   Hover es SOLO fondo e icono: el fondo un paso más alto y el icono a opaco. El
+   borde se queda en su gris de reposo a propósito — el verde del borde es lo
+   único que marca el filtro activo, y si el hover también lo pone, con el mouse
+   parado encima del filtro que ya estás viendo los dos se confunden. Por eso
+   hover levanta el fondo y nada más. */
 .btn--tab:hover {
   --btn-bg-hover: var(--surface-hover);
   --btn-border-hover: var(--border-hover);
+  transform: scale(1.05);
 }
 
 .btn--tab:hover .btn--tab-icon {
@@ -955,13 +965,14 @@ body {
 /* El aire entre el bloque del encabezado y lo que viene abajo (los filtros del
    inventario, las listas de los menus de proximidad).
 
-   --sp-5 y no --sp-2 (que era lo que estaba) a proposito: tiene que ser MAS
+   --sp-6 y no --sp-5 (que era lo que estaba) a proposito: tiene que ser MAS
    grande que el gap titulo/subtitulo de la receta de abajo, o el subtitulo se
    pega al contenido de abajo y el encabezado deja de leerse como una unidad. El
    titulo pegado a su subtitulo y el subtitulo pegado a la lista de abajo se ve
-   como tres cosas sueltas en vez de un titulo con su pie. */
+   como tres cosas sueltas en vez de un titulo con su pie. Aumentado para mejor
+   espaciado visual. */
 .panel-header {
-  margin-bottom: var(--sp-5);
+  margin-bottom: var(--sp-6);
 }
 
 /* El titulo: una linea de Diploma del ancho que mande --title-size, con su
@@ -1922,8 +1933,8 @@ body {
   white-space: nowrap;
 }
 
-/* ---------------------------------------------------------------- PestaР“В±as --
-   Las pestaР“В±as no tienen receta propia: son .btn.btn--tab mas el contenedor. */
+/* ---------------------------------------------------------------- Pestañas --
+   Las pestañas no tienen receta propia: son .btn.btn--tab mas el contenedor. */
 
 #tabs {
   display: flex;
@@ -1932,10 +1943,10 @@ body {
      space-between los reparte de punta a punta y la fila ocupa el mismo ancho
      que la tabla de abajo. */
   justify-content: space-between;
-  gap: var(--spw-1);
-  margin-bottom: var(--sp-4);
+  gap: var(--spw-2);
+  margin-bottom: var(--sp-5);
   border-bottom: 1px solid var(--divider);
-  padding-bottom: var(--sp-2);
+  padding-bottom: var(--sp-3);
 }
 
 /* ------------------------------------------------------------------- Filas -- */
@@ -2124,15 +2135,16 @@ body {
 
    El borde de arriba es la tercera separadora de la hoja y usa el mismo token
    que las otras dos (#tabs, .table__head): --divider. El aire va con padding y
-   no con margin para que la linea quede entre los dos, y no pegada al peso. */
+   no con margin para que la linea quede entre los dos, y no pegada al peso.
+   Aumentado para mejor balance visual. */
 #foot {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--spw-3);
   border-top: 1px solid var(--divider);
-  padding-top: var(--sp-4);
-  margin-top: var(--sp-4);
+  padding-top: var(--sp-5);
+  margin-top: var(--sp-5);
 }
 
 /* flex: 0 0 auto para que el peso no se estire. Con space-between el peso se

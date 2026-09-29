@@ -1419,6 +1419,14 @@ function renderFiltro(filterKey) {
   // El titulo quedo fijo en Inventario: antes seguia a la pestana y con filtros
   // no hay a que seguir. El filtro activo ya se ve en el boton marcado.
   if (titleEl) titleEl.textContent = "Inventario";
+
+  // Actualizar estado de accesibilidad de los botones de filtro
+  const tabButtons = tabsBox.querySelectorAll(".btn--tab");
+  tabButtons.forEach((btn) => {
+    const isActive = btn.dataset.filter === filtroActualKey;
+    btn.classList.toggle("active", isActive);
+    btn.setAttribute("aria-selected", isActive);
+  });
   renderWeight();
 
   if (rows.length === 0) {

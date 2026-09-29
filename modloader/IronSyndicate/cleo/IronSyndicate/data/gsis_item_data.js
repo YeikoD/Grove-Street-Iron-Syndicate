@@ -49,6 +49,12 @@ export var ITEMS = {
     "pistol_assembled": { name: "9mm",          weight: 1.2, type: "weapon" },
     "silenced_9mm":  { name: "Pistola con silenciador", weight: 1.5, type: "weapon" },
     "desert_eagle":  { name: "Desert Eagle",    weight: 1.8, type: "weapon" },
+    // Arma de PLUGIN. No es un weaponId de vanilla: el 60 lo da de alta
+    // gsisWeaponLimiter.asi y su CWeaponInfo la escribe ese .asi. Acá solo vive
+    // como item del inventario, para que tenga nombre, peso y se pueda vender y
+    // comprar. Lo que el engine sepa de ella (slot, cargador, anim) sale del
+    // catalogo y del .asi, no de aca.
+    "gsis_pistol":   { name: "Pistola GSIS",    weight: 1.5, type: "weapon" },
     "shotgun":       { name: "Escopeta",        weight: 3.0, type: "weapon" },
     "sawed_off":     { name: "Escopeta recortada", weight: 1.0, type: "weapon" },
     "combat_shotgun":{ name: "SPAS 12",         weight: 3.5, type: "weapon" },
@@ -70,6 +76,7 @@ export var ITEMS = {
     "mag_9mm":           { name: "Cargador 9mm",             weight: 0.2, type: "magazine" },
     "mag_9mm_replica": { name: "Cargador 9mm replica", weight: 0.2, type: "magazine" },
     "mag_9mm_extended": { name: "Cargador 9mm extendido", weight: 0.2, type: "magazine" },
+    "mag_gsis_pistol": { name: "Cargador pistola 30", weight: 0.2, type: "magazine" },
     "mag_mp5_replica": { name: "Cargador MP5 replica", weight: 0.2, type: "magazine" },
     "mag_ak47_polymer": { name: "Cargador AK polimero", weight: 0.3, type: "magazine" },
     "mag_ak47_bulgarian": { name: "Cargador AK bulgaro", weight: 0.3, type: "magazine" },

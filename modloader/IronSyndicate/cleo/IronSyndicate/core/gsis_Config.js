@@ -214,3 +214,21 @@ export var SPECIAL_MODELS = {
     // entre dos cosas, y un numero agreementado en un solo lugar.
     WEAPON_RANGE: { START: 15025, END: 15099 }
 };
+
+// Rango de weaponId que reservan los plugins (.asi) para sus armas.
+//
+// Mismo criterio que SPECIAL_MODELS.WEAPON_RANGE: es un acuerdo entre el .asi y
+// el mod, asi que el numero vive aca y no como constante en el modulo.
+// gsisWeaponLimiter.asi da de alta sus tipos DENTRO de este rango y el mod los
+// reconoce por estar aca. Si el .asi y este rango se desincronizan, el arma
+// dispara pero el mod la trata como basura vanilla y la borra del save.
+//
+// Por que un rango y no solo "mayor que WEAPON_ID_NATIVE_MAX (69)": el 69 es
+// "el ultimo que reserva FLA" (WEAPONTYPE_FASTMAN92_LAST), no "el ultimo arma
+// de vanilla". Los tipos 60..69 no los usa GTA pero son justo los que un
+// limitador necesita, porque ahi no cae ningun pseudo-tipo de muerte (49..59).
+//
+// El rango se AGREGA a la regla vieja, no la reemplaza: todo lo que era
+// "> 69" sigue siendolo. Asi ningun plugin que use 80+ queda sin reconocer por
+// haber metido este rango.
+export var PLUGIN_WEAPON_RANGE = { FIRST: 60, LAST: 79 };

@@ -65,7 +65,7 @@
 import { register } from "../core/gsis_ModuleRegistry.js";
 import { query } from "../core/gsis_EventBus.js";
 import { registerModule, getModuleData, setModuleData } from "../core/gsis_SaveManager.js";
-import { KEYS, TIMERS, SPECIAL_MODELS } from "../core/gsis_Config.js";
+import { KEYS, TIMERS, SPECIAL_MODELS, PLUGIN_WEAPON_RANGE } from "../core/gsis_Config.js";
 import { keyJustPressed } from "../core/gsis_Input.js";
 import { t } from "../core/gsis_L10n.js";
     import { WEAPON_DATA, WEAPON_ID_NATIVE_MAX, CLIP_SOURCE_ENGINE, MODEL_SOURCE_SPECIAL, getModelIdByWeaponId, getModelSourceByWeaponId, getMagIdByWeaponId, getMagIdsByWeaponId, getClipSizeByItemId, getClipSizeByWeaponId, getWeaponByItemId, getWeaponByWeaponId } from "../data/gsis_weapon_data.js";
@@ -87,6 +87,9 @@ var _STATE_OUT_OF_AMMO = 3; // Fire() tambien la bloquea (mod de arma a cero)
 var _NO_ANIM = [37, 38]; // en catalogo pero sin anim de recarga (lanzallamas, minigun)
 var _lastSlot = null;
 var _reloadPending = null; // { ped, weapon, deadline, cap } recarga nossa en curso
+// Tipos de plugin ya vistos por el reconciliador, para avisar una vez y no cada
+// frame. El reconciliador corre por frame, asi que sin esto el log se llena.
+var _foreignVistos = {};
 
 // Techo de weaponId nativo. El numero vive en el dato (WEAPON_ID_NATIVE_MAX) y
 // se importa de ahi, no se re-declara: dos copias del mismo techo en dos
@@ -98,7 +101,17 @@ var _reloadPending = null; // { ped, weapon, deadline, cap } recarga nossa en cu
 // propio slot y su propia capacidad. Por eso el reconciliador las separa de la
 // basura vanilla (melee, granadas, camara, paracaidas) en vez de borrarlas, y
 // syncClipSizes no escribe en ellas. Ver gsis_WEAPONS.md §2.5, §3.1 y §3.3.
+//
+// El "> WEAPON_ID_NATIVE_MAX" solo, no alcanzaba. El 69 es el ultimo que reserva
+// FLA, no el ultimo arma de vanilla: gsisWeaponLimiter.asi da de alta el 60, que
+// cae en la franja que FLA deja libre (60..69) pero por DEBAJO del corte. Con la
+// regla sola, _isCustomWeaponId(60) daba false y el reconciliador borraba el arma
+// del save como si fuera basura vanilla, sin error ni log.
+//
+// Por eso PLUGIN_WEAPON_RANGE se SUMA a la regla y no la reemplaza: lo que era
+// "> 69" sigue siendolo, asi que ningun plugin que use 80+ queda afuera.
 function _isCustomWeaponId(weaponId) {
+    if (weaponId >= PLUGIN_WEAPON_RANGE.FIRST && weaponId <= PLUGIN_WEAPON_RANGE.LAST) return true;
     return weaponId > WEAPON_ID_NATIVE_MAX;
 }
 
@@ -540,6 +553,34 @@ function _engineClip(weaponType) {
     }
 }
 
+// Capacidad que el motor ve para un arma de PLUGIN (un .asi la dio de alta).
+//
+// NO va por _engineClip, y esa es toda la razon de existir esta funcion.
+//
+// _engineClip le pregunta al PED que skill tiene de ese arma, con
+// GET_CHAR_WEAPON_SKILL. Para un weapon type que dio de alta un .asi ese native
+// no tiene de donde sacar el dato: el engine no lo conoce, asi que sale 0 y
+// _engineClip devuelve 0 sin decir nada. Se comprobo: _capacityByType(60)
+// daba 0 con el arma correctly recognizes y con sus cuatro filas sirviendo.
+//
+// Ademas el planteo esta al reves. La capacidad del cargador es una propiedad
+// del ARMA, no del jugador: no depende de en que skill este el ped. Preguntarle
+// al ped agrega una dependencia que ademas no existe para estos tipos.
+//
+// Se consulta la fila STD (skill 1) y listo. weapon.dat repite el mismo K
+// (ammoClip) en las cuatro lineas de un arma con skills, asi que las cuatro
+// filas dan el mismo numero y cualquiera de las cuatro serviria; STD es la que
+// representa al arma sin estar en una punta de la escala.
+function _engineClipPlugin(weaponType) {
+    try {
+        var info = native("GET_WEAPONINFO", weaponType, 1);
+        if (!info) return 0;
+        return native("GET_WEAPONINFO_TOTAL_CLIP", info) || 0;
+    } catch (e) {
+        return 0;
+    }
+}
+
 // Capacidad del cargador MONTADO en un slot, o 0 si ese arma esta sin cargador.
 // Lee equipped[slot].magId, que es el unico lugar donde queda escrito que
 // cargador esta en la boca del arma.
@@ -570,10 +611,30 @@ function _slotConArma(weaponType) {
 // tambor de 75 a 30 en el frame siguiente: la capacidad laonia el ARMA, y un
 // tambor no es un arma distinta, es un cargador distinto. Ahora, si el jugador
 // tiene ese arma con un cargador de otra capacidad montado, manda el cargador.
-function _capacityByType(weaponType) {
-    var w = getWeaponByWeaponId(weaponType);
-    if (!w) return 0; // melee, granadas, fuera de catalogo
-    if (w.clipSource === CLIP_SOURCE_ENGINE) return _engineClip(weaponType);
+    function _capacityByType(weaponType) {
+        var w = getWeaponByWeaponId(weaponType);
+        if (!w) {
+            // Fuera del catalogo. Antes se devolvia 0 y se acababa, y eso hacia
+            // inalcanzable el unico camino que el mod ya tiene para leer la
+            // capacidad DE UNA ARMA QUE EL MOTOR CONOCE: _engineClip va por
+            // GET_WEAPONINFO, que es justo la puerta por la que un .ASI como
+            // gsisWeaponLimiter.asi sirve su CWeaponInfo propia. Con el corte
+            // temprano, el tipo 60 nunca llegaba ahi y su cargador de 30 era
+            // invisible para el reconciliador.
+            //
+            // El filtro por _isCustomWeaponId NO es cosmetico. Sin el, una
+            // granada (tipo 16, fuera de catalogo) tambien caeria aca, y
+            // _engineClip(16) contesta 1 porque la granada tiene clip 1: el mod
+            // creeria que es un arma de plugin con un cargador de 1 bala.
+            //
+            // Y por que _engineClipPlugin y no _engineClip: _engineClip le
+            // pregunta al ped el skill del arma, y un .asi que dio de alta el
+            // tipo no esta en la tabla de skills del engine, asi que ese native
+            // no tiene dato que devolver. Ver la funcion.
+            if (_isCustomWeaponId(weaponType)) return _engineClipPlugin(weaponType);
+            return 0; // melee, granadas, camara, fuera de catalogo
+        }
+        if (w.clipSource === CLIP_SOURCE_ENGINE) return _engineClip(weaponType);
     var slot = _slotConArma(weaponType);
     if (slot !== null) {
         var montada = _capacidadMontada(slot);
@@ -611,6 +672,33 @@ function _mountMagazine(weaponAddr, capacity) {
         Memory.WriteI32(weaponAddr + _W_CLIP, capacity, false);
         Memory.WriteI32(weaponAddr + _W_AMMO, capacity, false);
     } catch (e) { /* sin memoria: queda la munición que tenga el arma */ }
+}
+
+// Normaliza la municion del arma en memoria segun la capacidad que le toca.
+//
+// Esto es el bloque que el arma del CATALOGO ejecuta cuando esta registrada y
+// coincidente con su slot. Vive aparte para que el arma de PLUGIN ejecute el
+// MISMO codigo y no una copia: antes la rama de plugin hacia continue en la de
+// "fuera de catalogo" y nunca llegaba aca, asi que su reserva se la llevaba el
+// engine por su cuenta (90 en una pistola con cargador de 30) sin que el mod
+// opinara.
+//
+// hasMag se decide distinto segun quien sea el arma, y no por gusto sino porque
+// la fuente del dato es distinta:
+//   - catalogo: lo dice el registro del inventario (entry.hasMag), porque el
+//     modulo de inventario es quien sabe si hay un cargador fisico en la boca
+//     del arma.
+//   - plugin:   no hay item en el inventario, asi que se deduce del arma: tiene
+//     cargador si tiene municion. Un arma de plugin sin municion no tiene nada
+//     que montar, y una con municion tiene al menos un cargador entero.
+function _normalizarMunicion(weaponAddr, weaponType, hasMag) {
+    var cap = _capacityByType(weaponType) || 0;
+    var total = Memory.ReadI32(weaponAddr + _W_AMMO, false);
+    if (!hasMag) {
+        if (total !== 0) _unloadWeapon(weaponAddr); // sin cargador: 0/0
+    } else if (cap && total > cap) {
+        _mountMagazine(weaponAddr, cap); // balas de mas -> un cargador
+    }
 }
 
 // _reconcileLoadout — arma equipada <-> inventario, cada frame (solo con
@@ -672,10 +760,36 @@ function _reconcileLoadout() {
                         data.foreign[i] = { weaponId: type, slot: i };
                         changed = true;
                     }
+                    // Aviso, una vez por tipo. Sin esto el registro es un write
+                    // mudo: se anota, y como data.foreign todavia no lo lee nadie
+                    // para decidir nada, no hay forma de saber desde afuera si el
+                    // reconciliador reconoco el arma o la borro como basura. Y el
+                    // sintoma (la reserva sigue visible en el HUD) es el mismo en
+                    // los dos casos, asi que no sirve para distinguir.
+                    // No cambia comportamiento: solo hace observable el write.
+                    if (!_foreignVistos[type]) {
+                        _foreignVistos[type] = true;
+                        log("[Ballistic] arma de plugin en slot " + i +
+                            " | type " + type +
+                            " | _isCustomWeaponId=" + _isCustomWeaponId(type) +
+                            " | _capacityByType=" + _capacityByType(type) +
+                            " | Anotada en data.foreign. La reserva del engine NO " +
+                            "se toca todavia: data.foreign todavia no la usa nadie.");
+                    }
                     // Si habia una arma del catalogo registrada en este slot,
                     // ya no esta (el plugin la sustituyo): se libera el registro.
                     // El arma en si no se pierde — el save la tiene el juego.
                     if (entry) { delete data.equipped[i]; changed = true; }
+                    // Y aca, en vez de seguir de largo, el arma pasa por la misma
+                    // normalizacion que una del catalogo. Es el unico cambio de
+                    // comportamiento de esta etapa: hasta ahora el engine se
+                    // llevaba solo la reserva de un arma que el mod ya sabia
+                    // medir (cap 30) y nunca montaba un cargador.
+                    //
+                    // hasMag se deduce del arma y no de un item del inventario:
+                    // el 60 no tiene entrada en data.equipped, y darle una seria
+                    // inventar el item de inventario que todavia no existe.
+                    _normalizarMunicion(addr, type, Memory.ReadI32(addr + _W_AMMO, false) > 0);
                     continue;
                 }
                 if (entry) { delete data.equipped[i]; changed = true; }
@@ -713,13 +827,7 @@ function _reconcileLoadout() {
         }
         // Registrada y coincidente → normalizar la munición del cargador
         if (data.foreign[i]) { delete data.foreign[i]; changed = true; }
-        var capR = _capacityByType(type) || 0;
-        var totalR = Memory.ReadI32(addr + _W_AMMO, false);
-        if (entry.hasMag === false) {
-            if (totalR !== 0) _unloadWeapon(addr); // sin cargador: 0/0
-        } else if (capR && totalR > capR) {
-            _mountMagazine(addr, capR); // balas de mas → un cargador
-        }
+        _normalizarMunicion(addr, type, entry.hasMag !== false);
     }
     if (changed) setModuleData("Ballistic", data);
 }
