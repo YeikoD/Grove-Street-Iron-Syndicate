@@ -607,31 +607,47 @@ export function unequipBeltMag(index) {
 // EVENTBUS - equipo y cargadores (Ballistic: equipar, swap y descarga)
 // ============================================================================
 
-// query("items:swapMagazine", { magId, ammo, mounted }) — atomico, fuente =
-// CINTURON (solo cargadores equipados): sale de la casilla el cargador del
-// arma con mas balas (si sus balas > 0) y, si "mounted" no es false, la
-// casilla que acaba de vaciar se queda con el montado con "ammo" balas
-// (0 si se vacio). "mounted: false" = arma sin cargador: la casilla queda
-// libre (el cargador fresco se fue al arma). Inventario sin tocar.
-// Responde { ammo } = balas del cargador a montar, o null si no hay recambio.
+// query("items:swapMagazine", { magIds, ammo, mounted }) — atomico, fuente =
+// CINTURON (solo cargadores equipados): sale de la casilla el cargador COMPATIBLE
+// con el arma que mas balas tiene (si sus balas > 0) y, si "mounted" no es
+// false, la casilla que acaba de vaciar se queda con el montado con "ammo" balas
+// (0 si se vacio). "mounted: false" = arma sin cargador: la casilla queda libre
+// (el cargador fresco se fue al arma). Inventario sin tocar.
+//
+// Recibe una LISTA y no un id porque un arma puede aceptar varios cargadores: el
+// AK de 30 y el tambor de 75 son el mismo arma con dos cargadores distintos.
+// Para las armas de un solo cargador la lista tiene un elemento y el
+// comportamiento es el de siempre.
+//
+// Responde { ammo, magId } — el magId matters: es el que le dice a Ballastic que
+// cargador entro y por lo tanto QUE CAPACIDAD aplicar. Antes contestaba solo
+// { ammo } y el mod se quedaba con la capacidad del arma, que con variantes
+// significa siempre la del cargador equivocado.
 on("items:swapMagazine", function (e) {
-    var magId = e.data.magId;
-    if (!magId || !isMagazine(magId)) { e.respond(null); return; }
+    var magIds = e.data.magIds;
+    // Un id suelto todavia se acepta: hay llamadas viejas y no cuesta nada
+    // envolverlo en una lista de un elemento.
+    if (!magIds && e.data.magId) magIds = [e.data.magId];
+    if (!magIds || !magIds.length) { e.respond(null); return; }
+    magIds = magIds.filter(function (id) { return isMagazine(id); });
+    if (!magIds.length) { e.respond(null); return; }
     var data = _ensureTrunks(getModuleData("ItemManager"));
     var belt = _ensureBelt(data);
     var best = -1;
     for (var i = 0; i < belt.length; i++) {
         var it = belt[i];
-        if (!it || it.id !== magId || !it.ammo || it.ammo <= 0) continue;
+        if (!it || magIds.indexOf(it.id) === -1) continue;
+        if (!it.ammo || it.ammo <= 0) continue;
         if (best < 0 || it.ammo > belt[best].ammo) best = i;
     }
     if (best < 0) { e.respond(null); return; }
+    var magId = belt[best].id;
     var freshAmmo = belt[best].ammo;
     belt[best] = (e.data.mounted !== false)
         ? makeMagazineInstance(magId, e.data.ammo)  // usado: ocupa la casilla
         : null;                                     // descarga: casilla libre
     setModuleData("ItemManager", data);
-    e.respond({ ammo: freshAmmo });
+    e.respond({ ammo: freshAmmo, magId: magId });
 });
 
 // query("items:extractMagazine", { magId, ammo }) — descarga (R sin recambio):

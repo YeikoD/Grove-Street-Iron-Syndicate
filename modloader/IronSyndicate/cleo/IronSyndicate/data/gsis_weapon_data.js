@@ -78,6 +78,7 @@ export const WEAPON_DATA = [
     // Pistolas
     {
         itemId: "9mm",
+        magIds: ["mag_9mm", "mag_9mm_replica", "mag_9mm_extended"],
         magId: "mag_9mm",
         name: "9mm",
         weaponId: 22,
@@ -95,40 +96,6 @@ export const WEAPON_DATA = [
         weight: 1.5,
         isLong: false,
         price: 550
-    },
-    {
-        itemId: "9mm_ext",
-        magId: "mag_9mm_ext",
-        name: "9mm 33",
-        // Tipo 100: por encima del enum real de armas del juego, que termina en
-        // ARMOUR = 0x30 (48), y por encima de los pseudo-tipos de forma de morir
-        // (49-58: atropellado, explosion, ahogado...). Los 49-58 estan tomados: el
-        // juego los consulta de verdad y con la variante ahi se rompia al ser
-        // atropellado. No existe hasta que gsisArmory.asi lo registra.
-        weaponId: 100,
-        modelId: 346,
-        slot: 2,
-        // SIN clipSize, a proposito. La capacidad de esta arma NO la impone el
-        // mod: la tiene el motor (la escribio el .ASI al registrar el tipo), y
-        // syncClipSizes se saltea lo que tiene clipSource "engine" justamente
-        // para no pisarla. Ademas el .asi clona esta de la 9mm normal, asi que
-        // el resto de los campos ya viene bien.
-        capacity: 33,
-        clipSource: "engine",
-        // modelSource "native": el .asi todavia no registra modelos propios, asi
-        // que esta variante se ve igual que una 9mm comun. Cuando haya un .dff,
-        // pasa a "special" y el modelId al rango 15025+.
-        damage: 25,
-        fireRate: 20,
-        range: 30,
-        reloadTime: null,
-        accuracy: 25,
-        ammoType: "9mm Parabellum",
-        category: "Pistolas",
-        realWorldName: "Glock 18 con cargador extendido",
-        weight: 1.6,
-        isLong: false,
-        price: 620
     },
     {
         itemId: "pistol_assembled",
@@ -152,6 +119,9 @@ export const WEAPON_DATA = [
     },
     {
         itemId: "silenced_9mm",
+        // La silenciada comparte cargador con la normal, como antes: el silenciador
+        // no cambia el cargador. Por eso el extendido de 33 le sirve tambien.
+        magIds: ["mag_silenced_9mm", "mag_9mm_replica", "mag_9mm_extended"],
         magId: "mag_silenced_9mm",
         name: "Pistola con silenciador",
         weaponId: 23,
@@ -276,6 +246,7 @@ export const WEAPON_DATA = [
     },
     {
         itemId: "mp5",
+        magIds: ["mag_mp5", "mag_mp5_replica"],
         magId: "mag_mp5",
         name: "MP5",
         weaponId: 29,
@@ -318,6 +289,12 @@ export const WEAPON_DATA = [
     // Fusiles de asalto
     {
         itemId: "ak47",
+        // VARIANTES: el AK es un arma con tres cargadores de 30 y uno de 75. No
+        // son cuatro armas: es el mismo AK con distintos cargadores, y lo que
+        // cambia al montarlos es la capacidad que el motor usa para el TIPO DE
+        // ARMA. Por eso magId sigue siendo el de por defecto (el acero, que es el
+        // que venia) y la lista nueva es la que consulta la recarga.
+        magIds: ["mag_ak47", "mag_ak47_polymer", "mag_ak47_bulgarian", "mag_ak47_drum"],
         magId: "mag_ak47",
         name: "AK-47",
         weaponId: 30,
@@ -338,12 +315,17 @@ export const WEAPON_DATA = [
     },
     {
         itemId: "m4_assembled",
+        magIds: ["mag_m4_assembled", "mag_m4_polymer", "mag_m4_lancer", "mag_m4_drum"],
         magId: "mag_m4_assembled",
         name: "M4",
         weaponId: 31,
         modelId: 356,
         slot: 5,
-        clipSize: 50,
+        // 30, no 50. El STANAG real son 30, y con 50 la progresion de cargadores
+        // era incoherente: el "extendido" de 40 seria PEOR que el estandar de 50
+        // y el D-60 solo sumaria 10. Con 30 el polimero queda igual, y el Lancer
+        // (40) y el D-60 (60) suben de verdad.
+        clipSize: 30,
         damage: 30,
         fireRate: 60,
         range: 90,
@@ -545,24 +527,127 @@ export const WEAPON_DATA = [
         isLong: false,
         price: 220
     },
+    // ========================================================================
+    // VARIANTES DE CARGADOR
+    // ========================================================================
+    // Un arma con varias variantes de cargador NO es un arma con variantes: es
+    // el MISMO arma con distintos cargadores, y lo unico que cambia al montarlos
+    // es la capacidad que el motor usa para ese tipo de arma. El arma vive en
+    // una sola fila de la tabla; el cargador se cambia en el cinturon.
+    //
+    // Por eso los 9 de abajo declaran su `capacity` y NO la derivan por el
+    // prefijo "mag_": la convencia era "mag_" + <itemId del arma>, y estos no
+    // siguen ese nombre (mag_ak47_drum apunta a mag_ak47_drum, que no es un
+    // arma). Declararla es tambien lo que hace explicito lo que se esta
+    // comprando: un tambor de 75 SIEMPRE tiene 75, y no "las que le queden al
+    // arma".
     {
-        itemId: "mag_9mm_ext",
+        itemId: "mag_9mm_replica",
+        magId: null,
+        name: "Cargador 9mm replica",
+        weaponId: null,
+        slot: null,
+        capacity: 17,
+        category: "Cargadores",
+        realWorldName: "Cargador 9mm generico 17 rds",
+        isLong: false,
+        price: 18
+    },
+    {
+        itemId: "mag_9mm_extended",
         magId: null,
         name: "Cargador 9mm extendido",
         weaponId: null,
         slot: null,
-        // CON capacity propia, que es la unica entrada del catalogo que la
-        // tiene. Los otros 17 la derivan del arma por la convencion del
-        // prefijo "mag_", y esa regla esta bien mientras la capacidad es una
-        // sola por arma. Un cargador extendido de 33 SIEMPRE tiene 33: es lo
-        // unico que lo distingue del cargador de 17, y es lo que el jugador
-        // esta pagando. Copiarlo del arma crearia un segundo valor que puede
-        // divergir sin que nada avise.
         capacity: 33,
         category: "Cargadores",
         realWorldName: "Glock 18 extended 33 rds",
         isLong: false,
-        price: 260
+        price: 45
+    },
+    {
+        itemId: "mag_mp5_replica",
+        magId: null,
+        name: "Cargador MP5 replica",
+        weaponId: null,
+        slot: null,
+        capacity: 30,
+        category: "Cargadores",
+        realWorldName: "Cargador 9x19 30 rds replicado",
+        isLong: false,
+        price: 38
+    },
+    {
+        itemId: "mag_ak47_polymer",
+        magId: null,
+        name: "Cargador AK polimero",
+        weaponId: null,
+        slot: null,
+        capacity: 30,
+        category: "Cargadores",
+        realWorldName: "AK polymer 5.45x39 30 rds",
+        isLong: false,
+        price: 16
+    },
+    {
+        itemId: "mag_ak47_bulgarian",
+        magId: null,
+        name: "Cargador AK bulgaro",
+        weaponId: null,
+        slot: null,
+        capacity: 30,
+        category: "Cargadores",
+        realWorldName: "AK Bulgarian 5.45x39 30 rds",
+        isLong: false,
+        price: 48
+    },
+    {
+        itemId: "mag_ak47_drum",
+        magId: null,
+        name: "Cargador AK tambor",
+        weaponId: null,
+        slot: null,
+        capacity: 75,
+        category: "Cargadores",
+        realWorldName: "Drum 5.45x39 75 rds",
+        isLong: false,
+        price: 140
+    },
+    {
+        itemId: "mag_m4_polymer",
+        magId: null,
+        name: "Cargador M4 polimero",
+        weaponId: null,
+        slot: null,
+        capacity: 30,
+        category: "Cargadores",
+        realWorldName: "STANAG polymer 5.56x45 30 rds",
+        isLong: false,
+        price: 16
+    },
+    {
+        itemId: "mag_m4_lancer",
+        magId: null,
+        name: "Cargador M4 Lancer",
+        weaponId: null,
+        slot: null,
+        capacity: 40,
+        category: "Cargadores",
+        realWorldName: "Lancer 5.56x45 40 rds",
+        isLong: false,
+        price: 25
+    },
+    {
+        itemId: "mag_m4_drum",
+        magId: null,
+        name: "Cargador M4 D-60",
+        weaponId: null,
+        slot: null,
+        capacity: 60,
+        category: "Cargadores",
+        realWorldName: "Magpul D-60 5.56x45 60 rds",
+        isLong: false,
+        price: 135
     },
     {
         itemId: "mag_silenced_9mm",
@@ -839,6 +924,23 @@ export function getWeaponByWeaponId(weaponId) {
 export function getMagIdByWeaponId(weaponId) {
     var weapon = getWeaponByWeaponId(weaponId);
     return (weapon && weapon.magId) || null;
+}
+
+// Helper: TODOS los cargadores que acepta un arma, en orden de preferencia.
+//
+// Antes un arma tenía UN cargador (`magId`) y la recarga exigía exactamente ese.
+// Con variantes de capacidad eso ya no alcanza: el AK de 30 y el tambor de 75 son
+// el MISMO arma con dos cargadores distintos, y el jugador elige. Entonces el
+// arma declara la lista y el cinturon resuelve cuál se monta.
+//
+// Cuando `magIds` no está, cae al `magId` de siempre: las 20 armas que no tienen
+// variantes no cambian de comportamiento, y una entrada nueva no necesita
+// acordarse de declarar una lista de un solo elemento.
+export function getMagIdsByWeaponId(weaponId) {
+    var w = getWeaponByWeaponId(weaponId);
+    if (!w) return [];
+    if (w.magIds && w.magIds.length) return w.magIds;
+    return w.magId ? [w.magId] : [];
 }
 
 // Helper: modelo 3D del arma por weaponId del juego (22 → 346).

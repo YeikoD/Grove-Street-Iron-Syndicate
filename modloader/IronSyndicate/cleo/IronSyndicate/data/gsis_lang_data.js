@@ -351,6 +351,9 @@ export var STRINGS = {
     // --- UI Retiro ---
     PKC_TTL: { es: "Retiro de pedido", en: "Order pickup" },
     PKC_ORD: { es: "Pedido: ${n}  |  Peso: {w} kg", en: "Order: ${n}  |  Weight: {w} kg" },
+   // La caja de control pide el total por separado (sin el peso: la pagina lo
+   // suma sola fila por fila), por eso es clave propia y no PKC_ORD.
+   PKC_TOT: { es: "Pedido: ${n}", en: "Order: ${n}" },
     PKC_LIN: { es: "Lineas del pedido", en: "Order lines" },
     PKC_LIB: { es: "Libre en mochila: {free} kg", en: "Backpack free: {free} kg" },
     PKC_NON: { es: "No hay pedido para recoger", en: "No order to collect" },

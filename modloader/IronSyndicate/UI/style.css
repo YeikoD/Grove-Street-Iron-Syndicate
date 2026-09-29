@@ -462,16 +462,19 @@ body {
    en su columna, se recorta en vez de invadir la vecina y volver a pegarlas.
    Los iconos numericos (abajo, .table__headicon) heredan el color de aca.
    Sin sombra: el texto normal la hereda de body, pero estos titulos van
-   planos (como las bandas de grupo). text-align left pisa al de .table__num
-   (que es right): los encabezados van todos pegados al inicio de su columna,
-   sin importar si son palabra o icono. */
+   planos (como las bandas de grupo).
+
+   text-align NO se toca aca: la celda de datos (.table__num, abajo) es
+   right, y el encabezado de esa misma columna tiene que colgar del mismo
+   filete que su cifra, si no el icono queda pegado al borde izquierdo de la
+   columna mirando al vacio. La celda del nombre no lleva .table__num y se
+   queda con la herencia (izquierda). */
 .table__head>span {
   font-size: var(--title-fs);
   font-weight: 700;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: var(--table-head-track);
-  text-align: left;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

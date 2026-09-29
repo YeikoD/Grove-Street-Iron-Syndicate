@@ -58,7 +58,7 @@ import { MISC } from "../core/gsis_Config.js";
 import { t, money } from "../core/gsis_L10n.js";
 import { query } from "../core/gsis_EventBus.js";
 import { getModuleData } from "../core/gsis_SaveManager.js";
-import { getItemWeight, getItemType } from "../data/gsis_item_data.js";
+import { getItemType } from "../data/gsis_item_data.js";
 import { WEAPON_DATA, getSellPrice } from "../data/gsis_weapon_data.js";
 import { getVehicleName } from "../data/gsis_vehicle_data.js";
 import { itemRow } from "./gsis_ItemRow.js";
@@ -427,22 +427,26 @@ function _snapPickup() {
     if (!order) return null;
 
     var rows = [];
-    var peso = 0;
     for (var i = 0; i < order.items.length; i++) {
         var linea = order.items[i];
         var fila = itemRow(_filaDeItem(linea.id, linea.qty));
         fila.disponible = linea.qty;
-        peso += getItemWeight(linea.id) * linea.qty;
         rows.push(fila);
     }
 
     return {
         titulo: t("PKC_TTL"),
-        subtitulo: _subtitulo(t("PKC_ORD", { n: money(order.total), w: _round(peso) })),
+        // El subtitulo IDENTIFICA, igual que en la armeria (Emmet) y en el
+        // trueque (Cliente): el encabezado va en UNA linea
+        // (.panel-header--linea) y ahi una frase larga se pega al titulo y lo
+        // tapa. Los dos numeros que traia PKC_ORD no se pierden, se van a la
+        // caja de control: el total por pie.der, que ctrlRetiro pinta en la
+        // tarjeta "Tu pedido", y el peso lo suma la pagina fila por fila.
+        subtitulo: t("CH_EMM"),
         panes: [{ key: "pedido", titulo: t("PKC_LIN"), vacio: t("PKC_NON"), weight: 0, max: 0, rows: rows }],
         pie: {
             izq: t("PKC_LIB", { free: _round(MISC.MAX_INVENTORY_WEIGHT - getTotalWeight()) }),
-            der: ""
+            der: t("PKC_TOT", { n: money(order.total) })
         }
     };
 }

@@ -68,7 +68,7 @@ import { registerModule, getModuleData, setModuleData } from "../core/gsis_SaveM
 import { KEYS, TIMERS, SPECIAL_MODELS } from "../core/gsis_Config.js";
 import { keyJustPressed } from "../core/gsis_Input.js";
 import { t } from "../core/gsis_L10n.js";
-    import { WEAPON_DATA, WEAPON_ID_NATIVE_MAX, CLIP_SOURCE_ENGINE, MODEL_SOURCE_SPECIAL, getModelIdByWeaponId, getModelSourceByWeaponId, getMagIdByWeaponId, getClipSizeByItemId, getClipSizeByWeaponId, getWeaponByItemId, getWeaponByWeaponId } from "../data/gsis_weapon_data.js";
+    import { WEAPON_DATA, WEAPON_ID_NATIVE_MAX, CLIP_SOURCE_ENGINE, MODEL_SOURCE_SPECIAL, getModelIdByWeaponId, getModelSourceByWeaponId, getMagIdByWeaponId, getMagIdsByWeaponId, getClipSizeByItemId, getClipSizeByWeaponId, getWeaponByItemId, getWeaponByWeaponId } from "../data/gsis_weapon_data.js";
 import { SALUD_MAX, clampSalud } from "../data/gsis_item_data.js";
 
 var _CLIP_OFF = 0x20; // m_nAmmoClip en CWeaponInfo (uint16)
@@ -363,8 +363,17 @@ export function equipWeapon(itemId) {
         });
         return false;
     }
-    data.equipped[slot] = { id: itemId, hasMag: taken.hasMag !== false, salud: taken.salud };
+    // El cargador que trae el arma se anota en el registro, porque es lo que
+    // decide su capacidad. Un arma que llega sin cargador (que es como las
+    // entrega el dealer) deja magId en null y usa la del arma.
+    data.equipped[slot] = {
+        id: itemId,
+        hasMag: taken.hasMag !== false,
+        salud: taken.salud,
+        magId: taken.magId || (taken.hasMag !== false ? (getMagIdsByWeaponId(wd.weaponId)[0] || null) : null)
+    };
     setModuleData("Ballistic", data);
+    _aplicarCapacidad(slot); // el motor usa la capacidad del cargador que entró
     try {
         native("SET_CURRENT_CHAR_WEAPON", c, wd.weaponId);
     } catch (e) { /* sin native: el jugador cambia a mano */ }
@@ -387,7 +396,10 @@ export function unequipWeapon(slot) {
     try {
         ammo = native("GET_AMMO_IN_CHAR_WEAPON", c, wd.weaponId) || 0;
     } catch (e) { /* sin native: se guarda sin balas */ }
-    var cap = getClipSizeByItemId(entry.id) || 0;
+    // La capacidad con la que hay que guardar las balas que quedan es la del
+    // CARGADOR MONTADO, no la del arma: con un tambor de 75, guardar con la
+    // capacidad del base (30) tiraria 45 balas a la basura.
+    var cap = _capacidadMontada(slot) || getClipSizeByItemId(entry.id) || 0;
     if (ammo > cap) ammo = cap;
     try {
         native("REMOVE_WEAPON_FROM_CHAR", c, wd.weaponId);
@@ -408,6 +420,14 @@ export function unequipWeapon(slot) {
     }
     delete data.equipped[slot];
     setModuleData("Ballistic", data);
+    // El arma se fue del ped: si era la unica que llevaba, la capacidad global
+    // de su tipo vuelve a la del arma. Sin esto, un AK con tambor le dejaria 75
+    // balas a todos los AK del juego para siempre, y con el arma guardada en la
+    // mochila que ya no hay de donde sacar el tambor.
+    if (_slotConArma(wd.weaponId) === null) {
+        var base = getClipSizeByWeaponId(wd.weaponId) || 0;
+        if (base > 0) _escribirClip(wd.weaponId, base);
+    }
     showTextBox(t("EQP_OUT"));
     return true;
 }
@@ -520,19 +540,69 @@ function _engineClip(weaponType) {
     }
 }
 
-// Capacidad efectiva de un tipo de arma en el juego.
+// Capacidad del cargador MONTADO en un slot, o 0 si ese arma esta sin cargador.
+// Lee equipped[slot].magId, que es el unico lugar donde queda escrito que
+// cargador esta en la boca del arma.
+function _capacidadMontada(slot) {
+    var entry = getEquipped()[slot];
+    if (!entry) return 0;
+    if (entry.hasMag === false) return 0;
+    if (!entry.magId) return 0;
+    return getClipSizeByItemId(entry.magId) || 0;
+}
+
+// Que slot del jugador esta usando este tipo de arma ahora mismo, o null.
+// Un tipo de arma no puede estar en dos slots a la vez, asi que el primero que
+// coincide es el unico.
+function _slotConArma(weaponType) {
+    var eq = getEquipped();
+    for (var i = 1; i < _SLOT_COUNT; i++) {
+        if (!eq[i]) continue;
+        var wd = _weaponDefByItemId(eq[i].id);
+        if (wd && wd.weaponId === weaponType) return i;
+    }
+    return null;
+}
+
+// Capacidad que el motor debe usar para este tipo de arma.
 //
-// Antes hacia la vuelta completa: arma -> su magId -> quitar "mag_" -> el arma
-// otra vez -> su clipSize. Para un arma base eso vuelve al punto de partida; para
-// una variante daba la capacidad del BASE, que es justo el bug que viene a
-// arreglar. Ahora va directo a la entrada del weaponId, y si la capacidad la
-// tiene el motor, la lee de ahi.
+// Antes salia del clipSize del catalogo, y por eso el reconciliador recortaba un
+// tambor de 75 a 30 en el frame siguiente: la capacidad laonia el ARMA, y un
+// tambor no es un arma distinta, es un cargador distinto. Ahora, si el jugador
+// tiene ese arma con un cargador de otra capacidad montado, manda el cargador.
 function _capacityByType(weaponType) {
     var w = getWeaponByWeaponId(weaponType);
     if (!w) return 0; // melee, granadas, fuera de catalogo
     if (w.clipSource === CLIP_SOURCE_ENGINE) return _engineClip(weaponType);
+    var slot = _slotConArma(weaponType);
+    if (slot !== null) {
+        var montada = _capacidadMontada(slot);
+        if (montada > 0) return montada;
+    }
     var capacity = getClipSizeByWeaponId(weaponType);
     return capacity > 0 ? capacity : 0;
+}
+
+// Escribe una capacidad en la CWeaponInfo del motor, para las cuatro skills.
+// Que el juego use una capacidad u otra es escribir en m_nAmmoClip, y el alcance
+// es GLOBAL por tipo de arma: mientras el jugador lleve el tambor, los enemigos
+// con AK tambien entran 75. Es el costo de este camino, y esta asumido.
+function _escribirClip(weaponType, cap) {
+    if (!cap || cap < 1) return;
+    for (var skill = 0; skill <= 3; skill++) expandMagazine(cap, weaponType, skill);
+}
+
+// Deja la capacidad que le corresponde al slot: la del cargador montado, o la
+// base del arma si esta sin cargador. Se llama al montar, al sacar y al equipar.
+function _aplicarCapacidad(slot) {
+    var entry = getEquipped()[slot];
+    if (!entry) return;
+    var wd = _weaponDefByItemId(entry.id);
+    if (!wd) return;
+    if (wd.clipSource === CLIP_SOURCE_ENGINE) return; // la tiene el motor
+    var montada = _capacidadMontada(slot);
+    var cap = montada > 0 ? montada : (getClipSizeByWeaponId(wd.weaponId) || 0);
+    _escribirClip(wd.weaponId, cap);
 }
 
 // Monta un cargador completo en la direccion de memoria del arma.
@@ -743,16 +813,23 @@ function _unloadWeapon(weaponAddr) {
     } catch (e) { /* sin memoria: el cargador ya esta en el inventario */ }
 }
 
-// Marca si el arma equipada de ese slot lleva cargador montado.
+// Marca si el arma equipada de ese slot lleva cargador montado, y cual.
 //
-// Solo `hasMag`. La `salud` del registro NO se toca desde aca: es estado de la
-// instancia, y esta funcion reacciona a un evento de recarga, no a desgaste.
-// Igual con `id`. Lo unico que la recarga escribe en el registro es si hay
-// cargador montado, porque eso es lo que la recarga cambia.
-function _setHasMag(slot, mounted) {
+// Antes solo guardaba `hasMag` (si/no). Eso alcanzaba mientras el cargador de un
+// arma fuera siempre el mismo, porque la capacidad laonia el ARMA. Con un tambor
+// de 75 el cargador YA NO es el de por defecto, asi que el registro necesita
+// saber cual es: sin `magId` no hay forma de saber que capacidad aplica, ni de
+// devolverla a la base cuando el jugador saca el tambor.
+//
+// La `salud` del registro NO se toca desde aca: es estado de la instancia, y esta
+// funcion reacciona a un evento de recarga, no a desgaste. Igual con `id`.
+function _setHasMag(slot, mounted, magId) {
     var data = _ballisticData();
     if (!data.equipped[slot]) return;
     data.equipped[slot].hasMag = !!mounted;
+    // Al sacar el cargador se borra el magId, no se deja el viejo: si queda, el
+    // slot sin cargador hereda la capacidad de un cargador que ya no esta ahi.
+    if (magId !== undefined) data.equipped[slot].magId = mounted ? magId : null;
     setModuleData("Ballistic", data);
 }
 
@@ -760,8 +837,13 @@ function _setHasMag(slot, mounted) {
 // Ver gsis_INVENTORY.md.
 function tryReload(w) {
     if (!w) return;
-    var magId = getMagIdByWeaponId(w.type); // arma equipada → su cargador
-    if (!magId) return; // melee, granadas, armas fuera de catalogo
+    // Que cargadores acepta ESTE arma. Con variantes de capacidad el arma es una
+    // sola y lo que cambia es el cargador, asi que ya no hay un unico magId que
+    // exigir: hay una lista, y el cinturon resuelve cual de los que tenes se
+    // monta. Para las armas sin variantes la lista tiene un elemento y el
+    // comportamiento es el de siempre.
+    var magIds = getMagIdsByWeaponId(w.type);
+    if (!magIds.length) return; // melee, granadas, armas fuera de catalogo
     if (!w.clip || w.clip < 1) return; // sin capacidad = no hay cargador valido
     var targets = _reloadTargets(w);
     if (!targets) return;
@@ -771,23 +853,30 @@ function tryReload(w) {
     // El cargador montado sale con min(balas, capacidad): no puede haber mas
     // balas fuera de catalogo que capacidad
     var resp = query("items:swapMagazine", {
-        magId: magId,
+        magIds: magIds,
         ammo: Math.min(w.ammo || 0, w.clip),
         mounted: hasMag
     });
     if (resp) {
-        setMagazine(w, Math.min(resp.ammo, w.clip));
-        _setHasMag(w.slot, true);
-        _startReloadAnim(targets, w, Math.min(resp.ammo, w.clip));
+        // La capacidad es la del cargador que ENTRÓ, no la que tenia el arma
+        // antes. Con un tambor son 75 y no 30: usar w.clip aqui recortaria el
+        // cargador nuevo a la capacidad del anterior, que es el mismo error del
+        // reconciliador y por el mismo motivo.
+        var cap = getClipSizeByItemId(resp.magId) || w.clip;
+        _setHasMag(w.slot, true, resp.magId);
+        _aplicarCapacidad(w.slot); // el motor pasa a usar la capacidad del tambor
+        setMagazine(w, Math.min(resp.ammo, cap));
+        _startReloadAnim(targets, w, Math.min(resp.ammo, cap));
         return;
     }
     // Sin recambio en el cinturon → descarga: el cargador montado pasa al
     // inventario y el arma se queda sin balas; la misma anim remata la escena
     if (hasMag && (w.ammo || 0) > 0) {
         var out = Math.min(w.ammo, w.clip);
-        if (query("items:extractMagazine", { magId: magId, ammo: out })) {
+        if (query("items:extractMagazine", { magId: entry.magId || magIds[0], ammo: out })) {
             _unloadWeapon(targets.weapon);
-            _setHasMag(w.slot, false);
+            _setHasMag(w.slot, false, null);
+            _aplicarCapacidad(w.slot); // vuelve a la capacidad del arma
             _startReloadAnim(targets, w, 0);
             showTextBox(t("MAG_OUT"));
         } // si no cabe: INV_FUL lo muestra Items y el arma no cambia
@@ -825,6 +914,19 @@ register({
                 var s = clampSalud(entry.salud);
                 if (entry.salud !== s) {
                     entry.salud = s;
+                    migrado = true;
+                }
+                // Un save viejo no tiene magId, porque antes el cargador de un
+                // arma era siempre el mismo y no hacia falta anotarlo. Ahora si:
+                // un arma con un cargador de otra capacidad se recortaria a la
+                // del base en el primer reconcile. Se rellena con el cargador
+                // por defecto del arma, que es lo que esos saves tenian montado.
+                // Un slot sin cargador (hasMag false) se queda en null.
+                if (entry.magId === undefined) {
+                    var wdM = _weaponDefByItemId(entry.id);
+                    entry.magId = (entry.hasMag === false || !wdM)
+                        ? null
+                        : (getMagIdsByWeaponId(wdM.weaponId)[0] || null);
                     migrado = true;
                 }
             }

@@ -146,7 +146,6 @@ const MOCK_CATALOG = {
   ],
   icons: {
     "9mm": "9mm.png",
-    "9mm_ext": "9mm.png",
     "pistol_assembled": "9mm.png",
     "silenced_9mm": "silenced9mm.png",
     "desert_eagle": "desertEagle.png",
@@ -169,7 +168,15 @@ const MOCK_CATALOG = {
     // el curvo (mag_fusil.png). Es una copia del mapa real, no una seleccion: si
     // divergiera, el preview mostraria una columna distinta de la del juego.
     "mag_9mm": "mag_9mm.png",
-    "mag_9mm_ext": "mag_9mm.png",
+    "mag_9mm_replica": "mag_9mm.png",
+    "mag_9mm_extended": "mag_9mm.png",
+    "mag_mp5_replica": "mag_SMG.png",
+    "mag_ak47_polymer": "mag_fusil.png",
+    "mag_ak47_bulgarian": "mag_fusil.png",
+    "mag_ak47_drum": "mag_fusil.png",
+    "mag_m4_polymer": "mag_fusil.png",
+    "mag_m4_lancer": "mag_fusil.png",
+    "mag_m4_drum": "mag_fusil.png",
     "mag_silenced_9mm": "mag_9mm.png",
     "mag_desert_eagle": "mag_9mm.png",
     "mag_shotgun": "mag_fusil.png",
@@ -1287,7 +1294,7 @@ const COLS_INVENTARIO = [
 // de Material Symbols con el eje y corrido.
 const HEAD_ICONS = {
   cant: "M440-91v-366L120-642v321q0 22 10.5 40t29.5 29L440-91Zm80 0 280-161q19-11 29.5-29t10.5-40v-321L520-457v366Zm159-550 118-69-277-159q-19-11-40-11t-40 11l-79 45 318 183ZM480-526l119-68-317-184-120 69 318 183Z",
-  salud: "M481-83Q347-218 267.5-301t-121-138q-41.5-55-54-94T80-620q0-92 64-156t156-64q45 0 87 16.5t75 47.5l-62 216h120l-34 335 114-375H480l71-212q25-14 52.5-21t56.5-7q92 0 156 64t64 156q0 48-13 88t-55 95.5q-42 55.5-121 138T481-83Z",
+  salud: "m480 -106l-58 -52.8C216 -345.6 80 -468.8 80 -620C80 -743.2 176.8 -840 300 -840c69.6 0 136.4 32.4 180 83.6C523.6 -807.6 590.4 -840 660 -840C783.2 -840 880 -743.2 880 -620c0 151.2 -136 274.4 -342 461.6L480 -106z",
   peso: "M480-680q17 0 28.5-11.5T520-720q0-17-11.5-28.5T480-760q-17 0-28.5 11.5T440-720q0 17 11.5 28.5T480-680Zm113 0h70q30 0 52 20t27 49l57 400q5 36-18.5 63.5T720-120H240q-37 0-60.5-27.5T161-211l57-400q5-29 27-49t52-20h70q-3-10-5-19.5t-2-20.5q0-50 35-85t85-35q50 0 85 35t35 85q0 11-2 20.5t-5 19.5Z",
   valor: "M120-160q-33 0-56.5-23.5T40-240v-440h80v440h680v80H120Zm160-160q-33 0-56.5-23.5T200-400v-320q0-33 23.5-56.5T280-800h560q33 0 56.5 23.5T920-720v320q0 33-23.5 56.5T840-320H280Zm80-80q0-33-23.5-56.5T280-480v80h80Zm400 0h80v-80q-33 0-56.5 23.5T760-400Zm-200-40q50 0 85-35t35-85q0-50-35-85t-85-35q-50 0-85 35t-35 85q0 50 35 85t85 35ZM280-640q33 0 56.5-23.5T360-720h-80v80Zm560 0v-80h-80q0 33 23.5 56.5T840-640Z"
 };

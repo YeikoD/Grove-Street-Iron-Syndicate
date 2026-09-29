@@ -46,7 +46,6 @@ export var ITEMS = {
 
     // Armas de fuego (nombres = HUD GTA SA ES; IDs estables p/ saves)
     "9mm":           { name: "9mm",             weight: 1.5, type: "weapon" },
-    "9mm_ext":       { name: "9mm 33",          weight: 1.6, type: "weapon" },
     "pistol_assembled": { name: "9mm",          weight: 1.2, type: "weapon" },
     "silenced_9mm":  { name: "Pistola con silenciador", weight: 1.5, type: "weapon" },
     "desert_eagle":  { name: "Desert Eagle",    weight: 1.8, type: "weapon" },
@@ -69,7 +68,15 @@ export var ITEMS = {
     // Cargadores (type magazine; capacidad = WEAPON_DATA.clipSize via getClipSizeByItemId)
     // Instancia { id, qty:1, ammo, salud } — no se apilan
     "mag_9mm":           { name: "Cargador 9mm",             weight: 0.2, type: "magazine" },
-    "mag_9mm_ext":       { name: "Cargador 9mm extendido",    weight: 0.2, type: "magazine" },
+    "mag_9mm_replica": { name: "Cargador 9mm replica", weight: 0.2, type: "magazine" },
+    "mag_9mm_extended": { name: "Cargador 9mm extendido", weight: 0.2, type: "magazine" },
+    "mag_mp5_replica": { name: "Cargador MP5 replica", weight: 0.2, type: "magazine" },
+    "mag_ak47_polymer": { name: "Cargador AK polimero", weight: 0.3, type: "magazine" },
+    "mag_ak47_bulgarian": { name: "Cargador AK bulgaro", weight: 0.3, type: "magazine" },
+    "mag_ak47_drum": { name: "Cargador AK tambor", weight: 0.8, type: "magazine" },
+    "mag_m4_polymer": { name: "Cargador M4 polimero", weight: 0.3, type: "magazine" },
+    "mag_m4_lancer": { name: "Cargador M4 Lancer", weight: 0.4, type: "magazine" },
+    "mag_m4_drum": { name: "Cargador M4 D-60", weight: 0.9, type: "magazine" },
     "mag_silenced_9mm":  { name: "Cargador 9mm con silenciador", weight: 0.2, type: "magazine" },
     "mag_desert_eagle":  { name: "Cargador Desert Eagle",    weight: 0.2, type: "magazine" },
     "mag_shotgun":       { name: "Cartucho escopeta",        weight: 0.2, type: "magazine" },
