@@ -56,35 +56,17 @@
 #           4 filas de skill SIEMPRE, sin condiciones, asi que va explicito
 #           aunque sea el mismo que el del padre.
 #
-#           Hay DOS clases de modelId, y la diferencia importa:
+#           Para una variante con modelo PROPIO, va el id de arranque (346 o
+#           347, que existen) y el id real lo asigna el juego cuando CLEO+
+#           carga el .dff, y lo escribe el mod. Poner aca un numero fijo que no
+#           existe haria que el clonara con un modelo que nadie tiene, y eso se
+#           ve como un arma INVISIBLE. Con 346 el error se ve como lo que es:
+#           se ve la pistola de vanilla, que es un fallo que se nota. Un fallo
+#           que se nota se arregla; uno que no, no.
 #
-#           1. modelId DE VANILLA (346, 347, 355, 356...). Son indices de
-#              CModelInfo que el juego ya tiene. Se escriben y listo: el
-#              modelo existe.
-#
-#           2. modelId PROPIO (>= 15025). Son indices que NADIE creo todavia.
-#              El .asi los registra en su primer CStreaming::Update, con
-#              AddWeaponModel + RequestSpecialModel, y recien ahi existen.
-#              O sea: si pones 15025 aca y el .asi no lo tiene en su tabla
-#              g_modelos, el arma se da igual, dispara, y sale INVISIBLE.
-#
-#           Por eso HookGetWeaponInfo chequea: un modelId >= 15025 que no este
-#           en la tabla del .asi hace que NO se de el tipo, y el log dice
-#           exactamente que id pidio el .dat y que hay que agregar. El fallo
-#           invisible se convierte en un error de una linea.
-#
-#           Y un modelId >= 15025 que este en la tabla pero todavia no haya
-#           cargado, tambien avisa: esa es la ventana de startup, y el modelo
-#           registrado-pero-no-cargado es invisible igual.
-#
-#           La tabla del .asi vive en limiter.cpp, array g_modelos. Hoy tiene
-#           una entrada: 15065 -> colt45_c15. El 62 la usa y ya se vio el
-#           cambio de modelo en pantalla.
-#
-#           MEDIDO (30/09): con 15065 el log da cdSize 0x7, txdIndex 3609 y
-#           loadState 2->1 en el frame 3. Antes de esa correccion, el 62
-#           declaraba 346 y se veia la Colt de vanilla: el tipo era 62 pero el
-#           modelo era el de la 63. Tipo y modelo son dos cosas separadas.
+#           La version anterior de esto fijaba un 15025 a mano en tres lugares
+#           y cualquier divergencia se veia como un arma con el modelo de la
+#           pistola de siempre, sin error en ninguna parte.
 #
 # El archivo se relee en cada arranque. Comentar con #. Con # sola, o con
 # espacios, no cuenta como fila: el parser salta las lineas vacias antes del
@@ -106,7 +88,7 @@
 #
 #   configuracion                    tipo  modelo  padre  capacidad  hace falta fila
 #   colt45                            63     346     22      8        SI
-#   colt45 + cargador 15              62  15065     22     15        SI
+#   colt45 + cargador 15              62     346     22     15        SI
 #   colt45 + silenciador              60     347     23      8        SI
 #   colt45 + silenciador + cargador 15 61     347     23     15        SI
 #   ak47 + tambor                     64     355     30     75        SI
@@ -169,7 +151,7 @@
 
 60 23 347 2  8 -1
 61 23 347 2 15 -1
-62 22 15065 2 15 -1
+62 22 346 2 15 -1
 63 22 346 2  8 -1
 64 30 355 5 75 -1
 65 31 356 5 40 -1

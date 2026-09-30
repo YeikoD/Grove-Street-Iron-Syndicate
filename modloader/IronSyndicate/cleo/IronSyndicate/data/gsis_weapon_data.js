@@ -9,14 +9,20 @@
 // piezas se les montan y que weaponType ejecuta cada configuracion. Este archivo
 // no tiene ninguna tabla: reexporta.
 //
-// Estos ocho modulos todavia importan de aca, y dejarlos apuntar a la fuente
+// Estos SEIS modulos todavia importan de aca, y dejarlos apuntar a la fuente
 // nueva es parte del refactor, no una evasion:
 //
-//   gsis_item_data   gsis_Bag          gsis_Ballistic     gsis_FlowSerialization
-//   gsis_ItemRow     gsis_Items        gsis_WeaponDealer  gsis_WeaponSeller
+//   data/gsis_item_data.js    gsis_Bag.js          gsis_WeaponDealer.js
+//   gsis_WeaponSeller.js      ui/views/flow.js    ui/views/itemRow.js
 //
-// La fase 3 repunta esos imports a weapons.js y borra este archivo. Hasta
-// entonces, lo que cambia es DONDE estan los datos, no lo que dicen.
+// (La lista se verifica con grep sobre `from ".*gsis_weapon_data.js"`. Cuando
+// baje a cero, se repuntan a weapons.js y se borra este archivo.)
+//
+// OJO con los verificadores: un chequeo de imports que resuelva los nombres por
+// regex va a reportar que estos seis importan cosas que este archivo "no
+// exporta", porque no ve el `export *` de abajo. Es un falso positivo, no un
+// bug: hasta la ultima linea, lo que exporta este archivo es lo que exporta
+// weapons.js.
 //
 // ============================================================================
 // LO QUE ESTA DERIVADO Y POR QUE IMPORTA
@@ -26,11 +32,13 @@
 // porque cada configuracion era un item; ahora son distintas y el shim expone la
 // base.
 //
-// Eso tiene una consecuencia concreta y es la razon por la que el shim tiene una
-// fecha: Ballistic todavia usa `weaponId` para decidir que tipo tiene el ped, y
-// con ese campo puesto va a leer siempre la base. Para la colt45 eso es 63 en vez
-// de 22, y para el resto coincide con lo de antes. La correccion es resolver por
-// `family + attachments` y es trabajo de la fase 3.
-//
 // Ver la seccion "VISTA LEGADA" de weapons.js, que es donde esta el codigo.
+//
+// ============================================================================
+// data/gsis_weapon_variants.js, EL OTRO SHIM, YA NO LO USA NADIE
+// ============================================================================
+// Hace lo mismo que este archivo (`export * from "./gsis_weapons.js"`) y no tiene
+// ni un importador. Se puede borrar en el mismo cambio que borre este: los dos
+// son el mismo compat y dejar los dos es lo que hace que grep no pueda decir cual
+// es el bueno.
 export * from "./gsis_weapons.js";

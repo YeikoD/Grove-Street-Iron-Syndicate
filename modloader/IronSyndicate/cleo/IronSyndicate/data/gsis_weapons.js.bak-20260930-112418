@@ -530,7 +530,7 @@ export var WEAPON_ATTACHMENTS = [
 export var WEAPON_VARIANTS = [
     // --- colt45: la unica familia con 4 configuraciones ---
     { weaponType: 63, family: "colt45", attachments: [], parent: 22, clipSize: 8, modelId: 346 },
-    { weaponType: 62, family: "colt45", attachments: ["mag_colt45_15"], parent: 22, clipSize: 15, modelId: 15065 },
+    { weaponType: 62, family: "colt45", attachments: ["mag_colt45_15"], parent: 22, clipSize: 15, modelId: 346 },
     { weaponType: 60, family: "colt45", attachments: ["suppressor"], parent: 23, clipSize: 8, modelId: 347 },
     { weaponType: 61, family: "colt45", attachments: ["mag_colt45_15", "suppressor"], parent: 23, clipSize: 15, modelId: 347 },
     // --- el resto: su tipo de vanilla, que el motor ya ejecuta ---
