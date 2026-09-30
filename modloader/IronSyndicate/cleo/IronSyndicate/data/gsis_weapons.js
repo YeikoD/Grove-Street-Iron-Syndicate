@@ -532,7 +532,7 @@ export var WEAPON_VARIANTS = [
     { weaponType: 63, family: "colt45", attachments: [], parent: 22, clipSize: 8, modelId: 346 },
     { weaponType: 62, family: "colt45", attachments: ["mag_colt45_15"], parent: 22, clipSize: 15, modelId: 15065 },
     { weaponType: 60, family: "colt45", attachments: ["suppressor"], parent: 23, clipSize: 8, modelId: 347 },
-    { weaponType: 61, family: "colt45", attachments: ["mag_colt45_15", "suppressor"], parent: 23, clipSize: 15, modelId: 15066 },
+    { weaponType: 61, family: "colt45", attachments: ["mag_colt45_15", "suppressor"], parent: 22, clipSize: 15, modelId: 15066, damage: 40 },
     // --- el resto: su tipo de vanilla, que el motor ya ejecuta ---
     { weaponType: 24, family: "desert_eagle", attachments: [], parent: null, clipSize: 7, modelId: 348 },
     { weaponType: 25, family: "shotgun", attachments: [], parent: null, clipSize: 1, modelId: 349 },
@@ -1033,17 +1033,29 @@ export function expectedDatRows() {
         if (!isPluginVariant(v)) continue;
         var f = getFamilyById(v.family);
         var prof = getVariantProfile(v.weaponType);
+        // El damage se LEE de la variante, no se supone -1.
+        //
+        // MEDIDO: el 30/09 el .dat traia "61 22 15066 2 15 40" y el catalogo
+        // declaraba damage: 40 en la variante. Con este codigo hardcodeado a -1,
+        // el cross-check NUNCA miraba el campo, asi que un .dat con el damage
+        // desincronizado pasaba igual. Una guarda que no guarda es el mismo
+        // defecto que la vtable validada en la ranura equivocada: parece que
+        // verifica y no verifica nada.
+        //
+        // -1 significa "hereda del padre", y eso es lo que hay que escribir
+        // explicitamente en la variante si se quiere ese comportamiento.
+        var dmg = (typeof v.damage === "number") ? v.damage : -1;
         out.push({
             weaponType: v.weaponType,
             parent: v.parent,
             modelId: v.modelId,
             slot: f ? f.slot : null,
             clip: prof ? prof.clipSize : null,
-            damage: -1,
+            damage: dmg,
             family: v.family,
             attachments: (v.attachments || []).slice(),
             text: v.weaponType + " " + v.parent + " " + v.modelId + " " +
-                  (f ? f.slot : "?") + " " + (prof ? prof.clipSize : "?") + " -1"
+                  (f ? f.slot : "?") + " " + (prof ? prof.clipSize : "?") + " " + dmg
         });
     }
     out.sort(function (a, b) { return a.weaponType - b.weaponType; });
@@ -1088,6 +1100,20 @@ export function crossCheckDat(filas) {
         if (fila.slot !== exp.slot) {
             problemas.push("el tipo " + fila.tipo + ": el .dat dice slot " + fila.slot +
                 " y weapons.js dice " + exp.slot);
+        }
+        // El damage. Faltaba esta comparacion y por eso el campo no se verificaba
+        // en absoluto: expectedDatRows traia -1 fijo y nadie lo contrastaba con la
+        // fila real. MEDIDO el 30/09.
+        //
+        // Importa mas de lo que parece, porque -1 significa "hereda del padre":
+        // si el padre cambia y el damage se queda en -1, el arma cambia de dano
+        // sola. Le paso con el 61 al moverlo del padre 23 al 22: paso de heredar
+        // 40 a heredar 25, y el .dat seguia diciendo -1.
+        if (fila.damage !== exp.damage) {
+            problemas.push("el tipo " + fila.tipo + ": el .dat dice damage " + fila.damage +
+                " y weapons.js dice " + exp.damage + ". El .asi solo lo escribe si es >= 0, " +
+                "asi que -1 = hereda del padre. Si el padre cambio y el damage sigue en -1, " +
+                "el arma cambio de dano sola.");
         }
     }
 

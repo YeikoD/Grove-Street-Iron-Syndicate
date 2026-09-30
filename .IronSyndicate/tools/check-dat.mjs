@@ -343,7 +343,7 @@ if (problemasDat.length) {
   console.log("");
   for (const p of problemasDat) console.log("  " + C.mal(p));
 } else {
-  console.log("  " + C.ok("las dos mitades coinciden: mismo parent, mismo modelId, mismo cargador, mismo slot"));
+    console.log("  " + C.ok("las dos mitades coinciden: mismo parent, mismo modelId, mismo cargador, mismo slot, mismo damage"));
 }
 
 console.log("");

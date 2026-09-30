@@ -216,6 +216,34 @@ $ M4       ... 356 -1  5 riflebad ...
 
 ### Si el modelo es propio
 
+> ### ⚠️ LA REGLA, y cuesta un crash si no la seguís
+>
+> **Un modelo propio obliga a cambiar el `parent`.**
+>
+> El padre trae la **animación**. El `.asi` sobreescribe cuatro campos del padre
+> —`m_modelId`, `m_nWeaponSlot`, `m_nAmmo` y `m_nDamage` si es `>= 0`— y
+> **`m_animGroup` nunca**. Así que la animación siempre es la del padre.
+>
+> Si ponés un `modelId` propio encima sin cambiar el padre, queda la animación
+> del modelo que ya no está, y **apuntar con esa arma crashea el juego.**
+>
+> ```
+> 61 23 15066 2 15  -1   →  animGroup 18 (la de la 347)   CRASH
+> 61 22 15066 2 15  40   →  animGroup 13 (la de pistola)   funciona
+> ```
+>
+> Y la mitad que casi se pasa por alto: **`damage: -1` significa "hereda del
+> padre"**. Al cambiar de padre el damage heredado cambia solo — el 61 pasó de
+> heredar 40 a heredar 25 sin que nadie lo pidiera. Cuando cambies el padre,
+> poné el `damage` explícito.
+>
+> El padre tiene que ser **de la misma clase de arma** que tu modelo. Por eso el
+> 62 nunca tuvo el problema: su padre es el 22 (la pistola) y `colt45_c15` **es**
+> una pistola.
+>
+> **Si no tenés asset propio, cloná y no pises nada.** El 60 sigue con `modelId 347`
+> y padre 23, que es la configuración original y no tiene este problema.
+
 **Paso 3a — el asset va en `modloader\IronSyndicate\models\`.**
 
 ModLoader indexa solo los `.dff`/`.txd` sueltos. El `.ide` **no sirve para nada
@@ -235,6 +263,29 @@ static ModeloPropio g_modelos[] = {
 El `modelId` tiene que estar **libre**: `GetModelInfo(id) == NULL` **y** la celda
 de streaming entera en cero. **15025 no sirve**, es `genmotelfurn_sv`, un mueble
 de vanilla. El rango arranca en **15065**.
+
+> ### 🧩 Precondición del pool: `WeaponModels = 200`
+>
+> `AddWeaponModel` **no crea** el pool: escribe en una celda que vanilla ya
+> llenó. El pool de vanilla tiene **51 slots** (`push 33h` en `0x4C5E9B`) y
+> están casi todos ocupados, así que **entra un solo modelo propio** y al segundo
+> `AddWeaponModel` escribe encima de un arma de vanilla.
+>
+> Tenés que ampliarlo en
+> `modloader\Open Limit Adjuster\III.VC.SA.LimitAdjuster.ini`, sección
+> `[SALIMITS]`:
+>
+> ```ini
+> [SALIMITS]
+> WeaponModels = 200
+> ```
+>
+> `WeaponModels = unlimited` **no** amplía el pool. Y `fastman92limitAdjuster.asi`
+> tiene que seguir **apagado** (`.asi.off`): los dos proyectos agrupan el pool y
+> si trabajan los dos a la vez no se lleva bien.
+>
+> Sin esto, el modelo se registra, el log dice que el slot es `-1` y el arma sale
+> **invisible**.
 
 **Paso 3c — poné ese `modelId` en el `.dat` y en la variante.** Los dos lados, o
 el cross-check de `check-dat.mjs` falla.
@@ -320,17 +371,28 @@ justo después de pedirlo, pero conviene mirarlo.
 | `modelId` | de vanilla o propio. Ver [Paso 3](#paso-3--modelo-propio-el-que-realmente-falta) |
 | `slot` | `WEAPONSLOT` |
 | `cargador` | balas. **Un número, no un flag: no existe el "-1 = hereda".** El `.asi` rechaza un `cargador <= 0` en vez de inventarse un valor |
-| `damage` | `-1` = hereda. **Un `0` significa cero daño, no "no tocar"** |
+| `damage` | `-1` = hereda del padre. **Un `0` significa cero daño, no "no tocar"** |
 
 Se relee en cada arranque. Comentá con `#`.
 
 **Las dos mitades tienen que coincidir.** El `.dat` y `WEAPON_VARIANTS` declaran
-parent, `modelId`, `cargador` y `clipSize` por separado, y si divergen el arma
-funciona con un número y muestra otro. `check-dat.mjs` cruza las dos mitades:
+parent, `modelId`, `cargador`, `clipSize` y `damage` por separado, y si divergen
+el arma funciona con un número y muestra otro. `check-dat.mjs` cruza las dos
+mitades —**incluido el `damage`**:
 
 ```powershell
 node .IronSyndicate\tools\check-dat.mjs
 ```
+
+> **El `damage` en la variante, no en el `.dat` solamente.** `expectedDatRows()`
+> lee `damage` de la variante, y `crossCheckDat()` lo contrasta con la fila real.
+> Antes `expectedDatRows` traía `-1` hardcodeado y nadie comparaba el campo: el
+> check pasaba con el damage desincronizado. Una guarda que no guarda es el mismo
+> defecto que validar la vtable en la ranura equivocada.
+>
+> Y `-1` en la variante quiere decir literalmente "declaro que se hereda". Si
+> querés que herede, escribí `damage: -1`. Si querés un número, escribilo — y
+> acordate de que cambiar el padre cambia el heredado.
 
 > **El `.dat` no lleva BOM.** UTF-8 con BOM hace que el parser lea la primera línea
 > de comentario como una fila malformada y el check salga distinto de cero.
@@ -442,6 +504,9 @@ Es el mismo criterio que se usó para el silenciador del tipo 60.
 | **el arma se ve pero es la de vanilla** | `modelId` de vanilla en vez de propio, o el asset no está en `g_modelos[]` |
 | **el arma es invisible** | `modelId >= 15025` no registrado, o registrado-pero-no-cargado. **El log dice cuál de las dos** |
 | el `.asi` no registra el modelo | `cdSize == 0`: ModLoader no encontró el `.dff` por nombre |
+| **el slot da `-1` en el log** | falta `WeaponModels = 200` en Open Limit Adjuster. El pool de vanilla entra **un** modelo propio y el segundo pisa un arma real |
+| **crashea al apuntar, y solo al apuntar** | modelo propio sobre un padre de otra clase: la animación es la del modelo que ya no está. Cambiá el `parent` y poné el `damage` explícito |
+| el arma cambió de daño sola | `damage: -1` con el padre cambiado: heredás el del padre nuevo |
 | el arma no tiene skill | el padre no está en 22-32 |
 | dispara sin sonido | el padre resuelto está fuera de 22-45 |
 | no aparece la mira | el padre resuelto no está en la lista blanca de `DrawCrossHairs` |

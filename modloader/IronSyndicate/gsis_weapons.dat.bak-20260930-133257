@@ -111,45 +111,13 @@
 #           registrado-pero-no-cargado es invisible igual.
 #
 #           La tabla del .asi vive en limiter.cpp, array g_modelos. Hoy tiene
-#           DOS entradas: 15065 -> colt45_c15 (la usa el 62) y 15066 ->
-#           colt45_c15_silenced (la usa el 61). Las dos se vieron cambiar en
-#           pantalla.
+#           una entrada: 15065 -> colt45_c15. El 62 la usa y ya se vio el
+#           cambio de modelo en pantalla.
 #
 #           MEDIDO (30/09): con 15065 el log da cdSize 0x7, txdIndex 3609 y
 #           loadState 2->1 en el frame 3. Antes de esa correccion, el 62
 #           declaraba 346 y se veia la Colt de vanilla: el tipo era 62 pero el
 #           modelo era el de la 63. Tipo y modelo son dos cosas separadas.
-#
-#           *** SI EL MODELO ES PROPIO, EL PADRE TIENE QUE SER DE LA MISMA ***
-#
-#           CLASE DE ARMA. Esta es la segunda mitad de la regla de 'clonar, no
-#           reemplazar', yuesta vez por un crash.
-#
-#           El padre trae la ANIMACION. HookGetWeaponInfo sobreescribe cuatro
-#           campos del padre -m_modelId, m_nWeaponSlot, m_nAmmo y m_nDamage si es
-#           >= 0- y NUNCA m_animGroup. O sea: la animacion siempre es la del padre,
-#           siempre.
-#
-#           Si pones un modelId propio encima sin cambiar el padre, queda la
-#           animacion del modelo que ya no esta, y APUNTAR CON ESA ARMA CRASHEA
-#           el juego. MEDIDO el 30/09 con el 61:
-#
-#              61 23 15066 2 15  -1   ->  animGroup 18 (la de la 347)   CRASH
-#              61 22 15066 2 15  40   ->  animGroup 13 (la de pistola)   funciona
-#
-#           Y por que el 62 nunca lo tuvo: su padre es el 22, la pistola, y
-#           colt45_c15 ES una pistola. Padre y modelo de la misma clase. El 61
-#           tenia padre 23 (la silenciada) y un .dff que es la silenciada, pero
-#           pisaba el modelo y no la animacion.
-#
-#           OJO con el damage. -1 significa 'hereda del padre', asi que al
-#           cambiar de padre el damage heredado cambia solo: el 61 paso de heredar
-#           40 (del 23) a heredar 25 (del 22) sin que nadie lo pidiera. Por eso
-#           el damage va EXPLICITO en cuanto se cambia el padre.
-#
-#           Y el camino que NO tiene este problema es clonar sin pisar: el 60
-#           sigue con modelId 347 y padre 23, que es la configuracion original.
-#           Cuando no hay asset propio, esa es la correcta.
 #
 # El archivo se relee en cada arranque. Comentar con #. Con # sola, o con
 # espacios, no cuenta como fila: el parser salta las lineas vacias antes del
@@ -233,7 +201,7 @@
 # Quedan 13 slots libres de los 20.
 
 60 23 347 2  8 -1
-61 22 15066 2 15 40
+61 23 15066 2 15 -1
 62 22 15065 2 15 -1
 63 22 346 2  8 -1
 64 30 355 5 75 -1
