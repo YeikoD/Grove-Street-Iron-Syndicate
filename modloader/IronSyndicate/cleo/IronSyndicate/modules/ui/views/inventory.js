@@ -86,10 +86,17 @@ function equipadasSnap() {
         // la fila no podia distinguir un arma descargada de un cargador vacio
         // montado -las dos salian "0/17"-; ahora ademas lo dice el tooltip.
         //
-        // Y `family` y `attachments` se pasan TAL CUAL. Son lo que la pagina
-        // dibuja para el arma, y son la unica representacion de la configuracion
-        // que cruza el cable: el weaponType no viaja, y sin estos dos la fila de
-        // un arma con silenciador seria indistinguible de la de un arma pelada.
+        // Y `family`, `attachments` y `otros` se pasan TAL CUAL. Los tres son lo
+        // que la pagina necesita del arma: los dos primeros son la
+        // representacion de la configuracion —el weaponType no viaja, y sin ellos
+        // la fila de un arma con silenciador seria indistinguible de la de una
+        // pelada—, y el tercero le dice si hay un accesorio que se pueda quitar.
+        //
+        // `otros` se agrega DESPUES de itemRow, no antes: itemRow solo deja pasar
+        // `family` y `attachments` de la instancia (ver views/itemRow.js), y meterlo
+        // por ahi seria enseñarle a la fila compartida una clave que solo le
+        // importa a la vista del inventario. Se escribe en la fila ya armada, que
+        // es donde viven las otras tres marcas de ranura.
         var w = itemRow({
             id: eq[slot].id,
             family: eq[slot].family,
@@ -102,6 +109,7 @@ function equipadasSnap() {
         w.equipado = true;
         w.ranura = "arma";
         w.slot = parseInt(slot, 10);
+        w.otros = (eq[slot].otros || []).slice();
         out.push(w);
     }
 

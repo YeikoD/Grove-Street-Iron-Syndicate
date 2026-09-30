@@ -855,6 +855,26 @@ function emitCommand(payload) {
 function actionFor(r, what) {
   if (!r) return null;
 
+  // --- MONTAR UN ACCESORIO -------------------------------------------------
+  //
+  // Se monta desde la fila del ACCESORIO, no desde la del arma: la pieza es lo que
+  // el jugador tiene en la mochila y elige, y el arma es el destino. Al reves
+  // habria que abrir un submenu de "cual de los que tengo monto", y la accion
+  // naturale queda en la cosa que se toca.
+  //
+  // El destino se busca en stateMap, que es la lista vigente de filas (la arma
+  // equipada llega con equipado===true y ranura==="arma", con su slot de GTA). No
+  // se guarda en una variable propia porque stateMap YA es esa lista: duplicarla
+  // es duplicar la verdad.
+  //
+  // `r.cat === "weapon_attachment"` no lo decide la pagina: viene del catalogo que
+  // manda el mod, que ya sabe que el silenciador es un accesorio y que los
+  // cargadores son otra cosa. La pagina no mira ITEMS ni adivina por el nombre.
+  if (what === "mount" && r.cat === "weapon_attachment") {
+    const arma = stateMap.find((x) => x.equipado && x.ranura === "arma");
+    return arma ? { cmd: "inv:mount", slot: arma.slot, id: r.id } : null;
+  }
+
   // Una fila equipada esta FUERA de items[] —el mod la saco al equipar—, asi que
   // "tirar" no puede funcionar: removeItem la buscaria ahi y no la encontraria,
   // y el comando se perderia en silencio. "Equipar" tampoco, ya esta equipada.
@@ -863,9 +883,26 @@ function actionFor(r, what) {
   // (por casilla y no por id, porque en el cinturon puede haber dos cargadores
   // del mismo tipo y la casilla es lo unico que los distingue).
   if (r.equipado) {
-    if (what !== "unequip") return null;
-    if (r.ranura === "arma") return { cmd: "inv:unequip", slot: r.slot };
-    if (r.ranura === "cinturon") return { cmd: "inv:belt:off", slot: r.slot };
+    if (what === "unequip") {
+      if (r.ranura === "arma") return { cmd: "inv:unequip", slot: r.slot };
+      if (r.ranura === "cinturon") return { cmd: "inv:belt:off", slot: r.slot };
+      return null;
+    }
+    // --- SACAR EL ACCESORIO ---
+    //
+    // Sin `id`: el modulo sabe cual es el accesorio que no es cargador, y la
+    // pagina no. Mandarlo seria obligarla a distinguir un silenciador de un
+    // cargador por el id, y su documentacion dice que no conoce el catalogo.
+    //
+    // La condicion es `otros`, no `attachments`. Un cargador montado NO cuenta: los
+    // cargadores se cambian con la R, y un "Quitar accesorio" que no saca el
+    // cargador seria un boton que no hace lo que dice. `otros` lo manda el mod
+    // justamente para que esta fila no tenga que deducirlo del prefijo "mag_".
+    if (what === "unmount") {
+      if (r.ranura !== "arma") return null;
+      const otros = r.otros || [];
+      return otros.length > 0 ? { cmd: "inv:unmount", slot: r.slot } : null;
+    }
     return null;
   }
 
@@ -916,6 +953,23 @@ function actionFor(r, what) {
 // pase por actionFor es posible —basta un run() propio— pero entonces el
 // modulo tiene que saber leerla del otro lado.
 const ACCIONES = [
+  {
+    id: "unmount",
+    label: "Quitar accesorio",
+    // Solo en un arma con un accesorio NO cargador montado. `otros` viene del mod
+    // ya filtrado, asi que esta fila no sabe que es un cargador: solo pregunta si
+    // hay algo que quitar. Con un cargador montado y nada mas, esta accion NO
+    // aparece —para eso esta la R— en vez de aparecer y no hacer nada.
+    aplica: (r) => !!actionFor(r, "unmount")
+  },
+  {
+    id: "mount",
+    label: "Montar en el arma",
+    // Solo en un accesorio suelto, y solo si hay un arma equipada que lo pueda
+    // recibir. El modulo es el que dice si la combinacion existe: que un
+    // silenciador no entre en una M4 se decide alla, no aca.
+    aplica: (r) => !!actionFor(r, "mount")
+  },
   {
     id: "unequip",
     label: (r) => (r.ranura === "cinturon" ? "Quitar del cinturón" : "Quitar"),

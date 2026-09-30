@@ -303,6 +303,23 @@ function _darPorNativo(char, weaponType, ammo) {
     native("GIVE_WEAPON_TO_CHAR", char, weaponType, ammo);
 }
 
+// ---------------------------------------------------------------------------
+// EL ARMA LLEGO O NO, POR MEMORIA
+// ---------------------------------------------------------------------------
+// La unica pregunta que este archivo se hace sobre un fallo: despues de un
+// throw, esta el arma en el ped o no.
+//
+// Se contesta por MEMORIA y no por el native HAS_CHAR_GOT_WEAPON, y no es una
+// preferencia: la memoria es la fuente que ya se demostro que funciona en este
+// runtime. El reconciliador lee los slots con readI32 y ve el arma.
+//
+// Devuelve true si hay un slot con ESE tipo.
+function _llegoElArma(char, weaponType) {
+    var ped = pedPointer(char);
+    if (!ped || !weaponType) return false;
+    return addressOfType(ped, weaponType) !== 0;
+}
+
 // Dar un arma al ped.
 //
 // Se usa el API de objeto, p.giveWeapon(weaponId, ammo), que es el camino que
@@ -312,13 +329,58 @@ function _darPorNativo(char, weaponType, ammo) {
 // el camino de objeto falla una vez, se avisa una vez y se usa el native de
 // siempre, que es lo que hacia el codigo antes de este archivo.
 //
+// ---------------------------------------------------------------------------
+// POR QUE UN THROW NO ES "NO LLEGO" — Y POR QUE ESTO ERA UN BUG GRAVE
+// ---------------------------------------------------------------------------
+// p.giveWeapon() DA el arma y DESPUES tira, cuando el weaponType es uno que
+// registro el .asi en la memoria del juego. La capa JS de CLEO no conoce esos
+// tipos: el .asi los metio en la tabla del juego, no en la del script. Asi que la
+// llamada se ejecuta, el arma entra al slot, y la validacion que hace despues no
+// encuentra el id y tira.
+//
+// Y aca estaba el bug entero. Del log de una sesion real:
+//
+//   06:24:27  el slot 2 tiene el tipo 22
+//   06:24:48  p.giveWeapon() tira  ->  este catch
+//   06:24:50  el slot 2 tiene el tipo 63     <-- EL ARMA SI LLEGO
+//
+// El mod no lo podia saber. Y `_darPorNativo` tampoco servia: en este runtime el
+// nombre "GIVE_WEAPON_TO_CHAR" no esta registrado, asi que el fallback tambien
+// tiraba y caia en `return false`.
+//
+// El efecto en cadena: equipWeapon tomaba eso por un armado fallido y revirtia
+// con storeWeapon, el registro nunca se escribia, y al cerrar el menu el
+// reconciliador encontraba la Colt en el ped sin entrada y la adoptava
+// (removeWeapon + storeWeapon). Un item mas al inventario, y el ciclo entero
+// repetido en cada intento. El modulo se desarmaba SOLO y duplicaba el arma cada
+// vez que el jugador tocaba equipar.
+//
+// El arreglo es una VERIFICACION, no un cambio de camino: despues del throw se
+// pregunta por memoria si el arma llego, y si llego se devuelve true. La pregunta
+// es la misma que hace el reconciliador, con los mismos offsets, asi que si el
+// reconciliador ve el arma, esta funcion tambien la ve.
+//
+// Y por que la memoria y no un native: porque en este runtime el native miente
+// y la memoria no. No es que la memoria sea mejor en abstracto; es que es la unica
+// de las dos que se demonstro funcionando aca.
+//
 // OJO con el parametro `char`: el API de objeto va sobre el JUGADOR, no sobre el
 // char. Este mod es de un jugador, asi que el char que llega siempre es el del
-// jugador 0. Si algum dia hay un segundo jugador con armas, esta funcion tiene
+// jugador 0. Si algun dia hay un segundo jugador con armas, esta funcion tiene
 // que recibir el Player y no el char, y no el GameObject que seCerro ni se
 // abrio. Esta nota esta aca para que el que lo cambie lo sepa antes de cambiarlo.
 export function giveWeapon(char, weaponType, ammo) {
-    if (_givePorNativo) return _darPorNativo(char, weaponType, ammo);
+    if (_givePorNativo) {
+        try {
+            _darPorNativo(char, weaponType, ammo);
+            return true;
+        } catch (e0) {
+            // El fallback tambien puede tirar, y tambien puede haber dado el arma
+            // antes de tirar. Mismo criterio que el camino de objeto.
+            if (_llegoElArma(char, weaponType)) return true;
+            return false;
+        }
+    }
     try {
         new Player(0).giveWeapon(weaponType, ammo);
         return true;
@@ -329,8 +391,19 @@ export function giveWeapon(char, weaponType, ammo) {
             log("[Engine] WARN: p.giveWeapon() no respondio, uso GIVE_WEAPON_TO_CHAR (0x01B2). " +
                 "Es el mismo camino que usaba el mod antes de Engine.js.");
         }
+        // PRIMERO se pregunta si el arma llego. Es el caso real, y el que estaba
+        // desarmando el modulo: entrar por aca con `false` a ciegas hace que
+        // equipWeapon revierta un armado que si funciono.
+        if (_llegoElArma(char, weaponType)) {
+            log("[Engine] p.giveWeapon() tiro pero el tipo " + weaponType +
+                " SI quedo en el ped; se toma como dado. Es lo esperable con un " +
+                "tipo de plugin: la capa JS no lo conoce, la llamada se ejecuta " +
+                "igual y lo que falla es la validacion posterior.");
+            return true;
+        }
         try {
-            return _darPorNativo(char, weaponType, ammo);
+            _darPorNativo(char, weaponType, ammo);
+            return true;
         } catch (e2) {
             return false;
         }

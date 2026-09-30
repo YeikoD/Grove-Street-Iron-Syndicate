@@ -70,7 +70,7 @@ import * as Engine from "../../core/gsis_Engine.js";
 import {
     resolveWeaponType, isAttachmentCompatible, getAttachmentById,
     canonicalAttachmentId, inventoryAttachmentId, magazineIdsFor, getFamilyById,
-    mountedMagazineOf
+    mountedMagazineOf, otherAttachmentsOf
 } from "../../data/gsis_weapons.js";
 import { ITEMS, clampSalud } from "../../data/gsis_item_data.js";
 import {
@@ -263,6 +263,40 @@ export function equipWeapon(itemId, attachmentsPedidos) {
 
     var r = _giveInternal(char, family, listaFinal, ammo, "equipar");
     if (!r.ok) {
+        // =====================================================================
+        // DIAGNOSTICO. Temporal.
+        //
+        // Lo que hace es dejar de tirar el `motivo` que _giveInternal ya calculo.
+        // Ese motivo es la UNICA forma de distinguir dos fallos que desde afuera
+        // se ven iguales: el motor no acepto el tipo, o el motor lo acepto y
+        // despues la verificacion dijo que no estaba.
+        //
+        // Ademas mide LAS DOS FORMAS de preguntar lo mismo, porque el sintoma que
+        // se esta investigando es que no coinciden:
+        //
+        //   por native   -> HAS_CHAR_GOT_WEAPON, que es lo que usa hasWeapon()
+        //   por memoria  -> el tipo en el slot, que es lo que ve el reconciliador
+        //
+        // Y mide el tipo PEDIDO, no `r.weaponType`. En el camino de fallo
+        // _giveInternal devuelve { ok, motivo } y NADA mas, asi que r.weaponType es
+        // undefined: la primera version de esta sonda preguntaba por el tipo 0
+        // (desarmado) y reportaba "native=true, memoria=0", que no son datos, son
+        // las dos sondas mirando el arma equivocada.
+        // =====================================================================
+        var _ped = Engine.pedPointer(char);
+        var _addr = Engine.addressOfType(_ped, resolveWeaponType(family, listaFinal) || 0);
+        var _porMemoria = _addr ? Engine.slotType(_addr) : 0;
+        var _porNative = Engine.hasWeapon(char, _addr ? _porMemoria : 0);
+        log("[Weapons] EQUIP FALLO (item=" + itemId + " slot=" + slot + ") | motivo: " +
+            r.motivo + " | tipo pedido=" + (r.weaponType || resolveWeaponType(family, listaFinal) || "?") +
+            " | por native (HAS_CHAR_GOT_WEAPON)=" + (_porNative ? "true" : "false") +
+            " | por memoria (el slot)=" + _porMemoria +
+            " | givePorNativo=" + (Engine.giveUsesNative() ? "si" : "no") +
+            " | ammo pedido=" + ammo + " | fila en el inventario: " + taken.ammo);
+        // =====================================================================
+        // FIN DEL DIAGNOSTICO
+        // =====================================================================
+
         // El motor no lo acepto: la instancia vuelve al inventario, no se pierde.
         // Y con ella los accesorios que se habian sacado, que es la parte que no
         // se puede dejar a medias: un silenciador que desaparece del inventario
@@ -360,11 +394,49 @@ export function unequipWeapon(slot) {
 // efecto observable hasta que se equipe, y para entonces el jugador ya se olvido
 // de que lo monto.
 //
-// Estas dos funciones no tienen ningun llamador todavia. Lo tenian antes (las
-// exportaba gsis_Ballistic.js) y tampoco lo tenian: la UI no tiene comando para
-// montar un accesorio, y sin eso los tipos 60, 61, 62, 64, 65 y 66 no se pueden
-// alcanzar desde el juego. El comando de la UI es de la fase siguiente; estas
-// funciones quedan listas y son la unica forma de que la variante se cambie.
+// ----------------------------------------------------------------------------
+// MONTAR CONSUME EL ACCESORIO, Y ESO NO ES OPCIONAL
+// ----------------------------------------------------------------------------
+// Esta funcion NO es "sumar un id a una lista": saca la pieza del inventario, la
+// pone en el arma, y si el motor no acepta la configuracion nueva la devuelve.
+//
+// Sin el consumo, montar el silenciador seria GRATIS: la pieza queda en el
+// inventario y ademas queda en el arma. Eso es duplicacion de objetos, la misma
+// clase de bug que el que se cerro hace poco, y es peor que el anterior porque no
+// se ve: el jugador ve un silenciador en la mochila y una Colt silenciada, y las
+// dos cosas son "correctas" por separado.
+//
+// Y el consumo va ANTES de dar el arma, no despues. Al reves, si el motor
+// rechazara la configuracion, el accesorio ya estaria montado en el arma que se
+// acaba de dar y habria que volver a dar el arma anterior para deshacerlo.
+//
+// Lo mismo por el otro lado: `detachAccessory` devuelve la pieza al inventario. Un
+// sistema donde se monta y no se puede sacar es un callejon sin salida con un item
+// pagado, que es el problema que motivo todo esto.
+//
+// QUE PASA CON LA MUNICION AL SACAR
+// ---------------------------------
+// El accesorio vuelve como una fila nueva con 0 balas, y las balas se quedan en
+// el arma. Es la regla menos mala de las dos posibles y conviene decirla: sacar el
+// cargador de 30 de un AK deja el AK con 30 balas y el cargador en la mochila
+// vacio. La alternativa —devolver el cargador con las balas que tenia— exigiria
+// decidir de que numero se sacs, y ese numero no existe: el motor responde la
+// municion por TIPO de arma, no por cargador, asi que "las balas del cargador" no
+// es una pregunta que el motor pueda contestar.
+//
+// Para un cargador lleno esta la R, que es el camino de verdad para eso. Aqui el
+// caso raro es solo el silenciador, que no tiene municion y para el cual la regla
+// no dice nada.
+//
+// ----------------------------------------------------------------------------
+// QUIEN LAS LLAMA
+// ----------------------------------------------------------------------------
+// Las llama el comando `inv:mount` / `inv:unmount` de la pagina (ui/commands.js).
+// Antes no las llamaba nadie, y el comentario de abajo —que decia que sin ellas
+// los tipos 60, 61, 62, 64, 65 y 66 eran inalcanzables— quedo a medias: 62, 64, 65
+// y 66 se alcanzan desde la R, que cambia el cargador del cinturon. Los que
+// necesitan este camino son 60 y 61, porque el silenciador no es un cargador y la R
+// no lo toca.
 export function attachAccessory(charId, slot, attachmentId) {
     var entry = getEntry(slot);
     if (!entry) return { ok: false, motivo: "no hay arma equipada en el slot " + slot };
@@ -382,7 +454,28 @@ export function attachAccessory(charId, slot, attachmentId) {
     var actual = (entry.attachments || []).slice();
     if (actual.indexOf(canonico) !== -1) return { ok: false, motivo: "ya esta montado" };
 
-    return _aplicar(char, slot, entry, actual.concat([canonico]), "montar " + att.name);
+    // Que la combinacion exista ANTES de gastar la pieza. Un accesorio que no
+    // lleva a ninguna variante no se saca del inventario para descubrir eso.
+    if (resolveWeaponType(entry.family, actual.concat([canonico])) === null) {
+        return { ok: false, motivo: att.name + " con " + entry.family +
+            " no es ninguna variante declarada" };
+    }
+
+    // Se SACA del inventario. Namespace de inventario: el bus espera el itemId.
+    var saga = query(ITEMS_TAKE_ATTACHMENT, { id: inventoryAttachmentId(canonico) });
+    if (!saga || !saga.item) {
+        return { ok: false, motivo: "no tenes ningun " + att.name + " en el inventario" };
+    }
+
+    var r = _aplicar(char, slot, entry, actual.concat([canonico]), "montar " + att.name);
+    if (!r.ok) {
+        // El motor no lo acepto: la pieza vuelve, intacta. Perder un accesorio
+        // por un fallo del motor es la peor forma de perderlo, porque el jugador
+        // no puede ver la causa.
+        query(ITEMS_STORE_ATTACHMENT, { item: saga.item, force: true });
+        return r;
+    }
+    return r;
 }
 
 export function detachAccessory(charId, slot, attachmentId) {
@@ -392,12 +485,45 @@ export function detachAccessory(charId, slot, attachmentId) {
     if (!char) return { ok: false, motivo: "no hay ped" };
 
     var canonico = canonicalAttachmentId(attachmentId);
+
+    // Sin id, se saca EL accesorio que no es cargador. Y el que decide cual es
+    // este modulo, no la pagina.
+    //
+    // La razon: la pagina no consulta el catalogo —no tiene ITEMS ni WEAPON_DATA, y
+    // su propia documentacion lo dice— asi que no puede distinguir un silenciador
+    // de un cargador por el id. Y no tiene por que: la R ya cubre los cargadores,
+    // y lo unico que queda para `inv:unmount` es lo otro. Adivinarlo del prefijo
+    // "mag_" en la pagina seria meter en el frontend la convencion de nombres del
+    // catalogo, que es exactamente la clase de acoplamiento que el corte del
+    // inventory pretendia cerrar.
+    if (!canonico) {
+        var otros = otherAttachmentsOf(entry.attachments || []);
+        if (otros.length === 0) {
+            return { ok: false, motivo: "no hay ningun accesorio montado en el slot " + slot };
+        }
+        if (otros.length > 1) {
+            return { ok: false, motivo: "hay mas de un accesorio montado (" +
+                otros.join(", ") + "): cual sacar" };
+        }
+        canonico = otros[0];
+    }
+
     var actual = (entry.attachments || []).slice();
     if (actual.indexOf(canonico) === -1) {
         return { ok: false, motivo: "no tiene " + canonico + " montado" };
     }
     var quedan = actual.filter(function (a) { return a !== canonico; });
-    return _aplicar(char, slot, entry, quedan, "sacar " + canonico);
+
+    var r = _aplicar(char, slot, entry, quedan, "sacar " + canonico);
+    if (!r.ok) return r;
+
+    // La pieza vuelve al inventario. Con 0 balas: ver la nota de arriba sobre por
+    // que el numero de balas del cargador no existe como pregunta.
+    query(ITEMS_STORE_ATTACHMENT, {
+        item: { id: inventoryAttachmentId(canonico), qty: 1, ammo: 0, salud: 100 },
+        force: true
+    });
+    return r;
 }
 
 // El cuerpo comun de montar y sacar.
@@ -407,6 +533,23 @@ export function detachAccessory(charId, slot, attachmentId) {
 // municion se lee ANTES de cambiar y se escribe despues. Y el registro se escribe
 // DESPUES de que el motor confirmo: al reves, un fallo dejaria el save diciendo
 // que el silenciador esta montado y el arma sin silenciador.
+//
+// ----------------------------------------------------------------------------
+// `cap` SE CONSERVA, Y NO ES COSMETICO
+// ----------------------------------------------------------------------------
+// _giveInternal devuelve `cap` (la capacidad que DICE el motor para el tipo nuevo)
+// y este return la dejaba caer. Con `cap` en undefined, en tryReload:
+//
+//   var ammo = Math.min(resp.ammo || 0, r.cap > 0 ? r.cap : (resp.ammo || 0));
+//
+// la guarda `r.cap > 0` es falsa, asi que el `Math.min` recorta contra si mismo y
+// NO recorta. La proteccion de "un cargador con mas balas que su capacidad no
+// puede recargar el motor" estaba escrita y no podia dispararse.
+//
+// Y se notaba en el log: la recarga del tambor escribia
+//   [Weapons] recarga: tipo 64 con 75/undefined balas
+// Un "undefined" en un log es peor que un log sin ese dato, porque el que lo lee
+// deduce que la capacidad no se consulto, cuando si se consulto.
 function _aplicar(char, slot, entry, attachments, que) {
     var tipoViejo = resolveWeaponType(entry.family, entry.attachments);
     var ammo = tipoViejo === null ? 0 : Engine.getAmmo(char, tipoViejo);
@@ -417,7 +560,13 @@ function _aplicar(char, slot, entry, attachments, que) {
         id: entry.id, family: entry.family, attachments: r.attachments, salud: entry.salud
     }, que);
     weaponVariant(que, entry.family, r.attachments, r.weaponType, slot);
-    return { ok: true, weaponType: r.weaponType, attachments: r.attachments, ammo: r.ammo };
+    return {
+        ok: true,
+        weaponType: r.weaponType,
+        attachments: r.attachments,
+        ammo: r.ammo,
+        cap: r.cap
+    };
 }
 
 // ============================================================================

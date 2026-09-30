@@ -176,6 +176,13 @@ export function itemRow(it, esVivo) {
     if (it.attachments !== undefined && it.attachments !== null) {
         row.attachments = it.attachments.slice();
     }
+    // hasMag viaja, y antes no viajaba: se USABA (ammoCell lo lee para poner el
+    // guion) pero no se copiaba a la fila, con lo cual la pagina recibia un
+    // registro que decia traerlo y no lo traia. La UI de hoy no lo necesita —dibuja
+    // el guion de ammoCell— asi que no habia sintoma, pero un contrato que
+    // documenta un campo y no lo entrega es peor que uno que no lo menciona: el que
+    // lo usa se entera cuando lo usa.
+    if (it.hasMag !== undefined && it.hasMag !== null) row.hasMag = it.hasMag === true;
     return row;
 }
 

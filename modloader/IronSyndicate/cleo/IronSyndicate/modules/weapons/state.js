@@ -46,7 +46,9 @@
 // ============================================================================
 
 import { getModuleData, setModuleData } from "../../core/gsis_SaveManager.js";
-import { getFamilyByItemId, mountedMagazineOf, isAttachmentCompatible } from "../../data/gsis_weapons.js";
+import {
+    getFamilyByItemId, mountedMagazineOf, isAttachmentCompatible, otherAttachmentsOf
+} from "../../data/gsis_weapons.js";
 import { weaponChanged } from "./events.js";
 
 export var SAVE_KEY = "Ballistic";
@@ -121,10 +123,22 @@ export function mountedOther(entry) {
 
 // El registro con la forma que espera la UI.
 //
-// Lo unico que se agrega es `hasMag`, DERIVADO, y esta en el objeto que sale de
-// aca y no en el que se guarda. La diferencia importa: la UI necesita distinguir
-// un arma descargada de un arma sin cargador, y esa pregunta tiene respuesta
-// exacta con la lista de accesorios; guardarla seria volver a tener dos fuentes.
+// Lo único que se agrega son datos DERIVADOS, y van en el objeto que sale de aca y
+// no en el que se guarda. La diferencia importa: la UI necesita distinguir un arma
+// descargada de un arma sin cargador, y esa pregunta tiene respuesta exacta con la
+// lista de accesorios; guardarla sería volver a tener dos fuentes para lo mismo.
+//
+// Son dos, y por dos motivos distintos:
+//
+//   hasMag  ¿está el cargador montado? No se puede leer de `attachments` a ojo,
+//           porque un cargador y un silenciador conviven en la misma lista.
+//
+//   otros   los accesorios que NO son cargadores: hoy el silenciador, y lo que se
+//           agregue. Existe para que la página ofrezca "Quitar accesorio" SOLO
+//           cuando hay algo que quitar. Sin esta lista, la página tendría que
+//           deducir de cada id si es cargador —por el prefijo "mag_", que es una
+//           convención de nombres del catálogo— y su documentación dice que no
+//           consulta el catálogo. Que lo mande el que sabe: el modulo de armas.
 export function getEquippedForUI() {
     var equipped = getEquipped();
     var out = {};
@@ -136,6 +150,7 @@ export function getEquippedForUI() {
             id: e.id,
             family: e.family,
             attachments: (e.attachments || []).slice(),
+            otros: otherAttachmentsOf(e.attachments || []),
             salud: e.salud,
             hasMag: hasMagazine(e)   // derivado, no persistido
         };

@@ -38,7 +38,7 @@
 // doOffer). La pagina ve un snapshot que puede tener hasta 400ms, asi que si el
 // modulo no valida, su respuesta seria la de hace un snapshot. Este archivo
 // translates, no decide.
-import { equipWeapon, unequipWeapon } from "../weapons/logic.js";
+import { equipWeapon, unequipWeapon, attachAccessory, detachAccessory } from "../weapons/logic.js";
 import { removeItem, equipMagToBelt, unequipBeltMag } from "../inventory/index.js";
 import { putInTrunk, takeFromTrunk } from "../gsis_Trunk.js";
 import { addToCart, removeFromCart, resetCart, checkout } from "../gsis_WeaponDealer.js";
@@ -139,9 +139,17 @@ export function handleCommand(cmd, ui) {
             // es, y la pagina no sabe ni le importa el numero. `attachments`, si
             // viene, es la configuracion que se quiere; si no viene, el arma se
             // equipa como este, que es lo que hace el boton de primera vez.
+            //
+            // Y se mira el RETORNO antes de loguear. Antes se logueaba "equipo X"
+            // siempre, y con eso el log reportaba una accion que no ocurria: un
+            // armar fallido se leia como un armar exitoso, y durante horas la
+            // busqueda del bug apunto al lado que no era. Un false aqui no es un
+            // error de la pagina —la pagina no ve el motivo— asi que se devuelve
+            // false y el que aviso es el modulo de armas, que si sabe por que.
             case "inv:equip":
                 if (!id) return false;
-                equipWeapon(id, cmd.attachments);
+                var eq = equipWeapon(id, cmd.attachments);
+                if (!eq) return false;
                 log("[UI] equipó " + id +
                     (cmd.attachments && cmd.attachments.length
                         ? " con " + cmd.attachments.join(" + ") : ""));
@@ -151,6 +159,39 @@ export function handleCommand(cmd, ui) {
                 if (cmd.slot === undefined || cmd.slot === null) return false;
                 unequipWeapon(parseInt(cmd.slot, 10));
                 log("[UI] desequipó el slot " + cmd.slot);
+                return true;
+
+            // --- ACCESORIOS ---
+            //
+            // Montar y sacar un accesorio sobre el arma EQUIPADA. Es el unico
+            // camino que existe para el silenciador: la R solo cambia cargadores,
+            // y sin esto los tipos 60 y 61 serian inalcanzables desde el juego.
+            //
+            // El payload trae el SLOT del arma, no el id del arma: el accesorio
+            // que se manda es el que esta en la mochila, y donde se monta lo dice
+            // la pagina, que ya sabe que fila esta equipada. El modulo no busca
+            // "el arma equipada" porque puede haber mas de una.
+            //
+            // Y el id puede venir en cualquiera de los dos namespaces: el modulo
+            // lo canonicaliza, asi que la pagina puede mandar "suppressor" o el
+            // nombre de inventario de un cargador sin tener que saber cual es
+            // cual. Ver canonicalAttachmentId en data/gsis_weapons.js.
+            case "inv:mount":
+            case "inv:unmount":
+                if (!id) return false;
+                if (cmd.slot === undefined || cmd.slot === null) return false;
+                var acc = (what === "inv:mount")
+                    ? attachAccessory(null, parseInt(cmd.slot, 10), id)
+                    : detachAccessory(null, parseInt(cmd.slot, 10), id);
+                // Se mira el resultado y no se loguea a ciegas, por la misma razon
+                // que inv:equip: un comando que se loguea como hecho y no lo fue
+                // manda al que investiga a mirar el archivo equivocado.
+                if (!acc.ok) {
+                    log("[UI] " + what + " fallo: " + acc.motivo);
+                    return false;
+                }
+                log("[UI] " + what + ": " + id + " en el slot " + cmd.slot +
+                    " -> tipo " + acc.weaponType);
                 return true;
 
             case "inv:belt":
