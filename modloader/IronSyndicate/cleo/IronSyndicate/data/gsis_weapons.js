@@ -532,7 +532,7 @@ export var WEAPON_VARIANTS = [
     { weaponType: 63, family: "colt45", attachments: [], parent: 22, clipSize: 8, modelId: 346 },
     { weaponType: 62, family: "colt45", attachments: ["mag_colt45_15"], parent: 22, clipSize: 15, modelId: 15065 },
     { weaponType: 60, family: "colt45", attachments: ["suppressor"], parent: 23, clipSize: 8, modelId: 347 },
-    { weaponType: 61, family: "colt45", attachments: ["mag_colt45_15", "suppressor"], parent: 23, clipSize: 15, modelId: 347 },
+    { weaponType: 61, family: "colt45", attachments: ["mag_colt45_15", "suppressor"], parent: 23, clipSize: 15, modelId: 15066 },
     // --- el resto: su tipo de vanilla, que el motor ya ejecuta ---
     { weaponType: 24, family: "desert_eagle", attachments: [], parent: null, clipSize: 7, modelId: 348 },
     { weaponType: 25, family: "shotgun", attachments: [], parent: null, clipSize: 1, modelId: 349 },

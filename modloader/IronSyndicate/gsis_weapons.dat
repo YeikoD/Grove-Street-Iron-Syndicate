@@ -24,6 +24,39 @@
 #           es una precondicion, no una observacion, asi que CargarArmas la
 #           exige y no confia en el archivo.
 #
+#           EL POOL DE MODELOS, Y POR QUE ESTE ARCHIVO DEPENDE DE UN AJUSTE
+#           EXTERNO. MEDIDO el 30/09, no es teoria:
+#
+#             - El array de CWeaponModelInfo del ejecutable tiene 51 slots
+#               (push 33h en 0x4C5E9B). Con vanilla quedan 50 en uso, asi que
+#               cabe UN modelo propio y el segundo no entra.
+#             - El segundo modelo CRASHEABA el juego, no fallaba en silencio.
+#               AddWeaponModel calcula la ranura con un bump allocator sobre el
+#               contador, y al no haber slot 51 leia memoria de otro pool.
+#             - WeaponModels = unlimited en el .ini NO agranda nada: 'unlimited'
+#               no es un numero, y el .asi lo ignora en silencio.
+#             - WeaponModels = 200 SI reasigna el array completo, y los dos
+#               modelos entran. Tambien mueve los modelos de VANILLA.
+#
+#           CONFIGURACION REQUERIDA, no una preferencia de desarrollo:
+#
+#             modloader\Open Limit Adjuster\III.VC.SA.LimitAdjuster.ini
+#             [SALIMITS] WeaponModels = 200
+#
+#           200 es el valor VALIDADO con los dos modelos actuales (15065 y
+#           15066). No es un minimo teorico ni un maximo: es lo que se probo. Si
+#           se agregan mas modelos, hay que subirlo y volver a probar.
+#
+#           Y lo que GSIS NO hace, que es lo importante: no lee ninguna
+#           direccion de ese pool. Toma la ranura del retorno de
+#           AddWeaponModel() y la verifica contra ms_modelInfoPtrs, que es
+#           estructura del juego. Por eso actualizar el Limit Adjuster no lo
+#           rompe, y por eso no depende de sus offsets internos.
+#
+#           fastman92 limit adjuster sigue APAGADO (.asi.off), y es otro
+#           proyecto: el que agranda el pool es Open Limit Adjuster, que se
+#           carga desde modloader\\ y lee su .ini.
+#
 # padre     22..32, y SIEMPRE de vanilla. Tres motivos, los tres medidos:
 #
 #           1. GetSkillStatIndex (0x743CD0) devuelve -1 para todo lo que este
@@ -168,7 +201,7 @@
 # Quedan 13 slots libres de los 20.
 
 60 23 347 2  8 -1
-61 23 347 2 15 -1
+61 23 15066 2 15 -1
 62 22 15065 2 15 -1
 63 22 346 2  8 -1
 64 30 355 5 75 -1
