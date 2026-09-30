@@ -11,7 +11,7 @@ import { TIMERS } from "./IronSyndicate/core/gsis_Config.js";
 import { initL10n, t } from "./IronSyndicate/core/gsis_L10n.js";
 import { initAll, updateAll, getModules } from "./IronSyndicate/core/gsis_ModuleRegistry.js";
 
-// Efecto: cada módulo se auto-registra al importarse
+// Efecto: cada mГіdulo se auto-registra al importarse
 // Orden de imports = orden de update por frame
 import "./IronSyndicate/modules/gsis_Spawner.js";
 import "./IronSyndicate/modules/gsis_EngineLock.js";
@@ -34,7 +34,7 @@ import "./IronSyndicate/modules/gsis_WeaponSeller.js";
 // DealerPickup / WeaponSeller) y antes de Ballistic / FireButton, que dependen
 // de Items.
 import "./IronSyndicate/modules/gsis_WebInterface.js";
-import "./IronSyndicate/modules/gsis_Ballistic.js";
+import "./IronSyndicate/modules/weapons/index.js";
 import "./IronSyndicate/modules/gsis_FireButton.js";
 
 log("========Grove Street Iron Syndicate=========");

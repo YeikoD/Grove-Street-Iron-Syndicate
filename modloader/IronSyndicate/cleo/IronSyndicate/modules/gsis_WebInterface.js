@@ -82,7 +82,7 @@ import {
 } from "../core/gsis_Input.js";
 import { snapInventory, snapCatalog } from "./gsis_InventorySerialization.js";
 import { currentFlow, closeFlow, openFlow, snapFlow } from "./gsis_FlowSerialization.js";
-import { equipWeapon, unequipWeapon } from "./gsis_Ballistic.js";
+import { equipWeapon, unequipWeapon } from "./weapons/logic.js";
 import { removeItem, equipMagToBelt, unequipBeltMag } from "./gsis_Items.js";
 import { putInTrunk, takeFromTrunk } from "./gsis_Trunk.js";
 import { addToCart, removeFromCart, resetCart, checkout } from "./gsis_WeaponDealer.js";

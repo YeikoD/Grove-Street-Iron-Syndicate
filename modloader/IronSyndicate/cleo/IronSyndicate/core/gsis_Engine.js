@@ -68,26 +68,29 @@ export var W_CLIP = 0x8;                   // CWeapon::m_nAmmoInClip
 export var W_AMMO = 0xC;                   // CWeapon::m_nAmmoTotal
 export var W_TIME = 0x10;                  // CWeapon::m_nTimeForNextShot
 
-// CWeaponInfo. Solo se tocan tres campos, y los tres estan verificados.
+// CWeaponInfo. Solo se tocan dos campos, y los dos estan verificados. Los demas
+// offsets de la ficha NO estan: el mod no lee ni escribe m_nFlags ni m_nAmmoClip,
+// porque la capacidad la escribio el .asi al registrar el tipo y el mod la lee por
+// el native, no por el offset. Ver clipCapacityOf.
 export var INFO_FIRE_TYPE = 0x0;           // m_eWeaponFire (1 = INSTANT_HIT)
 export var INFO_MODEL = 0x0C;              // m_modelId (WeaponLimits.h:365)
-export var INFO_AMMO_CLIP = 0x20;          // m_nAmmoClip (uint16)
-export var INFO_FLAGS = 0x18;              // m_nFlags
 
 // Globales sueltas.
 export var TIMER_ADDR = 0xB7CB84;          // CTimer::m_snTimeInMilliseconds
-// CWeaponInfo::GetWeaponReloadTime (thiscall, uint32). Se llama con
-// Memory.CallMethodReturn porque no hay native que lo exponga.
-export var WEAPONINFO_RELOAD_TIME_FN = 0x743D70;
+// CWeaponInfo::GetWeaponReloadTime (thiscall, uint32) vivia en 0x743D70 y se
+// llamaba por Memory.CallMethodReturn. SE FUE con la anim de recarga: era la
+// duracion de una anim que ya no hay. La direccion queda escrita aca porque es la
+// unica forma de volver a encontrarla, y porque si vuelve a hacer falta va a ser
+// con un try/catch alrededor, no como un export sin consumidor.
+//   0x743D70 = CWeaponInfo::GetWeaponReloadTime(this) -> uint32
 
-// WEAPON_RELOAD: el flag que dice que el arma tiene anim de recarga. Sin el, el
-// arma tiene el estado pero no hay anim que dispare el CWeapon::Reload().
-export var WEAPON_FLAG_RELOAD = 0x1000;
-
-// Estados de CWeapon.
+// Estados de CWeapon. Queda solo READY.
+//
+// Los otros dos se van con la anim de recarga. OUT_OF_AMMO (3) lo dejaba un mod de
+// arma a cero, y es el estado en el que CWeapon::Fire hace return false: el arma
+// tiene balas y no dispara. El codigo nuevo escribe READY explicitamente cada
+// vez que da un arma justamente para no heredar ese estado.
 export var WEAPONSTATE_READY = 0;
-export var WEAPONSTATE_RELOADING = 2;
-export var WEAPONSTATE_OUT_OF_AMMO = 3;    // Fire() tambien la bloquea
 
 // Las 4 skills de un arma. weapon.dat repite la misma fila en las cuatro.
 // SKILL_COUNT si se usa afuera: quien recorre "las cuatro filas de este tipo"
@@ -110,7 +113,7 @@ var SKILL_STD = 1;                  // la que representa al arma "normal"
 // Esta funcion estaba copiada tres veces en el codigo (Ballistic:987,
 // Ballistic:1202 y FireButton:54). Las tres eran iguales, y las tres iban a
   // dejar de estarlo en cuanto una se tocara. Aca esta una sola vez.
-export function infoAddress(handle) {
+function infoAddress(handle) {
     if (!handle) return 0;
     if (typeof handle === "number") return handle;
     if (typeof handle.address === "number") return handle.address;
@@ -129,7 +132,6 @@ export function infoAddress(handle) {
 function readI32(addr) { return Memory.ReadI32(addr, false); }
 function readU8(addr) { return Memory.ReadU8(addr, false); }
 function writeI32(addr, valor) { Memory.WriteI32(addr, valor, false); }
-function writeU16(addr, valor) { Memory.WriteU16(addr, valor, false); }
 
 // Un native que tira no puede tumbar un modulo. Se registra UNA vez por nombre
 // para que el log diga "este native no esta" sin llenar 3000 lineas por frame.
@@ -197,10 +199,11 @@ export function isCharInAnyCar(char) {
     return !!nativeSeguro("IS_CHAR_IN_ANY_CAR", function () { return native("IS_CHAR_IN_ANY_CAR", char); }, false);
 }
 
-// El reloj del juego, en milisegundos. Lo usa la recarga para medir su deadline.
-export function timerMs() {
-    return nativeSeguro("timer", function () { return readI32(TIMER_ADDR); }, 0);
-}
+// El reloj del juego, en milisegundos.
+//
+// SE QUITA. Lo usaba la anim de recarga, para medir el deadline de su watchdog.
+// Sin anim no hay deadline. Si alguna vez hace falta, es
+// `Memory.ReadI32(0xB7CB84, false)` y la direccion esta dos lineas mas abajo.
 
 // ============================================================================
 // LOS SLOTS DEL PED
@@ -250,27 +253,26 @@ export function addressOfType(ped, weaponType) {
 }
 
 // --- campos de un CWeapon en memoria ---
+//
+// SE QUITAN: `slotState`, `setSlotNextShotTime`, `fillMagazine` y `unload`.
+//
+//   slotState y setSlotNextShotTime eran de la anim de recarga, que ya no existe.
+//   Los leia y escribia el watchdog para cerrar a mano una recarga que el motor
+//   no cerraba. Sin anim no hay nada que cerrar.
+//
+//   fillMagazine y unload eran "montar un cargador encima del arma" y "sacarlo",
+//   que es exactamente el modelo viejo. Un cargador es un accesorio: montarlo
+//   cambia de variante, y eso es un tipo nuevo, no un campo de esta fila.
+//
+// Lo que QUEDA del CWeapon es lo unico que el motor necesita que se este bien:
+// el tipo, el clip, el total y el estado en READY.
 
 export function slotClip(slotAddr) { return slotAddr ? readI32(slotAddr + W_CLIP) : 0; }
 export function slotTotal(slotAddr) { return slotAddr ? readI32(slotAddr + W_AMMO) : 0; }
-export function slotState(slotAddr) { return slotAddr ? readI32(slotAddr + W_STATE) : 0; }
 
 export function setSlotClip(slotAddr, n) { if (slotAddr) writeI32(slotAddr + W_CLIP, n); }
 export function setSlotTotal(slotAddr, n) { if (slotAddr) writeI32(slotAddr + W_AMMO, n); }
 export function setSlotState(slotAddr, n) { if (slotAddr) writeI32(slotAddr + W_STATE, n); }
-export function setSlotNextShotTime(slotAddr, n) { if (slotAddr) writeI32(slotAddr + W_TIME, n); }
-
-// Cargar un cargador entero en el arma: el clip y el total, los dos.
-export function fillMagazine(slotAddr, capacity) {
-    if (!slotAddr) return;
-    setSlotClip(slotAddr, capacity);
-    setSlotTotal(slotAddr, capacity);
-}
-
-// Vaciar el arma: 0/0.
-export function unload(slotAddr) {
-    fillMagazine(slotAddr, 0);
-}
 
 // El arma en la mano del jugador, leida con los natives del juego.
 // Devuelve { char, slot, type, clip, ammo } o null si un native no responde.
@@ -385,7 +387,7 @@ export function setAmmo(char, weaponType, ammo) {
 
 // La direccion de la CWeaponInfo de un (tipo, skill). null si el native no
 // responde o no devuelve nada.
-export function weaponInfoAddress(weaponType, skill) {
+function weaponInfoAddress(weaponType, skill) {
     try {
         return infoAddress(native("GET_WEAPONINFO", weaponType, skill));
     } catch (e) {
@@ -408,36 +410,54 @@ export function infoFireType(infoAddr) {
     return readI32(infoAddr + INFO_FIRE_TYPE);
 }
 
-export function infoFlags(infoAddr) {
-    if (!infoAddr) return 0;
-    return nativeSeguro("GET_WEAPONINFO_FLAGS", function () {
-        return native("GET_WEAPONINFO_FLAGS", infoAddr);
-    }, 0) || 0;
-}
-
 // -----------------------------------------------------------------------
 // LA CAPACIDAD
 // -----------------------------------------------------------------------
-// SE LEE, NO SE ESCRIBE. Ver la nota de la Fase 0: el unico lugar del sistema
-// donde existe una capacidad es la fila del .dat, que escribe el .asi al
-// registrar el tipo. El mod unicamente la consulta para acotar la municion que le
-// pasa a SET_CHAR_AMMO.
+// SE LEE, NO SE ESCRIBE. Y esta es LA capacidad del sistema.
 //
-// Y se lee por el native, no por el offset INFO_AMMO_CLIP: la fila de un tipo de
+// Donde existe una capacidad en el sistema es en la fila del .dat, que escribe el
+// .asi cuando registra el tipo. Aca no hay una segunda: la capacidad se LEE con
+// GET_WEAPONINFO_TOTAL_CLIP y se usa para acotar la municion que se le pasa al
+// give. Nunca se escribe.
+//
+// Y se lee por el native, no por el offset de m_nAmmoClip: la fila de un tipo de
 // plugin la escribio el .asi, no el juego, asi que el layout es el que el plugin
 // uso. GET_WEAPONINFO_TOTAL_CLIP es el unico que responde en los dos casos.
+//
+// ---------------------------------------------------------------------------
+// LO QUE HABIA ACA Y YA NO ESTA
+// ---------------------------------------------------------------------------
+//   TEMPORAL_writeClipCapacity  escribia m_nAmmoClip en las cuatro filas de
+//     skill de la tabla GLOBAL. Eso cambia la capacidad DEL TIPO ENTERO para todos
+//     los que lo usen, NPCs incluidos: llevar el tambor le ponia 75 balas a cada
+//     AK del juego. Con eso, el reconciliador recortaba un tambor a 30 en el
+//     frame siguiente, porque el segundo lugar del que se leia se llenaba con el
+//     valor por defecto de la familia. Son las dos mitetas de un mismo error.
+//
+//   clipCapacityForPed  le preguntaba al PED en que skill tenia el arma, para
+//     leer la capacidad. Y GET_CHAR_WEAPON_SKILL no tiene dato para un tipo que
+//     dio de alta un .asi, porque el engine no lo conoce: contestaba 0 sin decir
+//     nada. Por eso existia tambien la version con la fila STD fija
+//     (clipCapacityForPlugin), y por eso `_capacityByType` decidia entre las dos
+//     con una cadena de `if`. Las dos contestaban lo mismo. Queda una.
+//
+//   infoFlags  servia para el flag WEAPON_RELOAD, que era la guarda de la anim de
+//     recarga. Sin anim, no hay flag que mirar.
+//
+//   reloadTimeMs  era GetWeaponReloadTime, que solo se usaba para saber cuanto
+//    ibar la anim.
+//
+// Las dos primeras se fueron con la anim de recarga; la tercera con las dos
+// fuentes de capacidad. Nada de eso se reemplaza: son el segundo modelo.
 
-// La capacidad de la fila STD de ese tipo.
+// La capacidad de la fila STD de ese tipo. Que sea la STD y no "la del ped" es
+// lo que hace que un tipo de plugin tambien responda: weapon.dat repite el mismo
+// m_nAmmoClip en las cuatro filas de un arma con skills, asi que las cuatro dan el
+// mismo numero, y la capacidad de un cargador es una propiedad del ARMA y no
+// depende de en que punta de la escala este el jugador.
 export function clipCapacityOf(weaponType) {
-    return clipCapacityOfSkill(weaponType, SKILL_STD);
-}
-
-// La capacidad de una fila concreta de ese tipo. No exportada: la capacidad de
-// un arma no depende de en que skill este el jugador, asi que el unico caso real
-// es la fila STD, que es clipCapacityOf.
-function clipCapacityOfSkill(weaponType, skill) {
     try {
-        var info = native("GET_WEAPONINFO", weaponType, skill);
+        var info = native("GET_WEAPONINFO", weaponType, SKILL_STD);
         if (!info) return 0;
         return native("GET_WEAPONINFO_TOTAL_CLIP", info) || 0;
     } catch (e) {
@@ -445,56 +465,9 @@ function clipCapacityOfSkill(weaponType, skill) {
     }
 }
 
-// La capacidad que el motor le ve a este tipo PARA ESTE PED.
-//
-// No es lo mismo que clipCapacityOf: esta le pregunta al ped en que skill tiene
-// el arma, y esa pregunta NO tiene respuesta para un tipo que dio de alta un
-// plugin, porque el engine no lo conoce. Por eso existen las dos y por eso el
-// modulo de armas decide cual usar. Cuando quede una sola, esta se va.
-//
-// Y la capacidad de un cargador es una propiedad del ARMA, no del jugador: no
-// depende de en que punta de la escala este, y por eso clipCapacityOf consulta
-// la fila STD fijo en vez de preguntarle al ped. weapon.dat repite el mismo
-// m_nAmmoClip en las cuatro filas de un arma con skills, asi que las cuatro dan
-// el mismo numero.
-export function clipCapacityForPed(char, weaponType) {
-    try {
-        var c = char || playerChar();
-        if (!c) return 0;
-        var skill = native("GET_CHAR_WEAPON_SKILL", c, weaponType) || 0;
-        var info = native("GET_WEAPONINFO", weaponType, skill);
-        if (!info) return 0;
-        return native("GET_WEAPONINFO_TOTAL_CLIP", info) || 0;
-    } catch (e) {
-        return 0;
-    }
-}
-
-// -----------------------------------------------------------------------
-// LA UNICA ESCRITURA A LA CWeaponInfo DEL MOD. TEMPORAL.
-// -----------------------------------------------------------------------
-// Escribir m_nAmmoClip cambia la capacidad DEL TIPO ENTERO, para las cuatro
-// skills y para todos los que lo usen, NPCs incluidos. Mientras el jugador lleve
-// el tambor, los enemigos con esa arma tambien entran.
-//
-// Eso choca de frente con el modelo de 3 capas, donde la capacidad la decide la
-// variante y la escribe el .asi. Esta funcion existe porque el modulo de armas
-// todavia la usa; se borra en la fase 3, y por eso esta aislada y con el nombre
-// diciendo que es temporal. Si alguien la llama desde un modulo nuevo, esta
-// usando la parte del sistema que va a desaparecer.
-export function TEMPORAL_writeClipCapacity(weaponType, capacity, skill) {
-    try {
-        var addr = weaponInfoAddress(weaponType, skill);
-        if (!addr) return false;
-        writeU16(addr + INFO_AMMO_CLIP, capacity);
-        return true;
-    } catch (e) {
-        return false;
-    }
-}
-
-// Escribir m_modelId en las cuatro filas de skill. NO es temporal: es como el
-// mod dice que un tipo dibuja un modelo propio.
+// Escribir m_modelId en las cuatro filas de skill. NO es la capacidad: es como el
+// mod dice que un tipo dibuja un modelo propio, y existe solo para el camino de
+// modelos propios, que hoy esta apagado (WEAPON_MODELS_ENABLED = false).
 //
 // m_modelId2 (0x10) NO se toca: en weapon.dat es -1 para la pistola y el juego lo
 // usa para un segundo modelo en armas de melee combinado. Dejarlo como lo clono
@@ -511,17 +484,6 @@ export function writeModelId(weaponType, modelId) {
         } catch (e) { /* sin memoria: el modelo no se escribe */ }
     }
     return n > 0;
-}
-
-// CWeaponInfo::GetWeaponReloadTime, en ms. No hay native que lo exponga, asi que
-// se llama por su direccion. Devuelve 0 si no contesta.
-export function reloadTimeMs(infoAddr) {
-    if (!infoAddr) return 0;
-    try {
-        return Memory.CallMethodReturn(WEAPONINFO_RELOAD_TIME_FN, infoAddr, 0, 0);
-    } catch (e) {
-        return 0;
-    }
 }
 
 // ============================================================================

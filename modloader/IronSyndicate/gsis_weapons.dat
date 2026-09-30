@@ -91,11 +91,20 @@
 #   colt45 + cargador 15              62     346     22     15        SI
 #   colt45 + silenciador              60     347     23      8        SI
 #   colt45 + silenciador + cargador 15 61     347     23     15        SI
+#   ak47 + tambor                     64     355     30     75        SI
+#   m4 + Lancer                       65     356     31     40        SI
+#   m4 + tambor                       66     356     31     60        SI
 #
-# POR QUE LAS 4, CUANDO ANTES ERAN 2
+# Y las 16 familias que usan su tipo de VANILLA, que NO necesitan fila porque el
+# motor ya las ejecuta: desert_eagle 24, shotgun 25, sawed_off 26,
+# combat_shotgun 27, micro_uzi 28, mp5 29, ak47 30, m4 31, tec9 32,
+# country_rifle 33, sniper_rifle 34, rpg 35, heat_seeker 36, flamethrower 37,
+# minigun 38.
+#
+# POR QUE LA COLT TIENE CUATRO Y LAS OTRAS UNA
 # ----------------------------------------------------------------------------
-# Antes eran 2 porque la base colt45 usaba el 22 de vanilla y el silenciado
-# usaba el 23 de vanilla. Las dos cosas seolvaron con una regla que ya no
+# Antes eran 2 para la Colt porque su base usaba el 22 de vanilla y el silenciado
+# usaba el 23 de vanilla. Las dos cosas se resolvieron con una regla que ya no
 # alcanza:
 #
 #   - El 22 de vanilla trae 17 balas, no 8. Sin el parche global de
@@ -114,17 +123,36 @@
 # la linea entre un silenciador que funciona y uno que no cambia nada.
 #
 # ============================================================================
-# LAS FILAS
+# LAS 7 FILAS
 # ============================================================================
-# El orden de las 60..63 es el de la familia y no el numerico, para que se lea
-# como el player's lo ve.
+# El orden es el de la familia y no el numerico, para que se lea como el jugador
+# lo ve.
 #
-# 60 = colt45 + silenciador.           padre 23 (la silenciada de vanilla)
-# 61 = colt45 + silenciador + mag 15.  padre 23
-# 62 = colt45 + cargador 15.           padre 22 (la Colt de vanilla)
-# 63 = colt45.                         padre 22
+# 60..63  la Colt .45, la unica familia con cuatro configuraciones
+# 64..66  los tres cargadores que cambian la capacidad de su familia
+#
+# POR QUE 64, 65 Y 66 TIENEN SU PROPIO TIPO, Y LOS OTROS CARGADORES NO
+# ----------------------------------------------------------------------------
+# Un cargador cuesta un slot del rango SOLO si al montarlo el motor tiene que
+# ejecutar algo distinto. O sea, si cambia la capacidad respecto de la familia:
+#
+#   mag_ak47 (30) sobre un AK-47 (30)   -> mismo tipo 30. No cuesta nada.
+#   mag_ak47_drum (75) sobre un AK-47   -> tipo 64. Cuesta uno.
+#   mag_m4_lancer (40) sobre un M4 (30) -> tipo 65. Cuesta uno.
+#   mag_m4_drum (60) sobre un M4 (30)   -> tipo 66. Cuesta uno.
+#   mag_colt45_15 (15) sobre una Colt (8) -> tipo 62. Cuesta uno.
+#
+# El padre de los tres es el tipo de VANILLA de la propia familia (30 y 31), no el
+# 22. Clonar del mismo arma y cambiar solo el cargador es lo que hace que hereden
+# la animacion, el sonido y la mira correctos; con un padre equivocado el arma
+# dispara bien y suena como otra cosa, que es el fallo mas dificil de ver.
+#
+# Quedan 13 slots libres de los 20.
 
-60 23 347 2 8 -1
+60 23 347 2  8 -1
 61 23 347 2 15 -1
 62 22 346 2 15 -1
-63 22 346 2 8 -1
+63 22 346 2  8 -1
+64 30 355 5 75 -1
+65 31 356 5 40 -1
+66 31 356 5 60 -1

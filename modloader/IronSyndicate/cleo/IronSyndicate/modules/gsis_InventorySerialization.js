@@ -17,7 +17,8 @@
 
 import { MISC } from "../core/gsis_Config.js";
 import { getItems, getTotalWeight, getBelt } from "./gsis_Items.js";
-import { getEquipped, getEquippedAmmo } from "./gsis_Ballistic.js";
+import { getEquippedForUI } from "./weapons/state.js";
+import { getEquippedAmmo } from "./weapons/logic.js";
 import { ITEMS } from "../data/gsis_item_data.js";
 import { WEB_ICONS, WEB_CAT_ORDER, WEB_CAT_LABELS } from "../data/gsis_web_data.js";
 import { itemRow } from "./gsis_ItemRow.js";
@@ -96,17 +97,21 @@ function buildCats() {
 function equipadasSnap() {
     var out = [];
 
-    var eq = getEquipped();
+    // getEquippedForUI() y no getEquipped(): la diferencia es `hasMag`, que sale
+    // DERIVADO de la lista de accesorios y no esta guardado. La UI lo necesita
+    // para distinguir un arma descargada de un arma sin cargador, y esa pregunta
+    // tiene respuesta exacta con la lista; guardarla seria volver a tener dos
+    // fuentes para la misma cosa.
+    var eq = getEquippedForUI();
     for (var slot in eq) {
         if (!eq[slot]) continue;
-        // getEquipped() no guarda el ammo, asi que se lee del ped. null si no se
+        // El registro no guarda el ammo, asi que se lee del ped. null si no se
         // pudo leer, y null es lo que ammoCell necesita para NO invente un
         // cargador lleno: esVivo desactiva el fallback.
         var live = getEquippedAmmo(slot);
-        // salud y hasMag SI estan en el registro (Ballistic.equipped[slot]), asi
-        // que viajan tal cual. hasMag antes no viajava y la fila no podia
-        // distinguir un arma descargada de un cargador vacio montado —las dos
-        // salian "0/17"—; ahora ademas lo dice el tooltip ("sin cargador").
+        // `salud` viene del registro. `hasMag` viene derivado, y antes no viajaba:
+        // la fila no podia distinguir un arma descargada de un cargador vacio
+        // montado -las dos salian "0/17"-; ahora ademas lo dice el tooltip.
         var w = itemRow({
             id: eq[slot].id,
             qty: 1,
