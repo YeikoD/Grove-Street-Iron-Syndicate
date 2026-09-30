@@ -51,15 +51,18 @@
 // por tanto no pesa.
 // Test: al cambiar de slot → showTextBox (sin rellenar munición).
 // Init: syncClipSizes() → CWeaponInfo.m_nAmmoClip = WEAPON_DATA.clipSize.
-// Nativos CLEO+: GET_CURRENT_CHAR_WEAPONINFO (0E83), GET_WEAPONINFO (0E84),
-// GET_WEAPONINFO_SLOT (0E8A), GET_WEAPONINFO_TOTAL_CLIP (0E88),
-// GET_CURRENT_CHAR_WEAPON (0470), GET_AMMO_IN_CHAR_WEAPON (041A),
-// SET_CHAR_AMMO (017B), GET_PED_POINTER (0A96), IS_CHAR_DEAD (0118),
-// IS_PLAYER_CONTROL_ON (09E7), GET_WEAPONINFO_FLAGS (0E86),
-// GIVE_WEAPON_TO_CHAR (01B2), REMOVE_WEAPON_FROM_CHAR (0555),
-// HAS_CHAR_GOT_WEAPON (0491), SET_CURRENT_CHAR_WEAPON (01B9),
-// REQUEST_MODEL (00A7), LOAD_ALL_MODELS_NOW (0952).
-// Memory.WriteU16 → CWeaponInfo+0x20 (m_nAmmoClip).
+//
+// ============================================================================
+// LA CAPA NATIVA NO ESTA ACA
+// ============================================================================
+// Este modulo ya no llama a native() ni toca memoria. Todo eso vive en
+// core/gsis_Engine.js: los offsets de CWeapon y de CWeaponInfo, el puntero del
+// ped, la CWeaponInfo de un tipo, la capacidad que el motor le ve, y los natives
+// de arma. Antes eran 30 llamadas y 9 offsets declarados en este archivo, con
+// FireButton teniendo sus propias copias de cinco de ellos.
+//
+// Que quede aca un native("GIVE_WEAPON_TO_CHAR") o un Memory.WriteI32 es un bug:
+// significa que el numero vuelve a estar en dos lugares.
 // ============================================================================
 
 import { register } from "../core/gsis_ModuleRegistry.js";
@@ -68,34 +71,25 @@ import { registerModule, getModuleData, setModuleData } from "../core/gsis_SaveM
 import { KEYS, TIMERS, SPECIAL_MODELS, PLUGIN_WEAPON_RANGE } from "../core/gsis_Config.js";
 import { keyJustPressed } from "../core/gsis_Input.js";
 import { t } from "../core/gsis_L10n.js";
-    import { WEAPON_DATA, WEAPON_ID_NATIVE_MAX, CLIP_SOURCE_ENGINE, MODEL_SOURCE_SPECIAL, getModelIdByWeaponId, getModelSourceByWeaponId, getMagIdByWeaponId, getMagIdsByWeaponId, getClipSizeByItemId, getClipSizeByWeaponId, getWeaponByItemId, getWeaponByWeaponId } from "../data/gsis_weapon_data.js";
+import * as Engine from "../core/gsis_Engine.js";
+import { WEAPON_DATA, WEAPON_ID_NATIVE_MAX, CLIP_SOURCE_ENGINE, MODEL_SOURCE_SPECIAL, getModelIdByWeaponId, getModelSourceByWeaponId, getMagIdByWeaponId, getMagIdsByWeaponId, getClipSizeByItemId, getClipSizeByWeaponId, getWeaponByItemId, getWeaponByWeaponId } from "../data/gsis_weapon_data.js";
 import { SALUD_MAX, clampSalud } from "../data/gsis_item_data.js";
 // El sistema de familias. Aca esta la costura entre "el item que tiene el
-// jugador" (colt45, uno solo) y "el weaponType que ejecuta el motor" (22, 60, 23
+// jugador" (colt45, uno solo) y "el weaponType que ejecuta el motor" (63, 62, 60
 // o 61 segun la configuracion). Ver la seccion CONFIGURACION DE ARMA.
 import { resolveWeaponType, getVariantProfile, getVariantByWeaponType,
          isAttachmentCompatible, getAttachmentById, getPluginWeaponTypes,
          validateVariants, WEAPON_VARIANTS } from "../data/gsis_weapon_variants.js";
 
-var _CLIP_OFF = 0x20; // m_nAmmoClip en CWeaponInfo (uint16)
-// m_modelId en CWeaponInfo (int32). 0x0C sale de la cabecera de FLA
-// (WeaponLimits.h:365), no de un SDK.
-var _MODEL_OFF = 0x0C;
-var _WEAPONS_OFF = 0x5A0; // CPed::m_aWeapons (CWeapon[13])
-var _SLOT_OFF = 0x718; // CPed::m_nSelectedWepSlot (uint8)
-var _SLOT_COUNT = 13; // slots de arma en CPed::m_aWeapons
-var _WEAPON_SIZE = 28; // sizeof(CWeapon)
-var _W_STATE = 0x4; // CWeapon::m_nState (2 = RELOADING)
-var _W_CLIP = 0x8; // CWeapon::m_nAmmoInClip
-var _W_AMMO = 0xC; // CWeapon::m_nAmmoTotal
-var _W_TIME = 0x10; // CWeapon::m_nTimeForNextShot
-var _TIMER_ADDR = 0xB7CB84; // CTimer::m_snTimeInMilliseconds
-var _RELOAD_TIME_FN = 0x743D70; // CWeaponInfo::GetWeaponReloadTime (thiscall, uint32)
-var _STATE_RELOADING = 2;
-var _STATE_OUT_OF_AMMO = 3; // Fire() tambien la bloquea (mod de arma a cero)
+// Los slots del ped, del engine. 13, porque CPed::m_aWeapons es CWeapon[13].
+var _SLOT_COUNT = Engine.WEAPON_SLOT_COUNT;
+// El estado RELOADING, del engine. 2.
+var _STATE_RELOADING = Engine.WEAPONSTATE_RELOADING;
+// El estado OUT_OF_AMMO, del engine. 3. Fire() tambien bloquea en el.
+var _STATE_OUT_OF_AMMO = Engine.WEAPONSTATE_OUT_OF_AMMO;
 var _NO_ANIM = [37, 38]; // en catalogo pero sin anim de recarga (lanzallamas, minigun)
 var _lastSlot = null;
-var _reloadPending = null; // { ped, weapon, deadline, cap } recarga nossa en curso
+var _reloadPending = null; // { ped, weapon, deadline, cap } recarga nuestra en curso
 // Tipos de plugin ya vistos por el reconciliador, para avisar una vez y no cada
 // frame. El reconciliador corre por frame, asi que sin esto el log se llena.
 var _foreignVistos = {};
@@ -128,33 +122,21 @@ function _isCustomWeaponId(weaponId) {
 // API - arma actual, cargador, clips del catalogo
 // ============================================================================
 
-// Lee slot / type / totalClip / ammo del arma seleccionada de CJ.
-// Devuelve { char, slot, type, clip, ammo } o null si falla un native.
-function _readSlotAndType() {
-    try {
-        var c = new Player(0).getChar();
-        var weaponInfo = native("GET_CURRENT_CHAR_WEAPONINFO", c);
-        if (!weaponInfo) return null;
-        var slot = native("GET_WEAPONINFO_SLOT", weaponInfo);
-        if (slot === null || slot === undefined) return null;
-        var clip = native("GET_WEAPONINFO_TOTAL_CLIP", weaponInfo);
-        var weaponType = native("GET_CURRENT_CHAR_WEAPON", c);
-        var ammo = native("GET_AMMO_IN_CHAR_WEAPON", c, weaponType);
-        return { char: c, slot: slot, type: weaponType, clip: clip, ammo: ammo };
-    } catch (e) {
-        return null;
-    }
-}
+// ============================================================================
+// API - arma actual, cargador, clips del catalogo
+// ============================================================================
+// Antes aca habia una funcion por cada native: _playerChar, _pedPointer,
+// _weaponAddrByType, _readSlotAndType, setMagazine. Eran cinco traducciones de
+// una linea, y cada una era un lugar mas donde un native podia estar mal. Ahora
+// se llaman directo en Engine, que es donde vive el native.
 
 // setMagazine — pone la munición TOTAL del arma = balas del cargador montado.
 // El clip lo rellena CWeapon::Reload() al terminar la anim (y Fire lo
 // autocorrige desde el total si se interrumpe).
 function setMagazine(w, ammo) {
     if (!w || !w.char) return;
-    try {
-        // 017B SET_CHAR_AMMO <char> <weaponType> <ammo>
-        native("SET_CHAR_AMMO", w.char, w.type, ammo);
-    } catch (e) { /* native fallido: el engine rellena desde el total */ }
+    // 017B SET_CHAR_AMMO <char> <weaponType> <ammo>
+    Engine.setAmmo(w.char, w.type, ammo);
 }
 
 // ============================================================================
@@ -189,14 +171,14 @@ export function getEquippedAmmo(slot) {
     if (entry.hasMag === false) return 0;
     var wd = _weaponDefByItemId(entry.id);
     if (!wd) return null;
-    var c = _playerChar();
+    var c = Engine.playerChar();
     if (!c) return null;
     try {
         // Por el TIPO QUE ESTA MONTADO, no por el de la familia. Una colt45 con
         // cargador de 15 esta en el slot con el weaponType 60, y preguntar por el
         // 22 (que es lo que dice wd.weaponId) devuelve 0: la fila de municion del
         // arma muestra guion de balas en una pistola que tiene 15.
-        return native("GET_AMMO_IN_CHAR_WEAPON", c, _tipoEnPies(entry, wd)) || 0;
+        return Engine.getAmmo(c, _tipoEnPies(entry, wd)) || 0;
     } catch (e) {
         return null;
     }
@@ -362,19 +344,19 @@ function _aplicarConfiguracion(charId, slot, entry, family, attachments, que) {
     // La municion se lee por el TIPO NUEVO de la columna? No: por el viejo. Es
     // la que tiene el ped ahora, y es la que hay que conservar.
     var ammo = 0;
-    var c = _playerChar();
+    var c = Engine.playerChar();
     if (c && viejo !== null) {
-        try { ammo = native("GET_AMMO_IN_CHAR_WEAPON", c, viejo) || 0; } catch (e) { ammo = 0; }
+        try { ammo = Engine.getAmmo(c, viejo) || 0; } catch (e) { ammo = 0; }
     }
 
     // Cambio de tipo: el motor no tiene "cambiar el arma", tiene "dar" y "quitar".
     if (viejo !== null) {
-        try { native("REMOVE_WEAPON_FROM_CHAR", c, viejo); } catch (e) { }
+        try { Engine.removeWeapon(c, viejo); } catch (e) { }
     }
     _ensureWeaponModel(cfg.weaponType);
     try {
-        native("GIVE_WEAPON_TO_CHAR", c, cfg.weaponType, ammo);
-        native("SET_CURRENT_CHAR_WEAPON", c, cfg.weaponType);
+        Engine.giveWeapon(c, cfg.weaponType, ammo);
+        Engine.setCurrentWeapon(c, cfg.weaponType);
     } catch (e) {
         return { ok: false, motivo: "el motor no acepto el tipo " + cfg.weaponType };
     }
@@ -382,12 +364,12 @@ function _aplicarConfiguracion(charId, slot, entry, family, attachments, que) {
     // Capacidad de la configuracion nueva ANTES de normalizar: el motor ya tiene
     // una CWeaponInfo con el clip del .asi, y _aplicarCapacidad lo pone al del
     // cargador que quedo.
-    var addr = _weaponAddrByType(_pedPointer(c), cfg.weaponType);
+    var addr = Engine.addressOfType(Engine.pedPointer(c), cfg.weaponType);
     if (addr) {
         var cap = getClipSizeByWeaponId(cfg.weaponType) || 0;
         if (cap > 0) {
-            Memory.WriteI32(addr + _W_CLIP, Math.min(ammo, cap), false);
-            Memory.WriteI32(addr + _W_AMMO, ammo, false);
+            Engine.setSlotClip(addr, Math.min(ammo, cap));
+            Engine.setSlotTotal(addr, ammo);
         }
     }
 
@@ -518,19 +500,6 @@ function _ballisticData() {
     return data;
 }
 
-// Puntero del ped, o 0. Lo usan las operaciones que escriben en CWeapon y
-// necesitan la direccion del ped sin pasar por un charId.
-function _pedPointer(charId) {
-    try {
-        var c = (charId !== undefined && charId !== null) ? charId : _playerChar();
-        if (c === null || c === undefined) return 0;
-        var p = native("GET_PED_POINTER", c);
-        return p || 0;
-    } catch (e) {
-        return 0;
-    }
-}
-
 // Ficha del catalogo por itemId (null si no es arma equipable).
 // El filtro de "equipable" es tener weaponId y slot: un cargador no tiene de
 // las dos, y un slot 0/undefined tambien lo saca. Ver gsis_WEAPONS.md §3.4
@@ -550,22 +519,6 @@ function _itemIdByWeaponId(weaponType) {
 }
 
 // Char del jugador o null
-function _playerChar() {
-    try {
-        return new Player(0).getChar();
-    } catch (e) {
-        return null;
-    }
-}
-
-// Dirección de CWeapon de un weaponId en el ped (0 si no esta montado)
-function _weaponAddrByType(ped, weaponType) {
-    for (var i = 1; i < _SLOT_COUNT; i++) {
-        var addr = ped + _WEAPONS_OFF + i * _WEAPON_SIZE;
-        if (Memory.ReadI32(addr, false) === weaponType) return addr;
-    }
-    return 0;
-}
 
 // Un modelo custom de arma tiene que estar en SU rango, que no es el de los
 // personajes: un ID de modelo es un puntero a un modelo, no una etiqueta, y si
@@ -781,7 +734,7 @@ function _pasoCargaModelos() {
         var mb = c.tabla[c.nombres[c.i]];
         var id = 0;
         try {
-            id = native("LOAD_SPECIAL_MODEL", c.nombre, _nombreTxd(c.nombre)) | 0;
+            id = Engine.loadSpecialModel(c.nombre, _nombreTxd(c.nombre)) | 0;
         } catch (e) {
             log("[ModelosArma] ERROR LOAD_SPECIAL_MODEL '" + c.nombre + "': " + e.message);
             id = 0;
@@ -828,9 +781,17 @@ function _pasoCargaModelos() {
 
     for (; c.c < candidatos.length; c.c++) {
         var limpio = candidatos[c.c].replace(/^.*[\\/]/, "");   // el juego baja mayusculas
-        var ok = false;
-        try { ok = native("IS_MODEL_AVAILABLE_BY_NAME", limpio); }
-        catch (e) { log("[ModelosArma] ERROR IS_MODEL_AVAILABLE_BY_NAME: " + e.message); }
+        // Engine.isModelAvailableByName trae su propio try/catch, asi que un native
+        // que no responda es un "no" y no una excepcion que corte la cola de carga.
+        // Eso cambia DONDE se avisa, no SI: el aviso de "este native no respondio"
+        // estaba aca y sigue estando, con el nombre del candidato que se estaba
+        // probando, que es el dato que hace falta para encontrar el archivo.
+        var estabaRoto = !!Engine.failedNatives()["IS_MODEL_AVAILABLE_BY_NAME"];
+        var ok = Engine.isModelAvailableByName(limpio);
+        if (!ok && !estabaRoto && Engine.failedNatives()["IS_MODEL_AVAILABLE_BY_NAME"]) {
+            log("[ModelosArma] ERROR IS_MODEL_AVAILABLE_BY_NAME: no respondio para '" +
+                limpio + "'. El resto de los candidatos se prueban igual.");
+        }
         c.probados.push(limpio + (ok ? " <- SI" : ""));
         if (ok) {
             c.nombre = limpio;
@@ -838,6 +799,7 @@ function _pasoCargaModelos() {
             log("[ModelosArma] " + nombre + ": encontrado como '" + limpio + "', cargando...");
             return;
         }
+    }
     }
 }
 
@@ -875,25 +837,12 @@ function _modelIdDeTipo(weaponType) {
 }
 
 // Escribe m_modelId (offset 0x0C) en la CWeaponInfo de las cuatro skills.
-//
-// 0x0C es el offset del modelo en CWeaponInfo, confirmado en la cabecera de FLA
-// (WeaponLimits.h:365, `int m_modelId`). Los offsets de este bloque salen de ahi
-// y no de un SDK.
-//
-// m_modelId2 (0x10) NO se toca: en weapon.dat es -1 para la pistola y el juego
-// lo usa para un segundo modelo en armas de melee combinado. Dejarlo como lo
-// clono la tabla es lo que corresponde.
+// El offset y el por que m_modelId2 no se toca estan en Engine.writeModelId:
+// los offsets de CWeaponInfo viven alla, y un offset con su justificacion
+// duplicada es un offset que diverge.
 function _escribirModelId(weaponType, modelId) {
-    if (!modelId) return false;
-    var n = 0;
-    for (var skill = 0; skill <= 3; skill++) {
-        var info = _weaponInfoAddr(weaponType, skill);
-        if (!info) continue;
-        try {
-            Memory.WriteI32(info + _MODEL_OFF, modelId, false);
-            n++;
-        } catch (e) { /* sin memoria: el modelo no se escribe */ }
-    }
+    return Engine.writeModelId(weaponType, modelId);
+}
     return n > 0;
 }
 
@@ -975,41 +924,19 @@ function _validateWeaponModels() {
 // se pudo pedir; el give sigue igual (un modelo no cargado no es razon para
 // negarle el arma al jugador), pero quien llame puede saberlo.
 
-// Dirección entera de CWeaponInfo* (handle WeaponInfo → number)
-//
-// Un handle de CLEO no siempre es un numero: puede venir como objeto con
-// `.address`, o como algo que se convierte con valueOf. Por eso prueba las tres
-// y no castea de una.
-//
-// Devuelve 0 cuando no puede, nunca un numero inventado: los tres call sites
-// (expandMagazine, _weaponInfoAddr y _reloadTargets) tratan el 0 como "no hay
-// info", y un numero al azar seria escribir m_nAmmoClip en cualquier lado.
-function _infoAddr(info) {
-    if (!info) return 0;
-    if (typeof info === "number") return info;
-    if (typeof info.address === "number") return info.address;
-    var n = +info;
-    if (n) return n;
-    if (typeof info.valueOf === "function") {
-        var v = info.valueOf();
-        if (typeof v === "number" && v) return v;
-    }
-    return 0;
-}
+// La conversion de un handle de CWeaponInfo a direccion entera estaba escrita
+// por TRES en este modulo y una vez mas en FireButton. Ahora es
+// Engine.infoAddress, una sola vez, con los tres intentos explicados ahi.
 
 // El modelo custom ya esta en la memoria del juego (lo registro un plugin), asi
 // que la unica pregunta util es "esta de verdad". Si no esta, se avisa con el id
 // y el weaponId, que es justo lo que hace falta para encontrar al culpable sin
 // tener que adivinar.
 function _specialModelReady(modelId) {
-    try {
-        if (native("HAS_MODEL_LOADED", modelId)) return true;
-        log("[Ballistic] WARN: modelo de arma " + modelId +
-            " no esta cargado. Si lo registro un .ASI, su .dff/.txd no cargo; el arma va a salir invisible.");
-        return false;
-    } catch (e) {
-        return false;
-    }
+    if (Engine.hasModelLoaded(modelId)) return true;
+    log("[Ballistic] WARN: modelo de arma " + modelId +
+        " no esta cargado. Si lo registro un .ASI, su .dff/.txd no cargo; el arma va a salir invisible.");
+    return false;
 }
 
 function _ensureWeaponModel(weaponId) {
@@ -1029,45 +956,44 @@ function _ensureWeaponModel(weaponId) {
             _escribirModelId(weaponId, modelId);
             return _specialModelReady(modelId);
         }
-        native("REQUEST_MODEL", modelId);
-        native("LOAD_ALL_MODELS_NOW");
+        Engine.requestModel(modelId);
+        Engine.loadModelsNow();
         return true;
     } catch (e) {
         return false;
     }
 }
 
-// _giveWeapon — arma al ped con su cargador: modelo + GIVE_WEAPON_TO_CHAR +
-// total vía SET_CHAR_AMMO + clip/state en memoria (listo para disparar sin
-// recargar).
+// _giveWeapon — arma al ped con su cargador: modelo + give + total vía
+// SET_CHAR_AMMO + clip/state en memoria (listo para disparar sin recargar).
 function _giveWeapon(c, weaponId, ammo, hasMag) {
     var total = hasMag ? Math.max(0, ammo | 0) : 0;
     _ensureWeaponModel(weaponId);
     try {
-        native("GIVE_WEAPON_TO_CHAR", c, weaponId, total);
-        if (!native("HAS_CHAR_GOT_WEAPON", c, weaponId)) {
+        Engine.giveWeapon(c, weaponId, total);
+        if (!Engine.hasWeapon(c, weaponId)) {
             // El give no fue del todo, pero el modelo ya esta cargado. Se reintenta
             // con municion y el total se deja en 0 despues: hay que conseguir que
             // HAS_CHAR_GOT_WEAPON de true, o el arma no existe para el mod.
-            native("GIVE_WEAPON_TO_CHAR", c, weaponId, _capacityByType(weaponId) || 1);
-            if (!native("HAS_CHAR_GOT_WEAPON", c, weaponId)) {
-                native("REMOVE_WEAPON_FROM_CHAR", c, weaponId); // no dejar nada a medias
+            Engine.giveWeapon(c, weaponId, _capacityByType(weaponId) || 1);
+            if (!Engine.hasWeapon(c, weaponId)) {
+                Engine.removeWeapon(c, weaponId); // no dejar nada a medias
                 return false;
             }
         }
-        native("SET_CHAR_AMMO", c, weaponId, total);
+        Engine.setAmmo(c, weaponId, total);
     } catch (e) {
         return false;
     }
     try {
-        var ped = native("GET_PED_POINTER", c);
-        var addr = ped ? _weaponAddrByType(ped, weaponId) : 0;
+        var ped = Engine.pedPointer(c);
+        var addr = ped ? Engine.addressOfType(ped, weaponId) : 0;
         if (addr) {
             var cap = _capacityByType(weaponId) || 0;
-            Memory.WriteI32(addr + _W_CLIP, Math.min(cap, total), false);
-            Memory.WriteI32(addr + _W_AMMO, total, false);
-            Memory.WriteI32(addr + _W_STATE, 0, false); // WEAPONSTATE_READY
-            Memory.WriteI32(addr + _W_TIME, 0, false);
+            Engine.setSlotClip(addr, Math.min(cap, total));
+            Engine.setSlotTotal(addr, total);
+            Engine.setSlotState(addr, Engine.WEAPONSTATE_READY);
+            Engine.setSlotNextShotTime(addr, 0);
         }
     } catch (e) { /* sin memoria: el engine rellena desde el total */ }
     return true;
@@ -1079,7 +1005,7 @@ function _giveWeapon(c, weaponId, ammo, hasMag) {
 export function equipWeapon(itemId) {
     var wd = _weaponDefByItemId(itemId);
     if (!wd) return false; // body_armor, material, arma fuera de catalogo
-    var c = _playerChar();
+    var c = Engine.playerChar();
     if (!c) return false;
     var data = _ballisticData();
     var slot = wd.slot;
@@ -1136,7 +1062,7 @@ export function equipWeapon(itemId) {
     setModuleData("Ballistic", data);
     _aplicarCapacidad(slot); // el motor usa la capacidad del cargador que entro
     try {
-        native("SET_CURRENT_CHAR_WEAPON", c, tipo);
+        Engine.setCurrentWeapon(c, tipo);
     } catch (e) { /* sin native: el jugador cambia a mano */ }
     showTextBox(t("EQP_OK"));
     return true;
@@ -1150,7 +1076,7 @@ export function unequipWeapon(slot) {
     var entry = data.equipped[slot];
     if (!entry) return false;
     var wd = _weaponDefByItemId(entry.id);
-    var c = _playerChar();
+    var c = Engine.playerChar();
     if (!wd || !c) return false;
     var hasMag = entry.hasMag !== false;
     // El tipo que el ped tiene EN LA MANO, que con variantes no es el de la
@@ -1159,26 +1085,21 @@ export function unequipWeapon(slot) {
     // quite nada, y que el "salio del ped" de mas: el arma queda en el
     // inventario con cero balas mientras sigue en la mano del ped. Ver _tipoEnPies.
     var tipo = _tipoEnPies(entry, wd);
-    var ammo = 0;
-    try {
-        ammo = native("GET_AMMO_IN_CHAR_WEAPON", c, tipo) || 0;
-    } catch (e) { /* sin native: se guarda sin balas */ }
+    var ammo = Engine.getAmmo(c, tipo) || 0;
     // La capacidad con la que hay que guardar las balas que quedan es la del
     // CARGADOR MONTADO, no la del arma: con un tambor de 75, guardar con la
     // capacidad del base (30) tiraria 45 balas a la basura. Y es la del TIPO
     // montado, que con variantes no es la del item.
     var cap = _capacidadMontada(slot) || getClipSizeByWeaponId(tipo) || getClipSizeByItemId(entry.id) || 0;
     if (ammo > cap) ammo = cap;
-    try {
-        native("REMOVE_WEAPON_FROM_CHAR", c, tipo);
-    } catch (e) { /* sin native: se verificara abajo */ }
+    Engine.removeWeapon(c, tipo);
     // Solo se guarda el item si el arma salio del ped (si no, habria copias)
     var stillThere = false;
     try {
-        var ped = native("GET_PED_POINTER", c);
-        var addr = ped ? _weaponAddrByType(ped, tipo) : 0;
-        if (addr && Memory.ReadI32(addr, false) === tipo) stillThere = true;
-        if (native("HAS_CHAR_GOT_WEAPON", c, tipo)) stillThere = true;
+        var ped = Engine.pedPointer(c);
+        var addr = ped ? Engine.addressOfType(ped, tipo) : 0;
+        if (addr && Engine.slotType(addr) === tipo) stillThere = true;
+        if (Engine.hasWeapon(c, tipo)) stillThere = true;
     } catch (e) { /* sin verificacion: confiamos en el native */ }
     if (stillThere) return false;
     if (!query("items:storeWeapon", {
@@ -1199,6 +1120,24 @@ export function unequipWeapon(slot) {
         var base = getClipSizeByWeaponId(tipo) || 0;
         if (base > 0) _escribirClip(tipo, base);
     }
+    // =========================================================================
+    // BUG CONGELADO A PROPOSITO. NO BORRAR EN ESTA FASE.
+    // =========================================================================
+    // Estas ocho lineas son el cuerpo de _infoAddr pegado al final de esta
+    // funcion, y `info` NO esta declarada acá. Se llego al estado en el que
+    // `typeof info` NO tira (typeof de algo sin declarar es "undefined" y eso es
+    // lo unico que typeof trata asi), pero la linea siguiente evalua `info`, y
+    // ESO si tira ReferenceError.
+    //
+    // O sea: TODA unequipWeapon que llega hasta aca lanza un ReferenceError.
+    // Y esa funcion no tiene try/catch, asi que el error sube a quien la llamo:
+    // el dispatcher de la UI (que lo traga y lo loguea) o equipWeapon, en el
+    // auto-swap, que devuelve false y NO equipa la segunda arma.
+    //
+    // Esta documentado en gsis_BUG_DUPLICADOS.md §5. Se deja tal cual para que
+    // la fase 1 sea puramente mecanica: centralizar la capa nativa no puede
+    // cambiar lo que hace unequipWeapon. Arreglarlo es una linea y es una fase
+    // propia, con su propia prueba.
     if (typeof info === "number") return info;
     if (typeof info.address === "number") return info.address;
     var n = +info;
@@ -1212,21 +1151,24 @@ export function unequipWeapon(slot) {
 
 // expandMagazine — escribe m_nAmmoClip (uint16 en +0x20) en la tabla global
 // Alcance: GLOBAL type+skill (también NPCs). Próxima recarga → size balas.
+//
+// Ya no existe como funcion propia: la escritura vive en Engine y se llama
+// TEMPORAL_writeClipCapacity, con el nombre diciendo que desaparece en la fase
+// 3. Ver la nota de syncClipSizes.
 function expandMagazine(size, weaponType, skill) {
-    try {
-        var info = native("GET_WEAPONINFO", weaponType, skill);
-        var addr = _infoAddr(info);
-        if (!addr) return false;
-        Memory.WriteU16(addr + _CLIP_OFF, size, false);
-        return true;
-    } catch (e) {
-        return false;
-    }
+    return Engine.TEMPORAL_writeClipCapacity(weaponType, size, skill);
 }
 
 // syncClipSizes — clip de juego = clipSize del catalogo (por arma × skill 0..3)
 // Sincroniza arma equipada, CWeaponInfo y capacidad de mag_* en una sola cifra.
 // Solo en init (una vez). Devuelve cuántos combos se parchearon.
+//
+// ESTA FUNCION SE BORRA EN LA FASE 3, y con ella expandMagazine. Escriben
+// m_nAmmoClip en la tabla GLOBAL de CWeaponInfo, lo que significa que la
+// capacidad de un tipo le cambia a TODOS los que lo usen, NPCs incluidos. Bajo
+// el modelo de 3 capas la capacidad la decide la variante y la escribe el .asi
+// al registrar el tipo, asi que el mod no deberia escribirla nunca. Queda
+// marcada mientras tanto.
 function syncClipSizes() {
     var n = 0;
     var primeraDir = null;
@@ -1239,8 +1181,8 @@ function syncClipSizes() {
         // Y ningun weaponId fuera del rango nativo: el mod no escribe en la
         // tabla que creo el .ASI, ni para una variante propia.
         if (w.weaponId > WEAPON_ID_NATIVE_MAX) continue;
-        for (var skill = 0; skill <= 3; skill++) {
-            if (primeraDir === null) primeraDir = _weaponInfoAddr(w.weaponId, skill);
+        for (var skill = 0; skill < Engine.SKILL_COUNT; skill++) {
+            if (primeraDir === null) primeraDir = Engine.weaponInfoAddress(w.weaponId, skill);
             if (expandMagazine(w.clipSize, w.weaponId, skill)) n++;
         }
     }
@@ -1257,16 +1199,6 @@ function syncClipSizes() {
         WEAPON_DATA[0].weaponId + ") en " + primeraDir +
         " | " + n + " parcheados (tipo x skill)");
     return n;
-}
-
-// Direccion de la CWeaponInfo de un (tipo, skill). Aislada de expandMagazine
-// para poder mirarla sin escribir nada.
-function _weaponInfoAddr(weaponType, skill) {
-    try {
-        return _infoAddr(native("GET_WEAPONINFO", weaponType, skill));
-    } catch (e) {
-        return null;
-    }
 }
 
 // ============================================================================
@@ -1287,49 +1219,29 @@ export function weaponModelReady(weaponId) {
 // CWeaponInfo la registro un plugin (clipSource "engine"): el catalogo puede no
 // conocerla, y aunque la conozca, la que vale es la del motor.
 //
-// Se lee por el mismo camino que usa _readSlotAndType para el arma en la mano
-// (GET_WEAPONINFO -> GET_WEAPONINFO_TOTAL_CLIP) en vez de por offset fijo, para
-// no depender de que el layout sea el de _CLIP_OFF: el bloque de CWeaponInfo lo
-// escribio el plugin, no el juego.
+// Se lee por el mismo camino que usa Engine.readCurrentWeapon para el arma en
+// la mano (GET_WEAPONINFO -> GET_WEAPONINFO_TOTAL_CLIP) en vez de por offset
+// fijo, para no depender de que el layout sea el del juego: el bloque de
+// CWeaponInfo de un tipo de plugin lo escribio el .asi, no el juego.
+//
+// OJO: las dos funciones de abajo son DOS RESPUESTAS a la misma pregunta, y la
+// diferencia no es academica. _engineClip le pregunta al PED en que skill tiene
+// el arma; para un tipo que dio de alta un .asi ese native no tiene dato que
+// devolver, asi que _engineClip da 0 sin decir nada. _engineClipPlugin consulta
+// la fila STD fijo y es la unica que sirve para esos tipos. Ver _capacityByType,
+// que decide cual de las dos.
+//
+// Esto NO se unifica en la fase 1: unificarlo cambia comportamiento. Se
+// unifica en la fase 3, que es cuando la capacidad pasa a salir de la variante.
 function _engineClip(weaponType) {
-    try {
-        var c = _playerChar();
-        if (!c) return 0;
-        var skill = native("GET_CHAR_WEAPON_SKILL", c, weaponType) || 0;
-        var info = native("GET_WEAPONINFO", weaponType, skill);
-        if (!info) return 0;
-        return native("GET_WEAPONINFO_TOTAL_CLIP", info) || 0;
-    } catch (e) {
-        return 0;
-    }
+    return Engine.clipCapacityForPed(Engine.playerChar(), weaponType);
 }
 
 // Capacidad que el motor ve para un arma de PLUGIN (un .asi la dio de alta).
-//
-// NO va por _engineClip, y esa es toda la razon de existir esta funcion.
-//
-// _engineClip le pregunta al PED que skill tiene de ese arma, con
-// GET_CHAR_WEAPON_SKILL. Para un weapon type que dio de alta un .asi ese native
-// no tiene de donde sacar el dato: el engine no lo conoce, asi que sale 0 y
-// _engineClip devuelve 0 sin decir nada. Se comprobo: _capacityByType(60)
-// daba 0 con el arma correctly recognizes y con sus cuatro filas sirviendo.
-//
-// Ademas el planteo esta al reves. La capacidad del cargador es una propiedad
-// del ARMA, no del jugador: no depende de en que skill este el ped. Preguntarle
-// al ped agrega una dependencia que ademas no existe para estos tipos.
-//
-// Se consulta la fila STD (skill 1) y listo. weapon.dat repite el mismo K
-// (ammoClip) en las cuatro lineas de un arma con skills, asi que las cuatro
-// filas dan el mismo numero y cualquiera de las cuatro serviria; STD es la que
-// representa al arma sin estar en una punta de la escala.
+// La fila STD, sin preguntarle al ped: la capacidad de un cargador es propiedad
+// del ARMA y no depende de en que punta de la escala este el jugador.
 function _engineClipPlugin(weaponType) {
-    try {
-        var info = native("GET_WEAPONINFO", weaponType, 1);
-        if (!info) return 0;
-        return native("GET_WEAPONINFO_TOTAL_CLIP", info) || 0;
-    } catch (e) {
-        return 0;
-    }
+    return Engine.clipCapacityOf(weaponType);
 }
 
 // Capacidad del cargador MONTADO en un slot, o 0 si ese arma esta sin cargador.
@@ -1424,7 +1336,7 @@ function _slotConArma(weaponType) {
 // con AK tambien entran 75. Es el costo de este camino, y esta asumido.
 function _escribirClip(weaponType, cap) {
     if (!cap || cap < 1) return;
-    for (var skill = 0; skill <= 3; skill++) expandMagazine(cap, weaponType, skill);
+    for (var skill = 0; skill < Engine.SKILL_COUNT; skill++) expandMagazine(cap, weaponType, skill);
 }
 
 // Deja la capacidad que le corresponde al slot: la del cargador montado, o la
@@ -1449,8 +1361,7 @@ function _aplicarCapacidad(slot) {
 // Monta un cargador completo en la direccion de memoria del arma.
 function _mountMagazine(weaponAddr, capacity) {
     try {
-        Memory.WriteI32(weaponAddr + _W_CLIP, capacity, false);
-        Memory.WriteI32(weaponAddr + _W_AMMO, capacity, false);
+        Engine.fillMagazine(weaponAddr, capacity);
     } catch (e) { /* sin memoria: queda la munición que tenga el arma */ }
 }
 
@@ -1473,7 +1384,7 @@ function _mountMagazine(weaponAddr, capacity) {
 //     que montar, y una con municion tiene al menos un cargador entero.
 function _normalizarMunicion(weaponAddr, weaponType, hasMag) {
     var cap = _capacityByType(weaponType) || 0;
-    var total = Memory.ReadI32(weaponAddr + _W_AMMO, false);
+    var total = Engine.slotTotal(weaponAddr);
     if (!hasMag) {
         if (total !== 0) _unloadWeapon(weaponAddr); // sin cargador: 0/0
     } else if (cap && total > cap) {
@@ -1490,24 +1401,17 @@ function _normalizarMunicion(weaponAddr, weaponType, hasMag) {
 //    si el registro dice "sin cargador", el arma queda en 0/0
 // Fuera de catalogo (melee, granadas, camara, paracaidas) → no se toca.
 function _reconcileLoadout() {
-    var c = _playerChar();
+    var c = Engine.playerChar();
     if (!c) return;
-    try {
-        if (native("IS_CHAR_DEAD", c)) return;
-        if (!native("IS_PLAYER_CONTROL_ON", new Player(0))) return;
-    } catch (e) { /* sin native: seguimos con el resto */ }
-    var ped;
-    try {
-        ped = native("GET_PED_POINTER", c);
-    } catch (e) {
-        return;
-    }
+    if (Engine.isCharDead(c)) return;
+    if (!Engine.isPlayerControlOn()) return;
+    var ped = Engine.pedPointer(c);
     if (!ped) return;
     var data = _ballisticData();
     var changed = false;
     for (var i = 1; i < _SLOT_COUNT; i++) {
-        var addr = ped + _WEAPONS_OFF + i * _WEAPON_SIZE;
-        var type = Memory.ReadI32(addr, false);
+        var addr = Engine.slotAddress(ped, i);
+        var type = Engine.slotType(addr);
         var entry = data.equipped[i];
         if (!type) {
             // slot vacio: el arma se fue (wasted, mision, script)
@@ -1581,7 +1485,7 @@ function _reconcileLoadout() {
                     // hasMag se deduce del arma y no de un item del inventario:
                     // el 60 no tiene entrada en data.equipped, y darle una seria
                     // inventar el item de inventario que todavia no existe.
-                    _normalizarMunicion(addr, type, Memory.ReadI32(addr + _W_AMMO, false) > 0);
+                    _normalizarMunicion(addr, type, Engine.slotTotal(addr) > 0);
                     continue;
                 }
                 if (entry) { delete data.equipped[i]; changed = true; }
@@ -1590,19 +1494,17 @@ function _reconcileLoadout() {
             // arma no registrada (mision, cheat, save viejo) → adoptarla al
             // inventario con su estado. Orden: quitarla del ped, verificar que
             // salio y solo entonces guardar el item (asi no puede haber copias)
-            var total = Memory.ReadI32(addr + _W_AMMO, false);
+            var total = Engine.slotTotal(addr);
             var cap = _capacityByType(type) || 0;
             var hasMag = total > 0;
             if (cap && total > cap) total = cap;
             try {
-                native("REMOVE_WEAPON_FROM_CHAR", c, type);
+                Engine.removeWeapon(c, type);
             } catch (e) { continue; }
             // Verificar por memoria y por native que salio antes de guardar:
             // si sigue ahi no se guarda nada (evita duplicados)
-            var stillThere = Memory.ReadI32(addr, false) === type;
-            try {
-                if (native("HAS_CHAR_GOT_WEAPON", c, type)) stillThere = true;
-            } catch (e) { /* sin native: vale la lectura de memoria */ }
+            var stillThere = Engine.slotType(addr) === type;
+            if (Engine.hasWeapon(c, type)) stillThere = true;
             if (stillThere) continue;
             if (!query("items:storeWeapon", {
                 id: presentId, hasMag: hasMag, ammo: total, salud: SALUD_MAX, force: true
@@ -1631,30 +1533,28 @@ function _reconcileLoadout() {
 // Guards + targets de memoria de la recarga del arma "w".
 // Devuelve { weapon, ms } o null si no se puede recargar.
 function _reloadTargets(w) {
+    // 09E7 — si el control esta off (cutscene/mission) no recargamos
+    if (!Engine.isPlayerControlOn()) return _sinRecarga("control del player apagado", w);
     try {
-        // 09E7 — si el control esta off (cutscene/mission) no recargamos
-        if (!native("IS_PLAYER_CONTROL_ON", new Player(0))) return _sinRecarga("control del player apagado", w);
-    } catch (e) { /* guard opcional: si falla el native seguimos */ }
-    try {
-        if (native("IS_CHAR_DEAD", w.char)) return _sinRecarga("ped muerto", w);
+        if (Engine.isCharDead(w.char)) return _sinRecarga("ped muerto", w);
         if (_NO_ANIM.indexOf(w.type) >= 0) return _sinRecarga("el tipo " + w.type + " no tiene anim de recarga", w);
-        var ped = native("GET_PED_POINTER", w.char);
+        var ped = Engine.pedPointer(w.char);
         if (!ped) return _sinRecarga("sin puntero de ped", w);
-        var slot = Memory.ReadU8(ped + _SLOT_OFF, false);
+        var slot = Engine.selectedSlot(ped);
         if (!slot) return _sinRecarga("slot 0 = sin arma", w);
-        var weapon = ped + _WEAPONS_OFF + slot * _WEAPON_SIZE;
-        if (Memory.ReadI32(weapon + _W_STATE, false) === _STATE_RELOADING) return _sinRecarga("ya recargando", w);
-        var info = _infoAddr(native("GET_CURRENT_CHAR_WEAPONINFO", w.char));
+        var weapon = Engine.slotAddress(ped, slot);
+        if (Engine.slotState(weapon) === _STATE_RELOADING) return _sinRecarga("ya recargando", w);
+        var info = Engine.currentWeaponInfoAddress(w.char);
         // Esta es la guarda que mas se ha partido. Sin info no hay ni flags ni
         // tiempo de recarga, y como el return era silencioso el sintoma era
         // "no recarga" sin ninguna pista de cual de las cinco guards habia
         // cortado. Se loguea cada una, una vez por combinacion.
         if (!info) return _sinRecarga("GET_CURRENT_CHAR_WEAPONINFO no devolvio info", w);
         // WEAPON_RELOAD (0x1000) — solo armas con anim de recarga
-        if (!(native("GET_WEAPONINFO_FLAGS", info) & 0x1000)) {
+        if (!(Engine.infoFlags(info) & Engine.WEAPON_FLAG_RELOAD)) {
             return _sinRecarga("el tipo " + w.type + " no tiene el flag WEAPON_RELOAD (0x1000) en su CWeaponInfo", w);
         }
-        var ms = Memory.CallMethodReturn(_RELOAD_TIME_FN, info, 0, 0);
+        var ms = Engine.reloadTimeMs(info);
         if (ms <= 0) return _sinRecarga("GetWeaponReloadTime devolvio " + ms + " para el tipo " + w.type, w);
         return { weapon: weapon, ms: ms, info: info };
     } catch (e) {
@@ -1689,12 +1589,12 @@ function _sinRecarga(motivo, w) {
 // anim RELOAD; al vencer, CWeapon::Update → Reload() rellena el clip.
 function _startReloadAnim(targets, w, ammo) {
     try {
-        var now = Memory.ReadI32(_TIMER_ADDR, false);
-        Memory.WriteI32(targets.weapon + _W_TIME, now + targets.ms, false);
-        Memory.WriteI32(targets.weapon + _W_STATE, _STATE_RELOADING, false);
+        var now = Engine.timerMs();
+        Engine.setSlotNextShotTime(targets.weapon, now + targets.ms);
+        Engine.setSlotState(targets.weapon, _STATE_RELOADING);
         // Watchdog: si Update no termina la recarga, la cerramos nosotros
         _reloadPending = {
-            ped: native("GET_PED_POINTER", w.char),
+            ped: Engine.pedPointer(w.char),
             weapon: targets.weapon,
             deadline: now + targets.ms,
             cap: w.clip,
@@ -1714,21 +1614,21 @@ function _watchdogReload() {
     var p = _reloadPending;
     if (!p) return;
     try {
-        var now = Memory.ReadI32(_TIMER_ADDR, false);
+        var now = Engine.timerMs();
         if (now <= p.deadline + TIMERS.RELOAD_GRACE) return; // margen del engine
-        var ped = native("GET_PED_POINTER", new Player(0).getChar());
+        var ped = Engine.pedPointer();
         if (ped && ped !== p.ped) { _reloadPending = null; return; } // CJ cambio
-        var state = Memory.ReadI32(p.weapon + _W_STATE, false);
+        var state = Engine.slotState(p.weapon);
         if (state !== _STATE_RELOADING && state !== _STATE_OUT_OF_AMMO) {
             _reloadPending = null; // el engine termino la recarga solo
             return;
         }
-        if (Memory.ReadI32(p.weapon + _W_AMMO, false) !== p.ammo) {
-            Memory.WriteI32(p.weapon + _W_AMMO, p.ammo, false); // reafirma total
+        if (Engine.slotTotal(p.weapon) !== p.ammo) {
+            Engine.setSlotTotal(p.weapon, p.ammo); // reafirma total
         }
-        Memory.WriteI32(p.weapon + _W_CLIP, Math.min(p.cap, p.ammo), false);
-        Memory.WriteI32(p.weapon + _W_STATE, 0, false); // WEAPONSTATE_READY
-        Memory.WriteI32(p.weapon + _W_TIME, now, false);
+        Engine.setSlotClip(p.weapon, Math.min(p.cap, p.ammo));
+        Engine.setSlotState(p.weapon, Engine.WEAPONSTATE_READY);
+        Engine.setSlotNextShotTime(p.weapon, now);
         _reloadPending = null;
     } catch (e) { /* sin memoria: sin watchdog */ }
 }
@@ -1736,8 +1636,7 @@ function _watchdogReload() {
 // Descarga el arma: clip y total = 0 (el cargador salio al inventario)
 function _unloadWeapon(weaponAddr) {
     try {
-        Memory.WriteI32(weaponAddr + _W_CLIP, 0, false);
-        Memory.WriteI32(weaponAddr + _W_AMMO, 0, false);
+        Engine.unload(weaponAddr);
     } catch (e) { /* sin memoria: el cargador ya esta en el inventario */ }
 }
 
@@ -1889,6 +1788,14 @@ register({
         _validateVariantContract();
         // Capacidades: clip de juego = clipSize del catalogo (igual que mag_*)
         syncClipSizes();
+        // Que camino de "dar el arma" esta activo. Es lo unico que cambio de
+        // verdad en la fase 1: el mod ahora pide p.giveWeapon() y cae al native
+        // 0x01B2 si el API de objeto no responde. Con WEAPON_MODELS_ENABLED en
+        // false todavia no se dio ninguna arma, asi que esta linea dice "objeto"
+        // por defecto; si alguna vez dice "native", el API de objeto no existe
+        // en esta build de CLEO y hay que mirar ahi primero.
+        log("[Ballistic] camino de armado: " +
+            (Engine.giveUsesNative() ? "GIVE_WEAPON_TO_CHAR (0x01B2)" : "p.giveWeapon()"));
     },
     update: function (now) {
         // Un paso de la carga de modelos por frame. Va PRIMERO y no al final a
@@ -1899,7 +1806,7 @@ register({
         _pasoCargaModelos();
         _reconcileLoadout();
         _watchdogReload();
-        var cur = _readSlotAndType();
+        var cur = Engine.readCurrentWeapon();
         if (keyJustPressed(KEYS.RELOAD)) tryReload(cur);
         if (!cur) return;
         // Solo actua al cambiar de slot de arma

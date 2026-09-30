@@ -21,24 +21,24 @@
 //   con balas (total>0 o clip>0) → SET_PLAYER_FIRE_BUTTON(true)   ← FIX
 // Excluido del original: combo de drop LS1+DpadLeft (reemplazo del script
 // 'WEADROP') y el loop de 2 jugadores.
-// Nativos: SET_PLAYER_FIRE_BUTTON (0881), IS_CHAR_DEAD (0118),
-// IS_PLAYER_CONTROL_ON (09E7), IS_CHAR_IN_ANY_CAR (00DF), GET_PED_POINTER
-// (0A96), GET_CURRENT_CHAR_WEAPONINFO (0E83); Pad.IsButtonPressed (00E1),
+// Nativos: SET_PLAYER_FIRE_BUTTON (0881); y los de arma, que ya NO estan aca:
+// IS_CHAR_DEAD, IS_PLAYER_CONTROL_ON, IS_CHAR_IN_ANY_CAR, GET_PED_POINTER y
+// GET_CURRENT_CHAR_WEAPONINFO los pide core/gsis_Engine.js, que es el unico
+// lugar con offsets y natives de arma. Pad.IsButtonPressed (00E1),
 // Pad.GetControllerMode (0293); AudioStream3D.Load (0AC1) + setPlayAtChar
 // (0AC4), setVolume (0ABC), setState (0AAD, Play=1).
-// Memoria: slot ped+0x718, m_aWeapons ped+0x5A0 (CWeapon 28b: clip +0x8,
-// total +0xC), CWeaponInfo+0 = m_eWeaponFire (1 = INSTANT_HIT); camara word
-// 11989416 ∈ {5,7,8,46,51,53,65}; volumen float 11926732.
+// Memoria: aca solo las dos globales que NO son de arma, la de modo de camara
+// (word 11989416) y la de volumen de audio (float 11926732). Los offsets de
+// CWeapon y de CWeaponInfo tambien viven en Engine.
 // ============================================================================
 
 import { register } from "../core/gsis_ModuleRegistry.js";
 import { AUDIO } from "../core/gsis_Config.js";
+// La capa de armas. Antes este archivo declaraba sus propias copias de 0x5A0,
+// 0x718, 28, 0x8 y 0xC, y su propia copia de la conversion de handle a
+// direccion. Las dos cosas son una sola ahora.
+import * as Engine from "../core/gsis_Engine.js";
 
-var _WEAPONS_OFF = 0x5A0;     // CPed::m_aWeapons (CWeapon[13])
-var _SLOT_OFF = 0x718;        // CPed::m_nSelectedWepSlot (uint8)
-var _WEAPON_SIZE = 28;        // sizeof(CWeapon)
-var _W_CLIP = 0x8;            // CWeapon::m_nAmmoInClip
-var _W_AMMO = 0xC;            // CWeapon::m_nAmmoTotal
 var _CAMMODE_ADDR = 11989416; // word: modo de camara actual
 var _CAMVOL_ADDR = 11926732;  // float: volumen de referencia de audio
 var _BTN_CIRCLE = 17;         // Button.Circle (disparo en PC)
@@ -49,20 +49,6 @@ var _AIM_CAMS = [5, 7, 8, 46, 51, 53, 65]; // camaras donde suena el click
 var _stream = null;      // AudioStream3D (null = sin wav de click)
 var _fireOff = false;    // ya deshabilitamos el boton (su 5@)
 var _clickLatch = false; // click sonado en esta pulsacion (su 7@)
-
-// Direccion entera de CWeaponInfo* (handle WeaponInfo → number)
-function _infoAddr(info) {
-    if (!info) return 0;
-    if (typeof info === "number") return info;
-    if (typeof info.address === "number") return info.address;
-    var n = +info;
-    if (n) return n;
-    if (typeof info.valueOf === "function") {
-        var v = info.valueOf();
-        if (typeof v === "number" && v) return v;
-    }
-    return 0;
-}
 
 // Emite el native solo en transicion (sin spamear cada frame)
 function _enableFire() {
@@ -136,22 +122,22 @@ register({
         if (!c) return;
         // Guards (su @42-@46): cualquiera → boton activo y salimos
         try {
-            if (native("IS_CHAR_DEAD", c)) { _enableFire(); return; }
-            if (!native("IS_PLAYER_CONTROL_ON", new Player(0))) { _enableFire(); return; }
-            if (native("IS_CHAR_IN_ANY_CAR", c)) { _enableFire(); return; }
+            if (Engine.isCharDead(c)) { _enableFire(); return; }
+            if (!Engine.isPlayerControlOn()) { _enableFire(); return; }
+            if (Engine.isCharInAnyCar(c)) { _enableFire(); return; }
         } catch (e) { return; }
         try {
-            var ped = native("GET_PED_POINTER", c);
+            var ped = Engine.pedPointer(c);
             if (!ped) return;
-            var slot = Memory.ReadU8(ped + _SLOT_OFF, false);
+            var slot = Engine.selectedSlot(ped);
             if (!slot) { _enableFire(); return; } // slot 0 = sin arma (su @76)
-            var infoAddr = _infoAddr(native("GET_CURRENT_CHAR_WEAPONINFO", c));
+            var infoAddr = Engine.currentWeaponInfoAddress(c);
             if (!infoAddr) { _enableFire(); return; }
             // m_eWeaponFire en CWeaponInfo+0: solo armas de disparo directo
-            if (Memory.ReadI32(infoAddr, false) !== 1) { _enableFire(); return; }
-            var weapon = ped + _WEAPONS_OFF + slot * _WEAPON_SIZE;
-            var clip = Memory.ReadI32(weapon + _W_CLIP, false);
-            var total = Memory.ReadI32(weapon + _W_AMMO, false);
+            if (Engine.infoFireType(infoAddr) !== 1) { _enableFire(); return; }
+            var weapon = Engine.slotAddress(ped, slot);
+            var clip = Engine.slotClip(weapon);
+            var total = Engine.slotTotal(weapon);
             if (clip === 0 && total === 0) {
                 _disableFire();
                 // Click seco: una vez por pulsacion (flanco + latch, su @689)
