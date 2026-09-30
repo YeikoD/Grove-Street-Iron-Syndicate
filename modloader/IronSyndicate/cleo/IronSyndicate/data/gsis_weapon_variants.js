@@ -18,12 +18,31 @@
 //
 //   FAMILIA       la identidad. Un item de inventario. "colt45".
 //   ACCESORIO     una pieza compatible con una familia. "suppressor",
-//                 "mag_colt45_extended". Va suelto en el inventario.
+//                 "mag_colt45_15". Va suelto en el inventario.
 //   VARIANTE      la combinacion resuelta a un weaponType que el motor ejecuta.
 //
-// Y el estado delOwned weapon (el WeaponInstance) es la familia mas la lista de
+// Y el estado de un arma (el WeaponInstance) es la familia mas la lista de
 // accesorios montados. Cambiar de configuracion NO crea ni destruye el item:
 // solo recalcula el weaponType.
+//
+// LA REGLA
+// ============================================================================
+//   accesorios -> determinan la variante -> la variante determina el weaponType
+//   -> el weaponType determina las propiedades tecnicas que ve el motor.
+//
+// Y la ultima flecha es del .asi, no de este archivo: el .asi clona la
+// CWeaponInfo del padre y escribe el cargador, el modelo y el damage de cada
+// variante. El mod NUNCA escribe m_nAmmoClip. Lo unico que hace es:
+//
+//   1. guardar familia + accesorios
+//   2. resolver la variante
+//   3. sacar su weaponType
+//   4. dar el arma con ese weaponType
+//   5. LEER la capacidad de ese weaponType para acotar la municion
+//
+// Por eso `clipSize` y `modelId` en las tablas de abajo son DECLARATIVOS: son
+// el numero que deberia estar en gsis_weapons.dat, y estan para que se pueda
+// cross-checkear contra el .asi. No son una entrada de runtime.
 //
 // ============================================================================
 // EL LIMITE DE ESTA FASE
@@ -37,6 +56,13 @@
 // weaponType que no existe en el .dat no dispara, no hace ruido y no tiene mira,
 // y el fallo aparece en el log del .asi, no aca.
 //
+// EL RANGO DE TIPOS ES CONDICIONAL
+// ============================================================================
+// Los tipos de plugin van en 60..79, y esa franja esta libre SOLO porque
+// fastman92 limit adjuster esta apagado. Con FLA prendido, 60 y 61 son
+// JETPACK_TYPE y BINOCULARS_TYPE, y 70..79 caen fuera de NumberOfWeaponTypes = 70.
+// Es una precondicion del mod entero, no de este archivo.
+//
 // Ver gsis_WEAPON_LIMITER.md §1 y gsis_VARIANTES.md.
 
 // ============================================================================
@@ -45,26 +71,31 @@
 // Una familia es un armamento. NO es un item: es la clase de cosa a la que los
 // accesorios se enganchan.
 //
-//   family    id estable. Va en los saves.
-//   itemId    el item de inventario que la representa. Una familia, un item:
-//             por eso hay una sola "Colt .45" y no tres.
-//   parent    tipo vanilla del que clona la variante base, si esa variante es
-//             plugin. -1 = la variante base es un tipo vanilla y no necesita .asi.
-//   modelId   modelo 3D de la variante base.
-//   slot      WEAPONSLOT. 2 pistola, 3 escopeta, 4 subfusil, 5 MG, 6 fusil...
-//   baseClip  capacidad de la variante base, sin ningun accesorio.
+//   family       id estable. Va en los saves.
+//   itemId       el item de inventario que la representa. Una familia, un item:
+//                por eso hay una sola "Colt .45" y no tres.
+//   baseVariant  el weaponType de la familia SIN NINGUN ACCESORIO montado. Es
+//                un tipo de plugin, no uno de vanilla: el 22 de vanilla trae 17
+//                balas y el mod no escribe m_nAmmoClip, asi que la Colt de GSIS
+//                necesita el 63 para tener 8.
+//   parent       el tipo VANILLA del que clona la variante base. -1 = la
+//                variante base es un tipo de vanilla y no necesita .asi.
+//   modelId      modelo 3D de la variante base.
+//   slot         WEAPONSLOT. 2 pistola, 3 escopeta, 4 subfusil, 5 MG, 6 fusil...
+//   baseClip     capacidad de la variante base. DECLARATIVO: la que manda es la
+//                del .asi. Aca esta el mismo numero, para poder cross-checkear.
 //
 // OJO con `slot`: es el mismo para TODAS las variantes de la familia. Dos
 // variantes no pueden caer en slots distintos, porque el motor tiene UN
 // CWeapon por slot (CPed.m_aWeapons[13]) y un accesorio no mueve el arma de
-//Combat; cambia como se ejecuta.
+// combate; cambia como se ejecuta.
 export var WEAPON_FAMILIES = [
     {
         family: "colt45",
         itemId: "colt45",
         name: "Colt .45",
-        parent: -1,          // la variante base es el weaponType 22 de vanilla
-        baseVariant: 22,
+        parent: 22,           // la variante base clona de la Colt de vanilla
+        baseVariant: 63,      // ...pero EJECUTA el 63, que tiene 8 y no 17
         modelId: 346,
         slot: 2,
         baseClip: 8,
@@ -97,6 +128,14 @@ export var WEAPON_FAMILIES = [
 // un cargador de 15 SIEMPRE tiene 15, y el arma no lo hereda de ningun lado. Es
 // lo que hace que dos capacidades distintas puedan convivir sin que el numero
 // este duplicado en dos lugares que divergen.
+// OJO con el id: el item de inventario se llama `mag_colt45_extended` y este
+// accesorio tiene que llamarse IGUAL. Los dos son el mismo objeto y hay 5
+// archivos que lo nombran (item_data, weapon_data, web_data, Items, y el
+// renombre de SaveMigration). Renombrarlo a `mag_colt45_15` es lo que quiere el
+// diseno final, pero es un cambio atomico: si se renombra SOLO aca, el
+// cargador queda sin item en el inventario y no se puede montar, que es un
+// fallo silencioso. Va con su entrada en ITEM_RENAMES, en la fase de
+// migracion de saves.
 export var WEAPON_ATTACHMENTS = [
     {
         id: "suppressor",
@@ -133,12 +172,10 @@ export var WEAPON_ATTACHMENTS = [
 //               comparar.
 //   parent      solo para variantes plugin: el tipo vanilla del que clona el
 //               .asi. Para variantes vanilla va null.
-//   clipSize    capacidad de ESTA variante. Para una que lleva cargador es el
-//               del cargador; si no lleva, null = la de la familia.
-//   modelId     modelo de ESTA variante. Un silenciador cambia la silueta.
-//
-// Las variantes vanilla no necesitan fila en gsis_weapons.dat: el motor ya las
-// tiene. Las plugin necesitan una linea ahi, y el validador de abajo lo comprueba.
+//   clipSize    capacidad de ESTA variante. DECLARATIVO: lo que importa es el
+//               `cargador` de la fila correspondiente en gsis_weapons.dat, que
+//               es lo unico que escribe la CWeaponInfo. Aca esta el mismo
+//               numero para que se pueda cross-checkear.
 //   modelId     modelo de ESTA variante. Un silenciador cambia la silueta.
 //
 // `modelSource` es opcional y solo hace falta cuando el modelo NO es uno de
@@ -146,34 +183,43 @@ export var WEAPON_ATTACHMENTS = [
 // que no se pide con REQUEST_MODEL sino que se verifica que este. El default
 // ausente es un modelId de vanilla.
 //
-// LAS 4 VARIANTES DE LA COLT .45 Y SUS MODELOS
+// LAS 4 VARIANTES DE LA COLT .45
 //
-//   tipo  modelo           archivo         configuracion
-//    22   346 (vanilla)    -               pelada, 8 balas
-//    23   347 (vanilla)    -               con silenciador, 8 balas
-//    60   colt45_c15       propio          cargador de 15
-//    61   colt45_c15       propio          cargador de 15 + silenciador
+//   tipo  modelo  parent  capacidad  configuracion
+//    63     346      22        8     pelada
+//    62     346      22       15     cargador 15
+//    60     347      23        8     silenciador
+//    61     347      23       15     silenciador + cargador 15
 //
-// Las de 15 balas usan el modelo propio porque son las unicas que se ven
-// distintas de la pistola de vanilla. La 61 usa el MISMO archivo que la 60 y no
-// el colt45_c15_silenced.dff que hay en la carpeta: ese es el siguiente paso, y
-// cambiarlo es una linea aca.
+// LAS 4 NECESITAN TIPO PROPIO, y antes eran 2. Lo que cambio:
 //
-// `model` es un NOMBRE de WEAPON_MODELS, no un modelId, y a proposito: el modelId
-// de un modelo propio lo ASIGNA el juego cuando se carga (LOAD_SPECIAL_MODEL lo
-// devuelve), asi que no se puede escribir en una tabla estatica. El nombre si
-// es estable. Para un modelo de vanilla sigue yendo el numero en `modelId`, que
-// si se conoce de antemano.
+//   - El 22 de vanilla trae 17 balas. El mod no escribe m_nAmmoClip, asi que
+//     no puede bajarlo: la Colt de GSIS tiene su propio tipo, el 63, con 8.
 //
-// Que el 60 y el 61 compartan el MISMO modelo es correcto y no es un atajo: son
-// la misma configuracion de hardware con distinto cargador, y el cargador no
-// cambia la silueta. Lo que cambia la silueta es el silenciador, y ese ya lo
-// aporta el weaponType 23 de vanilla con su modelo 347.
+//   - El 23 es la pistola silenciada de VANILLA y es un tipo vivo. Registrarlo
+//     aca haria que HookGetWeaponInfo(23) devolviera filas de GSIS para la
+//     silenciada de todo el juego. El silenciado de GSIS es el 60, que CLONA
+//     del 23 y hereda su modelo 347, su animacion 18 y su sonido sin pisarlo.
+//
+//   - El 22 y el 23 quedan 100% vanilla. 60 y 61 los usan de PADRE, no los
+//     reemplazan. Esa diferencia es toda la linea entre un silenciador que
+//     funciona y uno que no cambia nada.
+//
+// Los parent tienen que ser de vanilla y directo. Resolver() sube hasta el
+// ancestro MAS ALTO, asi que un padre en cadena se pierde: si el 61 declarara
+// padre 60, Resolver(61) daria 22 y el clon saldria de la Colt base.
+//
+// `modelId` es el valor de ARRANQUE del clon. El id real de un modelo propio lo
+// ASIGNA el juego cuando se carga (LOAD_SPECIAL_MODEL lo devuelve), asi que no
+// se puede escribir en una tabla estatica; por eso con WEAPON_MODELS los
+// nombres van aparte. Hoy WEAPON_MODELS_ENABLED esta en false y las 4 filas usan
+// modelos de vanilla, que es la respuesta honesta: 346 y 347 existen, y un
+// numero que no existe se ve como un arma invisible.
 export var WEAPON_VARIANTS = [
-    { weaponType: 22, family: "colt45", attachments: [], parent: null, clipSize: 8, modelId: 346 },
-    { weaponType: 60, family: "colt45", attachments: ["mag_colt45_extended"], parent: 22, clipSize: 15, model: "colt45_c15", modelSource: "special" },
-    { weaponType: 23, family: "colt45", attachments: ["suppressor"], parent: null, clipSize: 8, modelId: 347 },
-    { weaponType: 61, family: "colt45", attachments: ["mag_colt45_extended", "suppressor"], parent: 23, clipSize: 15, model: "colt45_c15", modelSource: "special" }
+    { weaponType: 63, family: "colt45", attachments: [], parent: 22, clipSize: 8, modelId: 346 },
+    { weaponType: 62, family: "colt45", attachments: ["mag_colt45_extended"], parent: 22, clipSize: 15, modelId: 346 },
+    { weaponType: 60, family: "colt45", attachments: ["suppressor"], parent: 23, clipSize: 8, modelId: 347 },
+    { weaponType: 61, family: "colt45", attachments: ["mag_colt45_extended", "suppressor"], parent: 23, clipSize: 15, modelId: 347 }
 ];
 
 // ============================================================================
@@ -254,15 +300,39 @@ var _VARIANTS = _buildVariantIndex();
 //      anterior, pero ademas es un error de diseno del accesorio.
 //   5. Item de inventario duplicado entre dos familias. Cada familia es un item;
 //      dos familias con el mismo itemId no se distinguen en el collar.
-//   6. Variante cuyo weaponType no esta en el rango de plugins Y declara parent.
-//      O al reves: un parent con un tipo vanilla no clona nada.
+//   6. Variante cuyo weaponType no esta en 60..79. Es el rango que el .asi
+//      puede dar de alta, y 22/23 quedan vanilla: declararlos aca seria pedirle
+//      al .asi que pise un arma que el motor consulta de verdad.
+//   7. Variante de plugin cuyo parent no es un tipo VANILLA de 22..32. Tres
+//      fallos distintos con el mismo sintoma, y por eso van separados:
+//        - fuera de 22..32: GetSkillStatIndex da -1 y el arma no sube de skill
+//        - dentro de 22..32 pero ES OTRO TIPO DE PLUGIN: Resolver() sube hasta
+//          el ancestro mas alto y el clon sale del ancestro final, perdiendo lo
+//          que el padre intermedio habia heredado
+//        - parent igual al weaponType: el clon seria de si mismo
+//   8. Variante que es de plugin (tiene parent) pero su weaponType NO esta en
+//      60..79, o al reves: un tipo de plugin sin parent no clona de nada.
+//   9. Capacidad declarada que no sale del .asi, o una variante cuyo cargador se
+//      puede leer de tres sitios distintos. Fase 2 lo resuelve dejando un solo
+//      lugar; aca se avisa que hay mas de uno.
 //
-// El punto 7 —que una variante de plugin tenga fila en gsis_weapons.dat— NO se
-// puede comprobar aca: ese archivo lo lee el .asi, no el mod. Se comprueba por
-// log, que es el unico lugar donde se ven las dos mitades.
+// El punto 10 —que una variante de plugin tenga fila en gsis_weapons.dat y que
+// el `cargador` y el `modelId` de esa fila sean los de la variante— NO se puede
+// comprobar aca: ese archivo lo lee el .asi, no el mod. Lo comprueba
+// tools/check-dat.mjs, que es el unico lugar donde se ven las dos mitades.
+export var PLUGIN_TYPE_MIN = 60;
+export var PLUGIN_TYPE_MAX = 79;
+export var VANILLA_PARENT_MIN = 22;
+export var VANILLA_PARENT_MAX = 32;
+
+function _esTipoDePlugin(tipo) {
+    return tipo >= PLUGIN_TYPE_MIN && tipo <= PLUGIN_TYPE_MAX;
+}
+
 export function validateVariants() {
     var problems = _VARIANTS.problems.slice();
     var seenItems = {};
+    var seenTypes = {};
 
     for (var f = 0; f < WEAPON_FAMILIES.length; f++) {
         var fam = WEAPON_FAMILIES[f];
@@ -271,11 +341,63 @@ export function validateVariants() {
             problems.push("el itemId " + fam.itemId + " lo usan las familias " +
                 seenItems[fam.itemId] + " y " + fam.family);
         } else seenItems[fam.itemId] = fam.family;
+
+        // La variante base es la que se ejecuta sin ningun accesorio montado, asi
+        // que tiene que existir como fila. Si no, resolveWeaponType(familia, [])
+        // cae a fam.baseVariant, que es un numero sin fila: un tipo que el .asi
+        // no conoce, que dispara muda y no tiene mira.
+        var base = getVariantByKey(fam.family, []);
+        if (!base) {
+            problems.push("la familia " + fam.family + " no declara la variante base "
+                + "(ninguna fila con attachments vacios)");
+        } else if (base.weaponType !== fam.baseVariant) {
+            problems.push("la familia " + fam.family + " dice baseVariant " +
+                fam.baseVariant + " pero la fila sin accesorios es la " + base.weaponType);
+        }
     }
 
     for (var i = 0; i < WEAPON_VARIANTS.length; i++) {
         var v = WEAPON_VARIANTS[i];
         var accs = v.attachments || [];
+        var plugin = isPluginVariant(v);
+
+        // --- el rango, y que no se pise a un tipo vivo ---
+        if (!_esTipoDePlugin(v.weaponType) && plugin) {
+            problems.push("la variante " + v.weaponType + " declara parent " + v.parent +
+                " pero el tipo no esta en " + PLUGIN_TYPE_MIN + ".." + PLUGIN_TYPE_MAX +
+                ". Sin esa franja el .asi no lo puede dar de alta");
+        }
+        if (_esTipoDePlugin(v.weaponType) && !plugin) {
+            problems.push("la variante " + v.weaponType + " esta en el rango de plugin " +
+                PLUGIN_TYPE_MIN + ".." + PLUGIN_TYPE_MAX + " pero no declara parent, asi que " +
+                "no clona de ningun tipo y el motor no lo ejecuta");
+        }
+        if (v.weaponType === 22 || v.weaponType === 23) {
+            problems.push("la variante " + v.weaponType + " usa un tipo VANILLA. 22 y 23 se "
+                + "usan de PADRE (el 23 para clonar la silenciada) y no como variante: "
+                + "registrarlos seria pisar un arma que el motor consulta de verdad");
+        }
+
+        // --- el padre ---
+        if (plugin) {
+            if (v.parent < VANILLA_PARENT_MIN || v.parent > VANILLA_PARENT_MAX) {
+                problems.push("la variante " + v.weaponType + " tiene parent " + v.parent +
+                    ", y tiene que ser un tipo vanilla de " + VANILLA_PARENT_MIN + ".." +
+                    VANILLA_PARENT_MAX + ": fuera de ahi GetSkillStatIndex devuelve -1 y el arma no sube de skill");
+            } else if (_esTipoDePlugin(v.parent)) {
+                problems.push("la variante " + v.weaponType + " tiene parent " + v.parent +
+                    ", que es un tipo de plugin. El padre tiene que ser de vanilla: Resolver() sube "
+                    + "hasta el ancestro MAS ALTO, asi que con un padre en cadena el clon sale del "
+                    + "ancestro final y se pierde todo lo que el padre intermedio heredaba");
+            } else if (v.parent === v.weaponType) {
+                problems.push("la variante " + v.weaponType + " declara su propio tipo como parent");
+            }
+        }
+
+        // --- una capacidad, un solo lugar ---
+        if (seenTypes[v.weaponType] === undefined) seenTypes[v.weaponType] = 0;
+        seenTypes[v.weaponType]++;
+
         for (var a = 0; a < accs.length; a++) {
             var att = getAttachmentById(accs[a]);
             if (!att) {
@@ -382,6 +504,12 @@ export function resolveWeaponType(family, attachments) {
     if (v) return v.weaponType;
 
     // Sin accesorios: cae a la variante base de la familia.
+    //
+    // Esto solo se alcanza si la familia NO declaro la fila con attachments
+    // vacios, y validateVariants() avisa de eso. Es una red, no el camino
+    // normal: `baseVariant` es un numero declarado, no inventado, y el
+    // validador exige que coincida con la fila. Si la fila existe, la linea de
+    // arriba ya devolvio.
     if (norm.length === 0) {
         var f = getFamilyById(family);
         if (f && f.baseVariant) return f.baseVariant;
