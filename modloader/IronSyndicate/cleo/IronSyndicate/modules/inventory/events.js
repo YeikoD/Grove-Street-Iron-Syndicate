@@ -50,31 +50,6 @@ import {
 import { addItem } from "./logic.js";
 
 // ---------------------------------------------------------------------------
-// TRAZA DEL CINTURON
-// ---------------------------------------------------------------------------
-// Un volcado del cinturon antes y después de cada mutacion, con indice, id, balas
-// y capacidad. Es lo que hace falta para separar dos bugs que se ven igual desde
-// afuera:
-//
-//   A. una sola operacion que MUTA un cargador que no deveria
-//   B. varias operaciones aceptadas mientras la anterior sigue activa
-//
-// El cinturon es un array de tamano FIJO con nulls, asi que el volcado imprime los
-// indices: sin el indice no se ve si se escribio la casilla correcta.
-function _volcarCinturon(etiqueta) {
-    var belt = ensureBelt(getModuleData(SAVE_KEY));
-    var partes = [];
-    for (var i = 0; i < belt.length; i++) {
-        var it = belt[i];
-        if (!it) continue;
-        partes.push("[" + i + "]" + it.id + "(" + it.ammo + "/" +
-            (capacityOfItem(it.id) || "?") + ")");
-    }
-    log("[cinturon] " + etiqueta + ": " + (partes.length ? partes.join(" ") : "VACIO"));
-    return belt;
-}
-
-// ---------------------------------------------------------------------------
 // LOS NOMBRES QUE ESTE MODULO ATIENDE
 // ---------------------------------------------------------------------------
 // Los cuatro estan declarados en core/gsis_EventNames.js, no aca. La razon esta
@@ -157,9 +132,6 @@ on(ITEMS_SWAP_MAGAZINE, function (e) {
     if (!magIds.length) { e.respond(null); return; }
     var data = _data();
     var belt = ensureBelt(data);
-    _volcarCinturon("swap ANTES (pide " + magIds.join(",") + ", montado=" +
-        (e.data.mountedMagId || "ninguno") + ")");
-
     // QUE CARGADOR ENTRA. Esta es la parte que estaba rota, y la razon de que
     // "volver a las 8 balas" fuera imposible.
     //
@@ -277,9 +249,6 @@ on(ITEMS_SWAP_MAGAZINE, function (e) {
             log("[Inventory] " + magId + " es de FABRICA: no se monta, se queda en " +
                 "[best] y " + backId + " vuelve en [" + libre + "]");
             _save(data);
-            _volcarCinturon("swap DESPUES (entra " + magId + " DE FABRICA: se queda; " +
-                backId + "(" + backAmmo + ") vuelve)");
-            e.respond({ ammo: freshAmmo, magId: magId });
             emit(INVENTORY_CHANGED, { motivo: "swapMagazine", id: magId });
             return;
         }
@@ -288,9 +257,6 @@ on(ITEMS_SWAP_MAGAZINE, function (e) {
         belt[best] = null;  // descarga: casilla libre
     }
     _save(data);
-    _volcarCinturon("swap DESPUES (entra " + magId + "(" + freshAmmo + "), sale " +
-        (e.data.mounted !== false ? backId + "(" + (e.data.ammo || 0) + ")" : "nada") +
-        ") indice " + best);
     e.respond({ ammo: freshAmmo, magId: magId });
     emit(INVENTORY_CHANGED, { motivo: "swapMagazine", id: magId });
 });
@@ -301,10 +267,8 @@ on(ITEMS_SWAP_MAGAZINE, function (e) {
 on(ITEMS_EXTRACT_MAGAZINE, function (e) {
     var magId = e.data.magId;
     if (!magId || !isMagazine(magId)) { e.respond(null); return; }
-    _volcarCinturon("extract ANTES (saca " + magId + ")");
     var out = e.data.ammo || 0;
     if (!addItem(magId, 1, { ammo: out })) { e.respond(null); return; }
-    _volcarCinturon("extract DESPUES (a la mochila: " + magId + "(" + out + "))");
     e.respond({ ammo: out });
     emit(INVENTORY_CHANGED, { motivo: "extractMagazine", id: magId });
 });

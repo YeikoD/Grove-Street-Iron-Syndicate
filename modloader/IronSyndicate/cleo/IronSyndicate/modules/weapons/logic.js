@@ -763,14 +763,7 @@ export function _watchdogReload() {
         var state = Engine.slotState(p.addr);
         if (state !== Engine.WEAPONSTATE_RELOADING &&
             state !== Engine.WEAPONSTATE_OUT_OF_AMMO) {
-            // El motor termino la recarga solo. Este es el volcado que importa:
-            // es el estado FINAL, despues de que la anim corra y Reload() haya
-            // repartido el total en el clip. Si aca el clip no es el que dice la
-            // ficha, el bug es de lo que hizo el motor y no de lo que escribimos
-            // nosotros.
-            var cj = new Player(0).getChar();
-            Engine.dumpState("el motor cerro la recarga", cj, p.type);
-            _reloadPending = null;
+            _reloadPending = null;   // el motor termino la recarga solo
             return;
         }
 
@@ -781,19 +774,11 @@ export function _watchdogReload() {
         Engine.setSlotNextShotTime(p.addr, now);
         log("[Weapons] watchdog de recarga: el motor no cerro la recarga del tipo " +
             p.type + " (estado " + state + "). Cerrada a mano con " + p.ammo + " balas.");
-        var cjw = new Player(0).getChar();
-        Engine.dumpState("el watchdog la cerro", cjw, p.type);
         _reloadPending = null;
     } catch (e) {
         _reloadPending = null;
     }
 }
-
-// Contador de pulsaciones de R. Es para separar dos bugs que se ven igual: uno que
-// MUTE un cargador, y otro que corra la operacion DOS veces por pulsacion. Con el
-// numero en el log, dos "R #n" seguidos sin que termine el primero se ven a simple
-// vista, y un solo R #n con dos "[cinturon] ANTES" se ven tambien.
-var _opsRecarga = 0;
 
 export function tryReload() {
     var w = Engine.readCurrentWeapon();
@@ -805,15 +790,6 @@ export function tryReload() {
     var montado = mountedMagazine(entry);
     var magIds = magazineIdsFor(entry.family);
 
-    var op = ++_opsRecarga;
-    log("[R #" + op + "] BEGIN | slot=" + w.slot + " tipo=" + w.type +
-        " ammo=" + (w.ammo || 0) + " montado=" + (montado || "ninguno") +
-        " familia=" + entry.family);
-
-    // El tipo que hay en la mano ANTES de que R haga nada. Con el par
-    // (este, el de despues) se puede comparar la transicion sin depender de
-    // acordarse de que tecla se aprieto.
-    Engine.dumpState("ANTES de R", char, w.type);
     if (!magIds.length) {
         log("[Weapons] recarga: la familia " + entry.family + " no tiene cargadores " +
             "en el catalogo | tipo " + w.type);
@@ -902,7 +878,6 @@ export function tryReload() {
             _animarRecarga(char, w.slot, r.weaponType, ammo);
             log("[Weapons] recarga: tipo " + r.weaponType + " con " + ammo +
                 "/" + r.cap + " balas");
-            log("[R #" + op + "] END   | MONTADO " + nuevo + " -> tipo " + r.weaponType);
             return;
         }
         // El give fallo con un cargador YA GASTADO del cinturon. No se puede
@@ -937,13 +912,7 @@ export function tryReload() {
                 // total es 0, y el arma queda descargada cuando termina.
                 _animarRecarga(char, w.slot, r2.weaponType, 0);
                 showTextBox(t("MAG_OUT"));
-                log("[R #" + op + "] END   | DESMONTA -> tipo " + r2.weaponType +
-                    " con 0 balas, " + montado + "(" + out + ") a la mochila");
-            } else {
-                log("[R #" + op + "] END   | el DESMONTA fallo: " + (r2.motivo || "?"));
             }
-        } else {
-            log("[R #" + op + "] END   | el DESMONTA no entro: no hay donde meter el cargador");
         }
         // Si no cabe: INV_FUL lo muestra Items y el arma no cambia.
         return;
@@ -973,7 +942,6 @@ export function tryReload() {
     showTextBox(t("NO_MAG"));
     log("[Weapons] recarga sin resultado: tipo " + w.type + " | montado=" +
         (montado || "ninguno") + " ammo=" + (w.ammo || 0) + " | cinturon sin recambio util");
-    log("[R #" + op + "] END   | NADA: sin cargador util en el cinturon, tipo " + w.type);
 }
 
 // La animacion de recarga, y solo la animacion.
@@ -990,20 +958,11 @@ export function tryReload() {
 function _animarRecarga(char, slot, weaponType, ammoEsperado) {
     var ped = Engine.pedPointer(char);
     var targets = _reloadTargets(ped, slot);
-    // Antes de la anim. El estado de partida es el que hay que comparar contra el
-    // que quede cuando el motor la cierre: si el motor cambia el clip solo, se ve
-    // en la diferencia entre estos dos volcados.
-    Engine.dumpState("antes de la anim", char, weaponType);
-    if (!targets) {
-        log("[diag] sin anim: el tipo " + weaponType + " no se puede animar " +
-            "(ya recargando, o sin WEAPON_RELOAD, o de un tiro)");
-        return false;
-    }
-    var ok = _startReloadAnim(targets, char, ammoEsperado);
-    Engine.dumpState("con la anim disparada", char, weaponType);
-    log("[diag] anim " + (ok ? "disparada" : "NO se pudo disparar") +
-        " | reloadTime=" + targets.ms + "ms | esperado=" + ammoEsperado);
-    return ok;
+    // False NO se loguea. Un arma sin anim de recarga es una parte del catalogo,
+    // no un fallo: un lanzallamas y un spray no tienen anim y no van a tenerla, y
+    // una linea por cada R sobre uno de ellos seria ruido que esconde el resto.
+    if (!targets) return false;
+    return _startReloadAnim(targets, char, ammoEsperado);
 }
 
 // Si un accesorio es un cargador. Lo demas (un silenciador) sobrevive al cambio de

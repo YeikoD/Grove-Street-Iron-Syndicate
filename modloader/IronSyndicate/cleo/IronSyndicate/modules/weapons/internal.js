@@ -142,12 +142,6 @@ export function _giveInternal(char, family, attachments, ammo, que) {
     }
     Engine.setCurrentWeapon(char, tipo);
 
-    // INMEDIATAMENTE DESPUES DEL GIVE, antes de tocar el clip a mano. Es el estado
-    // que dejo el motor, y es el que hay que comparar entre dos tipos: si el motor
-    // ya entrego un clip equivocado, el bug es de la ficha del tipo y no de las
-    // escrituras de abajo.
-    Engine.dumpState("tras GIVE (sin tocar)", char, tipo);
-
     // El clip y el estado en memoria, para que el arma pueda disparar sin que el
     // motor la recargue primero. El estado en READY importa: si el motor lo
     // deja en OUT_OF_AMMO, CWeapon::Fire hace return false y el arma no dispara
@@ -158,9 +152,6 @@ export function _giveInternal(char, family, attachments, ammo, que) {
         Engine.setSlotTotal(addr, total);
         Engine.setSlotState(addr, Engine.WEAPONSTATE_READY);
     }
-
-    // Y despues de escribirlos, para ver que quedo.
-    Engine.dumpState("tras GIVE (ya escrito)", char, tipo);
 
     log("[Weapons] " + que + ": " + getFamilyItemId(family) + " -> tipo " + tipo +
         (viejo !== null && viejo !== tipo ? " (era " + viejo + ")" : "") +

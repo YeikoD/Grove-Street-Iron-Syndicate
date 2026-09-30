@@ -70,16 +70,15 @@ export var W_TIME = 0x10;                  // CWeapon::m_nTimeForNextShot
 
 // CWeaponInfo. Los offsets salen de WeaponLimits.h y el layout esta verificado
 // contra el binario: 0x0C = m_modelId, 0x18 = m_nFlags, 0x1C = m_animGroup.
-export var INFO_FIRE_TYPE = 0x0;           // m_eWeaponFire (1 = INSTANT_HIT)
+//
+// De los cinco que hay, el mod lee DOS: m_nFlags (para el flag WEAPON_RELOAD) y
+// m_nAmmo (para saber si el arma tiene cargador). Los otros tres estan
+// documentados en WeaponLimits.h y en el .asi, que los usa, y no se re-declaran
+// aca: un offset exportado que nadie lee es una copia que puede divergir de la
+// fuente sin que nada lo note.
 export var INFO_MODEL = 0x0C;              // m_modelId (WeaponLimits.h:365)
 export var INFO_FLAGS = 0x18;              // m_nFlags
 export var INFO_AMMO = 0x20;               // m_nAmmo, int16: el cargador de vanilla
-export var INFO_SKILL = 0x30;              // m_SkillLevel
-export var INFO_REQ_STAT = 0x34;           // m_nReqStatLevel
-
-// INFO_ANIM_GROUP es 0x1C y ya lo usa el .asi. Se re-declara aca solo para que el
-// diagnostico de abajo pueda leerlo sin conocer offsets del .asi.
-export var INFO_ANIM_GROUP = 0x1C;
 
 // El flag WEAPON_RELOAD de m_nFlags. Es la unica forma de saber si el motor tiene
 // anim de recarga para este arma: el grupo de animacion puede existir y no tener
@@ -320,58 +319,6 @@ export function unloadSlot(slotAddr) {
     setSlotTotal(slotAddr, 0);
 }
 
-// ---------------------------------------------------------------------------
-// DIAGNOSTICO: EL ESTADO DE UN ARMA, CAMPO POR CAMPO
-// ---------------------------------------------------------------------------
-// No es una guarda y no decide nada: escribe una linea y devuelve. Existe para el
-// caso en que dos tipos con la MISMA capacidad se comportan distinto, que es
-// cuando leer el codigo no alcanza y hay que ver los numeros.
-//
-// Los campos son los que piden, y los dos suspectos del grupo 60/61:
-//
-//   m_nAmmo        la capacidad que DICE la ficha. Si esta bien y el clip no, el
-//                  bug no es de capacidad.
-//   reqStatLevel   el requerimiento de stat, HEREDADO del padre. Es el campo que
-//                  mas se desvia entre la familia silenciada (padre 23) y la normal
-//                  (padre 22), porque en vanilla el 23 tiene un stat level que no
-//                  tiene nada que ver con jugarse la pistola callada.
-//
-// Devuelve el objeto, para que el llamador pueda compararlo con otro volcado.
-export function dumpState(etiqueta, char, weaponType) {
-    var out = { etiqueta: etiqueta, tipo: weaponType };
-    try {
-        var ped = pedPointer(char);
-        var addr = weaponType ? addressOfType(ped, weaponType) : 0;
-        var info = weaponType ? weaponInfoAddress(weaponType, SKILL_STD) : 0;
-        out.ped = ped;
-        out.slotAddr = addr;
-        out.infoAddr = info;
-        if (info) {
-            out.infoAmmo = readI16(info + INFO_AMMO);
-            out.infoFlags = "0x" + (readI32(info + INFO_FLAGS) >>> 0).toString(16).toUpperCase();
-            out.infoAnimGroup = readI32(info + INFO_ANIM_GROUP);
-            out.infoReqStat = readI32(info + INFO_REQ_STAT);
-            out.infoSkill = readI32(info + INFO_SKILL);
-        }
-        if (addr) {
-            out.clip = readI32(addr + W_CLIP);
-            out.total = readI32(addr + W_AMMO);
-            out.state = readI32(addr + W_STATE);
-            out.nextShot = readI32(addr + W_TIME);
-        }
-    } catch (e) {
-        out.error = (e && e.message) ? e.message : String(e);
-    }
-    log("[diag] " + etiqueta + " | tipo " + out.tipo +
-        " | ficha@" + (out.infoAddr || 0) + ": ammo=" + out.infoAmmo +
-        " flags=" + out.infoFlags + " anim=" + out.infoAnimGroup +
-        " reqStat=" + out.infoReqStat +
-        " | slot@" + (out.slotAddr || 0) + ": clip=" + out.clip +
-        " total=" + out.total + " state=" + out.state + " nextShot=" + out.nextShot +
-        (out.error ? " | ERROR: " + out.error : ""));
-    return out;
-}
-// Que este arma pueda animarse, y cuanto tarda. Devuelve null si no puede.
 //
 // La razon de que sea null y no un ms en cero: el llamador escribe
 // `m_nState = 2` para que el motor lance el anim. Si el arma no TIENE anim de

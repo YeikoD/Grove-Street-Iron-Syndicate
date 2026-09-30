@@ -182,10 +182,23 @@ const NATIVES = {
         REGISTRO.ammo[tipo] = ammo;
         // El total del TIPO, y el de CUALQUIER slot que lo tenga. SET_CHAR_AMMO
         // responde por tipo, no por el arma en la mano.
+        //
+        // MEDIDO el 30/09: esto llamaba a _escribirSlot con el CLIP en el
+        // argumento del TIPO, y el native terminaba PONIENDO EL CLIP EN EL TIPO del
+        // arma. Con el clip en 0, el tipo del slot quedaba en 0 y el arma
+        // desaparecia de la memoria del ped: el reconciliador leia el slot vacio y
+        // BORRABA la entrada del registro. La recarga "funcionaba" y a la pulsacion
+        // siguiente el arma no estaba.
+        //
+        // O sea: un fallo del motor falso que se tenia por fallo del mod, y que
+        // solo se ve si algo lee la memoria DESPUES de un setAmmo. Todo lo que
+        // hacia eso antes era el reconciliador.
+        //
+        // El native real solo mueve la reserva: ni el tipo, ni el clip, ni el
+        // estado. Por eso se escribe SOLO m_nAmmoTotal.
         for (const s in REGISTRO.slots) {
             if (REGISTRO.slots[s] === tipo) {
-                _escribirSlot(REGISTRO.char, Number(s),
-                    MEM.get(slotAddr(REGISTRO.char, Number(s)) + W_CLIP) || 0, ammo);
+                MEM.set(slotAddr(REGISTRO.char, Number(s)) + W_AMMO, ammo);
             }
         }
         return true;
