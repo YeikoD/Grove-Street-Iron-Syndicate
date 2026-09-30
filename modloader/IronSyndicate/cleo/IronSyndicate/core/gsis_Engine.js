@@ -68,29 +68,56 @@ export var W_CLIP = 0x8;                   // CWeapon::m_nAmmoInClip
 export var W_AMMO = 0xC;                   // CWeapon::m_nAmmoTotal
 export var W_TIME = 0x10;                  // CWeapon::m_nTimeForNextShot
 
-// CWeaponInfo. Solo se tocan dos campos, y los dos estan verificados. Los demas
-// offsets de la ficha NO estan: el mod no lee ni escribe m_nFlags ni m_nAmmoClip,
-// porque la capacidad la escribio el .asi al registrar el tipo y el mod la lee por
-// el native, no por el offset. Ver clipCapacityOf.
+// CWeaponInfo. Los offsets salen de WeaponLimits.h y el layout esta verificado
+// contra el binario: 0x0C = m_modelId, 0x18 = m_nFlags, 0x1C = m_animGroup.
 export var INFO_FIRE_TYPE = 0x0;           // m_eWeaponFire (1 = INSTANT_HIT)
 export var INFO_MODEL = 0x0C;              // m_modelId (WeaponLimits.h:365)
+export var INFO_FLAGS = 0x18;              // m_nFlags
+export var INFO_AMMO = 0x20;               // m_nAmmo, int16: el cargador de vanilla
+
+// El flag WEAPON_RELOAD de m_nFlags. Es la unica forma de saber si el motor tiene
+// anim de recarga para este arma: el grupo de animacion puede existir y no tener
+// el anim de recarga, y ahi la escritura de m_nState = 2 deja el arma muda.
+export var WEAPON_FLAG_RELOAD = 0x1000;
 
 // Globales sueltas.
 export var TIMER_ADDR = 0xB7CB84;          // CTimer::m_snTimeInMilliseconds
-// CWeaponInfo::GetWeaponReloadTime (thiscall, uint32) vivia en 0x743D70 y se
-// llamaba por Memory.CallMethodReturn. SE FUE con la anim de recarga: era la
-// duracion de una anim que ya no hay. La direccion queda escrita aca porque es la
-// unica forma de volver a encontrarla, y porque si vuelve a hacer falta va a ser
-// con un try/catch alrededor, no como un export sin consumidor.
-//   0x743D70 = CWeaponInfo::GetWeaponReloadTime(this) -> uint32
-
-// Estados de CWeapon. Queda solo READY.
+// CWeaponInfo::GetWeaponReloadTime (thiscall, uint32) -> 0x743D70
 //
-// Los otros dos se van con la anim de recarga. OUT_OF_AMMO (3) lo dejaba un mod de
-// arma a cero, y es el estado en el que CWeapon::Fire hace return false: el arma
-// tiene balas y no dispara. El codigo nuevo escribe READY explicitamente cada
-// vez que da un arma justamente para no heredar ese estado.
+// VERIFICADO contra gta_sa.exe, y no por el comentario de una guia: los bytes en
+// 0x743D70 son `mov eax,[ecx+18h]` (lee m_nFlags) y decide segun el bit
+// 0x1000, o sea que devuelve una DURACION en ms segun si el arma recarga rapido o
+// lento. La misma direccion es la que usa "Reload Mod" (call 7617904 = 0x743D70),
+// que es un mod de recarga que funciona.
+//
+// Antes de escribir esto verifique la direccion contra el binario porque el
+// comentario de la version anterior de este archivo la describia mal. No estaba
+// mal la direccion: estaba mal la explicacion.
+var RELOAD_TIME_FN = 0x743D70;
+
+// Estados de CWeapon.
 export var WEAPONSTATE_READY = 0;
+export var WEAPONSTATE_RELOADING = 2;
+// OUT_OF_AMMO (3) tambien bloquea CWeapon::Fire, que hace return false. Aparece
+// solo cuando el motor deja al arma sin balas; el watchdog de la recarga lo
+// limpia porque si no el arma tiene balas y no dispara.
+export var WEAPONSTATE_OUT_OF_AMMO = 3;
+
+// Armas sin anim de recarga, por weaponType de vanilla.
+//
+// VERIFICADO contra el enum eWeaponType de WeaponLimits.h:
+//   37 WEAPONTYPE_FTHROWER     41 WEAPONTYPE_SPRAYCAN
+//   38 WEAPONTYPE_MINIGUN      42 WEAPONTYPE_EXTINGUISHER
+//                              43 WEAPONTYPE_CAMERA
+//
+// La lista completa es la de "Reload Mod" (L123-129). La version anterior de GSIS
+// tenia solo [37, 38], y no por decision: se escribio cuando el mod todavia no
+// manejava mas que pistola, AK y M4, y esas tres no llegan aqui. La lista se
+// completo cuando la anim volvio, para que un tipo futuro no se quede muda.
+//
+// Igual esta la guarda de verdad es WEAPON_RELOAD: esta lista es una red de
+// seguridad para los casos en que el flag y la lista no coinciden.
+export var NO_RELOAD_ANIM = [37, 38, 41, 42, 43];
 
 // Las 4 skills de un arma. weapon.dat repite la misma fila en las cuatro.
 // SKILL_COUNT si se usa afuera: quien recorre "las cuatro filas de este tipo"
@@ -131,6 +158,10 @@ function infoAddress(handle) {
 // distintos; uno solo se lee como lo que es: "la memoria puede no estar".
 function readI32(addr) { return Memory.ReadI32(addr, false); }
 function readU8(addr) { return Memory.ReadU8(addr, false); }
+// m_nAmmo y m_nDamage de CWeaponInfo son int16. Leerlos como I32 trae el vecino de
+// arriba pegado y una capacidad de 17 sale como 131089, que no es un numero que
+// uno mire y creya.
+function readI16(addr) { return Memory.ReadI16(addr, false); }
 function writeI32(addr, valor) { Memory.WriteI32(addr, valor, false); }
 
 // Un native que tira no puede tumbar un modulo. Se registra UNA vez por nombre
@@ -201,9 +232,16 @@ export function isCharInAnyCar(char) {
 
 // El reloj del juego, en milisegundos.
 //
-// SE QUITA. Lo usaba la anim de recarga, para medir el deadline de su watchdog.
-// Sin anim no hay deadline. Si alguna vez hace falta, es
-// `Memory.ReadI32(0xB7CB84, false)` y la direccion esta dos lineas mas abajo.
+// Lo usa la anim de recarga: el deadline de la recarga es un instante en el reloj
+// del motor, no un contador del mod. Con el reloj equivocado el plazo vence antes
+// o despues y la recarga se corta o se queda colgada.
+export function timerNow() {
+    try {
+        return readI32(TIMER_ADDR);
+    } catch (e) {
+        return 0;
+    }
+}
 
 // ============================================================================
 // LOS SLOTS DEL PED
@@ -254,25 +292,61 @@ export function addressOfType(ped, weaponType) {
 
 // --- campos de un CWeapon en memoria ---
 //
-// SE QUITAN: `slotState`, `setSlotNextShotTime`, `fillMagazine` y `unload`.
-//
-//   slotState y setSlotNextShotTime eran de la anim de recarga, que ya no existe.
-//   Los leia y escribia el watchdog para cerrar a mano una recarga que el motor
-//   no cerraba. Sin anim no hay nada que cerrar.
-//
-//   fillMagazine y unload eran "montar un cargador encima del arma" y "sacarlo",
-//   que es exactamente el modelo viejo. Un cargador es un accesorio: montarlo
-//   cambia de variante, y eso es un tipo nuevo, no un campo de esta fila.
-//
-// Lo que QUEDA del CWeapon es lo unico que el motor necesita que se este bien:
-// el tipo, el clip, el total y el estado en READY.
+// `slotState`, `setSlotNextShotTime` y `unloadSlot` vuelven con la anim de recarga.
+// SE QUITAN en un momento en que el codigo creia que cambiar de cargador era
+// escribir un campo encima del arma que ya estaba ahi. No lo es: es un REMOVE +
+// GIVE. Volvieron con la anim, y sobre el tipo NUEVO.
 
 export function slotClip(slotAddr) { return slotAddr ? readI32(slotAddr + W_CLIP) : 0; }
 export function slotTotal(slotAddr) { return slotAddr ? readI32(slotAddr + W_AMMO) : 0; }
+export function slotState(slotAddr) { return slotAddr ? readI32(slotAddr + W_STATE) : -1; }
 
 export function setSlotClip(slotAddr, n) { if (slotAddr) writeI32(slotAddr + W_CLIP, n); }
 export function setSlotTotal(slotAddr, n) { if (slotAddr) writeI32(slotAddr + W_AMMO, n); }
 export function setSlotState(slotAddr, n) { if (slotAddr) writeI32(slotAddr + W_STATE, n); }
+export function setSlotNextShotTime(slotAddr, ms) { if (slotAddr) writeI32(slotAddr + W_TIME, ms); }
+
+// Vaciar el arma: ni clip ni total. Es lo que hace el unload, y lo que permite que
+// el motor vea "no hay nada que recargar" y cierre la anim sin rellenar.
+export function unloadSlot(slotAddr) {
+    if (!slotAddr) return;
+    setSlotClip(slotAddr, 0);
+    setSlotTotal(slotAddr, 0);
+}
+
+// ---------------------------------------------------------------------------
+// LA ANIM DE RECARGA, EN DOS ESCRITURAS
+// ---------------------------------------------------------------------------
+// Que este arma pueda animarse, y cuanto tarda. Devuelve null si no puede.
+//
+// La razon de que sea null y no un ms en cero: el llamador escribe
+// `m_nState = 2` para que el motor lance el anim. Si el arma no TIENE anim de
+// recarga, el motor no lanza nada, no cierra el estado, y el arma queda muda con
+// balas. Un "0" como respuesta seria un arma rota.
+//
+// Las tres guardas, en orden de coste:
+//
+//   1. la lista de tipos sin anim. Es un chequeo en memoria, sin llamadas.
+//   2. WEAPON_RELOAD (0x1000) en m_nFlags. Esta es la guarda de verdad: el grupo
+//      de animacion puede existir sin el anim de recarga.
+//   3. m_nAmmo > 1. Un arma de un tiro no tiene cargador que recargar. Este es el
+//      mismo chequeo que hace "Reload Mod" (L136-140).
+export function reloadSpec(weaponType) {
+    if (!weaponType) return null;
+    if (NO_RELOAD_ANIM.indexOf(weaponType) >= 0) return null;
+    try {
+        var info = weaponInfoAddress(weaponType, SKILL_STD);
+        if (!info) return null;
+        var flags = readI32(info + INFO_FLAGS);
+        if (!(flags & WEAPON_FLAG_RELOAD)) return null;
+        if (readI16(info + INFO_AMMO) <= 1) return null;
+        var ms = Memory.CallMethodReturn(RELOAD_TIME_FN, info, 0, 0);
+        if (!ms || ms <= 0) return null;
+        return { info: info, ms: ms, flags: flags };
+    } catch (e) {
+        return null;
+    }
+}
 
 // El arma en la mano del jugador, leida con los natives del juego.
 // Devuelve { char, slot, type, clip, ammo } o null si un native no responde.
@@ -514,14 +588,17 @@ export function infoFireType(infoAddr) {
 //     (clipCapacityForPlugin), y por eso `_capacityByType` decidia entre las dos
 //     con una cadena de `if`. Las dos contestaban lo mismo. Queda una.
 //
-//   infoFlags  servia para el flag WEAPON_RELOAD, que era la guarda de la anim de
-//     recarga. Sin anim, no hay flag que mirar.
+//   infoFlags  y  reloadTimeMs  se fueron con la anim de recarga, y VOLVIERON con
+//     ella. El flag WEAPON_RELOAD (0x1000) es la guarda de "este arma tiene anim
+//     de recarga", y reloadTime es la duracion que el motor usa para saber cuando
+//     termina. Ver reloadSpec.
 //
-//   reloadTimeMs  era GetWeaponReloadTime, que solo se usaba para saber cuanto
-//    ibar la anim.
+// Lo que no vuelve es el resto. `WEAPON_RELOAD` no alcanza como unico filtro: el
+// flag dice que el ARMA tiene anim, y el grupo de animacion de un tipo de plugin
+// lo trae el padre. Un tipo sin padre con anim es un caso que el flag no cubre y
+// por eso reloadSpec tiene tres guardas y no una.
 //
-// Las dos primeras se fueron con la anim de recarga; la tercera con las dos
-// fuentes de capacidad. Nada de eso se reemplaza: son el segundo modelo.
+// ---------------------------------------------------------------------------
 
 // La capacidad de la fila STD de ese tipo. Que sea la STD y no "la del ped" es
 // lo que hace que un tipo de plugin tambien responda: weapon.dat repite el mismo

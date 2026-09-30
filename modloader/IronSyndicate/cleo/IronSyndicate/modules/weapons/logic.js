@@ -573,7 +573,7 @@ function _aplicar(char, slot, entry, attachments, que) {
 // RECARGA
 // ============================================================================
 // La tecla R. Y el nombre "recarga" es lo unico que se le mantiene, porque las
-// tres cosas que hace ya no tienen nada que ver entre si:
+// dos cosas que hace ya no tienen nada que ver entre si:
 //
 //   1. hay un cargador en el cinturon que le sirve a esta familia
 //      -> se MONTA. Es un accesorio, asi que cambia de variante, y eso es dar el
@@ -582,14 +582,166 @@ function _aplicar(char, slot, entry, attachments, que) {
 //   2. no hay recambio y hay cargador montado
 //      -> se DESMONTA: vuelve a la variante base y el arma queda descargada.
 //
-//   3. el cargador ya montado se rellena
-//      -> setAmmo y nada mas. NO cambia el tipo y NO toca la CWeaponInfo.
+// Las dos pasan por la animacion nativa de recarga, y las dos la disparan IGUAL:
+// dos escrituras en el CWeapon. Ver _startReloadAnim.
 //
-// El caso 3 es el que antes no existia y es el que mas se nota. Recargar el
-// cargador que ya tenes montado no cambia el arma de tipo, asi que no hay nada
-// que cambiar: antes pasaba por `_startReloadAnim`, que escribia m_nState = 2 y
-// confiaba en que el motor cerrara la recarga despues, con un watchdog de un
-// segundo para el caso de que no lo hiciera.
+// (El comentario de esta seccion decia antes que habia un tercer caso, "el
+//  cargador ya montado se rellena". No existe, y el porque esta escrito mas
+//  abajo, al final de tryReload. Se dejo la nota porque el comentario miente y
+//  un comentario que miente es peor que un comentario que falta.)
+//
+// ---------------------------------------------------------------------------
+// POR QUE LA ANIM VUELVE, Y POR QUE NO ES LO QUE HABIA
+// ---------------------------------------------------------------------------
+// Se habia eliminado `_reloadTargets` + `_startReloadAnim` + `_watchdogReload`
+// porque el codigo creia que un cargador se ponia ENCIMA de un arma que ya estaba
+// ahi. No se ponia encima: cambiar de cargador es cambiar de weaponType, y eso es
+// REMOVE + GIVE. El watchdog existia porque el motor a veces no cerraba la
+// recarga y dejaba el arma muda.
+//
+// El diagnostico era correcto y la conclusion estaba mal. Que cambiar de cargador
+// sea un tipo NUEVO no impide la animacion: solo cambia sobre QUE CWeapon se
+// escribe. El tipo viejo ya no esta en el ped, y el anim que tiene sentido es el
+// del tipo nuevo.
+//
+// Asi que la anim se dispara DESPUES del give, no antes. Ese es el cambio
+// completo respecto de la version anterior, y es el unico que hay que mirar si
+// un dia esto se rompe otra vez.
+//
+// Y el watchdog vuelve, porque el problema que resolvia no era del modelo viejo:
+// era del motor, y sigue existiendo. Ver _watchdogReload.
+// ============================================================================
+// LA ANIMACION NATIVA
+// ============================================================================
+// El motor ya sabe animar una recarga. No hace falta ni una animacion propia ni
+// una task: se le escriben DOS campos del CWeapon y el resto lo hace el juego.
+//
+//   CWeapon::m_nTimeForNextShot = ahora + reloadTime
+//   CWeapon::m_nState           = 2  (WEAPONSTATE_RELOADING)
+//
+// CTaskSimpleGunControl ve el estado 2 y lanza el anim RELOAD del animGroup del
+// arma. Cuando vence el plazo, CWeapon::Update -> Reload() mueve las balas del
+// total al clip. Ni el modulo ni el .asi participan en esto.
+//
+// El mecanismo y las direcciones estan verificados de dos formas independientes:
+// el layout de CWeapon/CWeaponInfo contra WeaponLimits.h, y la funcion de reload
+// time contra los bytes de gta_sa.exe en 0x743D70. Es la misma direccion que
+// usa "Reload Mod" (L171), que es un mod de recarga ajeno y funciona.
+//
+// ---------------------------------------------------------------------------
+// POR QUE NO SE PISA m_nState A CERO ANTES
+// ---------------------------------------------------------------------------
+// Un modulo de arma a cero deja al arma en OUT_OF_AMMO (3), y en ese estado
+// CWeapon::Fire hace return false: el arma TIENE balas y no dispara. Por eso el
+// codigo que da un arma escribe READY explicitamente. La anim de recarga escribe
+// 2 arriba de lo que hubiera, y si eso era 3 lo arregla de paso.
+
+// El reload pendiente, para el watchdog. Uno solo: el arma de la mano es una, y
+// dos recargas simultaneas no existen.
+var _reloadPending = null;
+
+// Que este arma se pueda animar, y sobre que direccion. Null si no puede.
+//
+// Las guardas, y por que cada una:
+//
+//   slotAddress  del slot SELECCIONADO del ped. No del weaponType: despues de un
+//     REMOVE + GIVE el tipo nuevo esta en un slot, y el del arma en la mano es el
+//     que se anima. Un CWeapon equivocado aqui es un anim en un arma que no esta
+//     en la mano, que se ve como que no pasa nada.
+//
+//   reloadSpec  null si el arma no tiene anim de recarga. Sin esta guarda se
+//     escribe m_nState = 2 en un arma sin anim, el motor no lanza nada, no cierra
+//     el estado, y el arma queda muda CON BALAS. Es el fallo que el watchdog de
+//     abajo no puede arreglar por tiempo, porque el plazo se cumple y el motor
+//     nunca estuvo recargando.
+//
+//   m_nState != 2  ya esta recargando. Pulsar R dos veces no encadena dos
+//     recargas: la segunda se ignora.
+function _reloadTargets(ped, slot) {
+    if (!ped || !slot) return null;
+    var addr = Engine.slotAddress(ped, slot);
+    if (!addr) return null;
+    if (Engine.slotState(addr) === Engine.WEAPONSTATE_RELOADING) return null;
+    var type = Engine.slotType(addr);
+    if (!type) return null;
+    var spec = Engine.reloadSpec(type);
+    if (!spec) return null;
+    return { addr: addr, type: type, ms: spec.ms };
+}
+
+// Dispara la animacion nativa. `ammoEsperado` es el total que deberia quedar
+// cuando termine; 0 en la descarga.
+//
+// Se llama DESPUES del give, nunca antes: el give escribe READY y el tipo viejo
+// ya no esta en el ped.
+function _startReloadAnim(targets, char, ammoEsperado) {
+    if (!targets) return false;
+    try {
+        var now = Engine.timerNow();
+        Engine.setSlotNextShotTime(targets.addr, now + targets.ms);
+        Engine.setSlotState(targets.addr, Engine.WEAPONSTATE_RELOADING);
+        _reloadPending = {
+            ped: Engine.pedPointer(char),
+            addr: targets.addr,
+            type: targets.type,
+            deadline: now + targets.ms,
+            ammo: ammoEsperado
+        };
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
+// El watchdog. Cierre forzado de una recarga que el motor no cerro.
+//
+// POR QUE SIGUE HACIENDO FALTA: CWeapon::Update solo sale de RELOADING cuando el
+// reloj pasa m_nTimeForNextShot, y el estado lo limpia Reload(). Si el anim nunca
+// arranco (y por eso esta el reloadSpec, pero hay mas causas: el ped entra en un
+// vehiculo, una cutscene, el arma se da a otro lado) el estado se queda en 2 o en
+// 3 para siempre, y CWeapon::Fire hace return false. El arma tiene balas y no
+// dispara, sin error y sin log.
+//
+// Asi que pasado el plazo mas un margen, si el estado sigue siendo 2 o 3, se
+// replica el cierre del motor: total = el esperado, clip = min(capacidad, total),
+// estado = READY, reloj = ahora.
+//
+// NO es un parche para una anim que no arranca. Es la red que evita que un arma
+// quede muda, y por eso se queda aunque la anim funcione siempre.
+export function _watchdogReload() {
+    var p = _reloadPending;
+    if (!p) return;
+    try {
+        var now = Engine.timerNow();
+        if (now <= p.deadline + TIMERS.RELOAD_GRACE) return;   // margen del motor
+
+        // Si CJ cambio de arma, la recarga que esperamos no es la de este slot.
+        // El motor ya no la va a cerrar, pero tampoco es un fallo: se solapa.
+        if (p.ped) {
+            var char = new Player(0).getChar();
+            if (char && Engine.pedPointer(char) !== p.ped) { _reloadPending = null; return; }
+        }
+
+        var state = Engine.slotState(p.addr);
+        if (state !== Engine.WEAPONSTATE_RELOADING &&
+            state !== Engine.WEAPONSTATE_OUT_OF_AMMO) {
+            _reloadPending = null;   // el motor termino la recarga solo
+            return;
+        }
+
+        var cap = Engine.clipCapacityOf(p.type);
+        if (Engine.slotTotal(p.addr) !== p.ammo) Engine.setSlotTotal(p.addr, p.ammo);
+        Engine.setSlotClip(p.addr, Math.min(cap > 0 ? cap : p.ammo, p.ammo));
+        Engine.setSlotState(p.addr, Engine.WEAPONSTATE_READY);
+        Engine.setSlotNextShotTime(p.addr, now);
+        log("[Weapons] watchdog de recarga: el motor no cerro la recarga del tipo " +
+            p.type + " (estado " + state + "). Cerrada a mano con " + p.ammo + " balas.");
+        _reloadPending = null;
+    } catch (e) {
+        _reloadPending = null;
+    }
+}
+
 export function tryReload() {
     var w = Engine.readCurrentWeapon();
     if (!w) return;
@@ -629,6 +781,9 @@ export function tryReload() {
             Engine.setAmmo(char, r.weaponType, ammo);
             var addr = Engine.addressOfType(Engine.pedPointer(char), r.weaponType);
             if (addr) Engine.setSlotTotal(addr, ammo);
+            // La anim, DESPUES del give. El give pone el tipo nuevo en un slot y
+            // escribe READY; la anim se escribe encima, sobre ese mismo slot.
+            _animarRecarga(char, w.slot, r.weaponType, ammo);
             log("[Weapons] recarga: tipo " + r.weaponType + " con " + ammo +
                 "/" + r.cap + " balas");
         }
@@ -651,6 +806,11 @@ export function tryReload() {
                 Engine.setAmmo(char, r2.weaponType, 0);
                 var addr2 = Engine.addressOfType(Engine.pedPointer(char), r2.weaponType);
                 if (addr2) Engine.setSlotTotal(addr2, 0);
+                // La MISMA anim que en el caso 1, y con 0 balas. Es lo que
+                // pediste: sacar el cargador tambien se anima. El motor lanza el
+                // anim de recarga, Reload() no tiene nada que mover porque el
+                // total es 0, y el arma queda descargada cuando termina.
+                _animarRecarga(char, w.slot, r2.weaponType, 0);
                 showTextBox(t("MAG_OUT"));
             }
         }
@@ -658,9 +818,48 @@ export function tryReload() {
         return;
     }
 
+    // No hay tercer caso. El comentario de arriba de la seccion lo describe
+    // ("el cargador ya montado se rellena") y NO EXISTE, y conviene que se note
+    // porque el comentario miente.
+    //
+    // Se intento escribirlo y no puede ser con ITEMS_SWAP_MAGAZINE: ese handler
+    // INTERCAMBIA. Saca un cargador del cinturon y devuelve al cinturon el que
+    // estaba montado (events.js:145-165, con mountedMagId). Con un cargador
+    // montado y otro del mismo tipo en el cinturon, el resultado es cambiar uno
+    // por otro identico y no ganar una sola bala: la mouths del cargador que
+    // entra es la que se capa, y la del que sale se devolvio al cinturon.
+    //
+    // Rellenar SIN cambiar de cargador necesita otro evento de inventario, que
+    // consume ammo suelto. Y ammo suelto no existe: el mod entero no tiene balas
+    // sueltas, todo esta en cargadores instanciados (ver "Lo que este sistema no
+    // da" en AGREGAR_ARMAS.md). Por eso el caso 3 no es un forgot: es la misma
+    // razon por la que la municion del cinturon son cargadores.
+    //
+    // O sea: hoy R es "cambiar el cargador" o "sacarlo". Faltaria un cuarto
+    // camino para rellenar el mismo cargador con otro cargador entero, y ese si
+    // se podria hacer con un evento nuevo. No esta pedido y no se invento.
+
     showTextBox(t("NO_MAG"));
     log("[Weapons] recarga sin resultado: tipo " + w.type + " | montado=" +
         (montado || "ninguno") + " ammo=" + (w.ammo || 0) + " | cinturon sin recambio util");
+}
+
+// La animacion de recarga, y solo la animacion.
+//
+// Que sea una funcion propia y no las dos escrituras en cada caso es porque los
+// dos casos tienen la misma forma de llamarla y la misma razon de llamarla: el
+// arma recien dada, en el slot, con un total recien escrito. Si cada uno escribiera
+// m_nState a mano, un cambio en el mecanismo (o un olvido de poner el total) se
+// lleva a un caso y no al otro, y eso no se ve en ningun test.
+//
+// Devuelve si se pudo animar. False NO es un error: es un arma sin anim de recarga
+// (un spray, un lanzallamas) o un arma que ya esta recargando. En los dos casos
+// el cambio de cargador ya esta hecho y es correcto.
+function _animarRecarga(char, slot, weaponType, ammoEsperado) {
+    var ped = Engine.pedPointer(char);
+    var targets = _reloadTargets(ped, slot);
+    if (!targets) return false;
+    return _startReloadAnim(targets, char, ammoEsperado);
 }
 
 // Si un accesorio es un cargador. Lo demas (un silenciador) sobrevive al cambio de

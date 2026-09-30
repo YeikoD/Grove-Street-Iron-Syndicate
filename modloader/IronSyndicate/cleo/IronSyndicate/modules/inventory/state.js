@@ -147,9 +147,9 @@ export function getTotalWeight() {
 // ---------------------------------------------------------------------------
 // NORMALIZACION DE LOS CONTENEDORES
 // ---------------------------------------------------------------------------
-//。这些 dos son internos pero se exportan para que logic.js pueda garantizar
+// Estos dos son internos pero se exportan para que logic.js pueda garantizar
 // que un contenedor existe antes de escribir en el. Es el mismo criterio que
-// "state no decide":确保 la forma es trabajo de state, mutar el contenido es de
+// "state no decide": la forma es trabajo de state, mutar el contenido es de
 // logic.
 export function ensureTrunks(data) {
     if (!data) data = { items: [], trunks: {} };

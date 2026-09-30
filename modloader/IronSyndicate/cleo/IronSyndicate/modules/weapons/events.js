@@ -36,7 +36,7 @@
 // Un archivo con un emisor y ningun suscriptor parece un error y a veces es una
 // mudanza a medio hacer. Por eso el nombre del consumidor esta escrito aca, al
 // lado del evento, y no solo en el archivo del otro modulo: para que el que lea
-// este sepa si lo que falta es algo o si se esta飘逸.
+    // este sepa si lo que falta es algo o si se esta escapando.
 // ============================================================================
 // LOS NOMBRES
 // ============================================================================

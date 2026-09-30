@@ -63,7 +63,7 @@ import * as Engine from "../../core/gsis_Engine.js";
 import { validateWeapons, PLUGIN_TYPE_MIN, PLUGIN_TYPE_MAX } from "../../data/gsis_weapons.js";
 import { clampSalud } from "../../data/gsis_item_data.js";
 import { SAVE_KEY, getEquipped } from "./state.js";
-import { tryReload } from "./logic.js";
+import { tryReload, _watchdogReload } from "./logic.js";
 import { reconcile, resetAvisos } from "./reconcile.js";
 import { queueCustomModels, stepCustomModels } from "./models.js";
 
@@ -119,8 +119,18 @@ register({
         // 3. La tecla R.
         if (keyJustPressed(KEYS.RELOAD)) tryReload();
 
-        // 4. El cambio de slot. No hace nada todavia: el reconciliador ya se
-        //    encargo de que el ped y el registro coincidan, y avisar de un cambio
+        // 4. El watchdog de la recarga. Va DESPUES de la tecla R y no antes, y no
+        //    es casualidad: si R dispara una recarga con un plazo corto, el
+        //    watchdog de este frame todavia no tiene nada pendiente y hace nada.
+        //    Al frame siguiente ya lo tiene, y ahi es cuando toca.
+        //
+        //    Y va antes que cualquier otra cosa que mire el estado del arma,
+        //    porque un arma en RELOADING que el motor no cerro esta muda: se ve
+        //    antes de que cualquier otra logica la mire y decida algo.
+        _watchdogReload();
+
+        // 5. El cambio de slot. No hace nada todavia: el reconciliador ya se
+        //    encarga de que el ped y el registro coincidan, y avisar de un cambio
         //    de slot seria log por frame. El estado queda para cuando haya algo
         //    que hacer con el.
         var cur = Engine.readCurrentWeapon();

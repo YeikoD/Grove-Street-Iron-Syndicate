@@ -123,7 +123,7 @@ export var ITEM_RENAMES = {
 // ----------------------
 // Un renombre se resuelve con UNA sola tabla: `mag_9mm_extended` se convierte en
 // `mag_colt45_extended` y ahi PARA, aunque `mag_colt45_extended` tenga a su vez
-// entrada. Encadenar seria看似-correcto y estaria mal, por lo de arriba: la
+// entrada. Encadenar seria casi-correcto y estaria mal, por lo de arriba: la
 // segunda tabla es de otro namespace y su destino no es un itemId.
 //
 // La regla que sale de ahi, y que hay que leer antes de tocar esta tabla: TODO
