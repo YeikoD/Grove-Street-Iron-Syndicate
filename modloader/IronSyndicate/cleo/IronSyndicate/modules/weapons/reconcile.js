@@ -65,6 +65,7 @@
 // ============================================================================
 
 import { query } from "../../core/gsis_EventBus.js";
+import { ITEMS_STORE_WEAPON } from "../../core/gsis_EventNames.js";
 import * as Engine from "../../core/gsis_Engine.js";
 import {
     resolveWeaponType, getVariantByWeaponType, familyForType,
@@ -239,7 +240,7 @@ function _adoptar(char, slot, enPies, addr) {
     if (Engine.hasWeapon(char, enPies)) return;
     if (Engine.addressOfType(Engine.pedPointer(char), enPies) !== 0) return;
 
-    if (!query("items:storeWeapon", {
+    if (!query(ITEMS_STORE_WEAPON, {
         id: itemId,
         attachments: attachments,
         ammo: total,

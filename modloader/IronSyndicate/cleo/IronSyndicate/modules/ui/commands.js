@@ -1,0 +1,291 @@
+// GSIS - UI: commands
+// Copyright (C) 2026  YeikoD
+// License: GNU GPL v3 or later (full text in LICENSE).
+
+// ============================================================================
+// QUE RESUELVE ESTE ARCHIVO
+// ============================================================================
+// Que significa cada comando que manda la pagina. Es la tabla de verbos: el
+// `case` de cada accion, y nada mas.
+//
+// Ni el transporte (eso es bridge.js) ni el estado de la UI (eso es index.js).
+// Por eso el objeto `ui` —open, close, togglePanel, toggleFlow— entra POR
+// PARAMETRO: commands necesita llamar a funciones que viven en index, e index
+// necesita a commands para drenar la cola. Si uno importara al otro habria un
+// ciclo, y un ciclo entre dos archivos de UI es un undefined en el menu.
+//
+// ============================================================================
+// LA REGLA DE LA FAMILIA, Y POR QUE ESTA EN UN COMENTARIO Y NO EN EL CODIGO
+// ============================================================================
+// Un comando de arma manda `id` (el itemId, "colt45") y, si quiere una
+// configuracion, `attachments` (los ids de los accesorios montados). NO manda
+// weaponType, y no hay forma de que mande uno: el modulo de armas no lo expone y
+// weapons/logic.js deriva el tipo de la configuracion con resolveWeaponType().
+//
+// Que la pagina no pueda mandar el tipo no es una convencion: es que el
+// weaponType es la REPRESENTACION que ejecuta el motor, y el registro guarda la
+// CONFIGURACION. Si un comando pudiera aceptar un tipo, la pagina podria
+//Equipar un 62 (que es colt45 + cargador de 15) sin que haya un cargador de 15 en
+// el inventario —el motor lo daria, y el cargador apareceria de la nada en el arma
+//—. O mandaria un 60 y la pagina creeria que puede volver a mandarlo aunque el
+// silenciador este en otro lado. El numero no es una entrada, es una SALIDA.
+//
+// ============================================================================
+// LO QUE NO SE VALIDA ACA
+// ============================================================================
+// Ningun comando valida peso, ni inventario lleno, ni si el jugador esta parado
+// al lado del baul. Todo eso vive en el modulo owner (addItem, putInTrunk,
+// doOffer). La pagina ve un snapshot que puede tener hasta 400ms, asi que si el
+// modulo no valida, su respuesta seria la de hace un snapshot. Este archivo
+// translates, no decide.
+import { equipWeapon, unequipWeapon } from "../weapons/logic.js";
+import { removeItem, equipMagToBelt, unequipBeltMag } from "../inventory/index.js";
+import { putInTrunk, takeFromTrunk } from "../gsis_Trunk.js";
+import { addToCart, removeFromCart, resetCart, checkout } from "../gsis_WeaponDealer.js";
+import { doOffer, moveOffer } from "../gsis_WeaponSeller.js";
+import { collectItem, collectAll, cancelOrder } from "../gsis_DealerPickup.js";
+import { clearNotice } from "../../core/gsis_Notice.js";
+
+// Un comando desconocido se avisa UNA vez. La pagina esta en un ciclo de
+// desarrollo y un typo suyo no puede llenar el log cada frame.
+var _unknownCmds = {};
+
+// El handler de un comando. Devuelve true si atendio algo (eso fuerza el push del
+// inventario) y false si no (un diag, o un comando que no toco nada).
+//
+// `ui` es el objeto de callbacks de ui/index.js. Se pasa en vez de importarse por
+// el ciclo que eso evita; ver el header.
+export function handleCommand(cmd, ui) {
+    var what = cmd && cmd.cmd;
+    var id = cmd ? cmd.id : null;
+
+    try {
+        switch (what) {
+            // v3: la pagina cierra el menu. Es el unico camino que anda
+            // cuando la pagina se quedo con el teclado, porque en ese estado
+            // el WndProc consume la tecla y el juego no la ve: el menu solo
+            // se cerraba sacando el puntero de la UI.
+            //
+            // Cierra lo que se ESTA VIENDO, no lo que haya abierto: con el
+            // panel principal abierto y un flujo esperando turno, el Escape
+            // tiene que cerrar el inventario, no un menu que el jugador ni
+            // esta mirando. Es la misma regla 1 que decide que pantalla se
+            // ve, y por eso usa el mismo `pantallaVisible` que la tecla.
+            //
+            // El debounce va aca tambien. Sin el, cerrar con Escape desde la
+            // pagina y la I del mod en el mismo frame se anulaban y el menu
+            // cierra y abre.
+            case "ui:close":
+                if (Date.now() - ui.keyDebounce() <= ui.debounceMs) return false;
+                if (ui.isMenuVisible()) {
+                    ui.closeMenu();
+                    log("[UI] la pagina cerro el menu");
+                    return true;
+                }
+                var cerrado = ui.closeFlow();
+                if (cerrado) {
+                    log("[UI] la pagina cerro el flujo " + cerrado);
+                    return true;
+                }
+                return false;
+
+            // La I de la pagina. Es la misma accion que la tecla del mod, y va
+            // por la misma funcion: si cada camino decidiera por su cuenta,
+            // uno de los dos terminaria abriendo algo que el otro prohibe.
+            case "ui:toggle":
+                if (!ui.togglePanel(Date.now(), "comando ui:toggle")) return false;
+                return true;
+
+            // La ESPACIO de la pagina, para los menus de esfera. Existe por lo
+            // mismo que "ui:close": cuando la pagina se queda con el teclado el
+            // WndProc consume la tecla y el mod no la ve, asi que sin este
+            // camino el toggle de la ESPACIO solo funcionaria con el puntero
+            // afuera de la UI.
+            //
+            // El debounce de toggleFlow es lo que hace que las dos mitades no
+            // se cancelen: con el teclado en la pagina, el mod igual lee la
+            // tecla por GetAsyncKeyState, asi que la misma pulsacion llega por
+            // los dos caminos. La segunda cae dentro de la ventana.
+            case "flow:toggle":
+                if (!ui.toggleFlow(Date.now(), "comando flow:toggle")) return false;
+                return true;
+
+            // La pagina reporta que le llego y que quedo en el DOM. No es una
+            // accion: no cambia nada, se loguea y se sigue.
+            //
+            // Existe porque la pagina era ciega para diagnosticar: sus _diag()
+            // van a console.log y el runtime no captura OnConsoleMessage, asi
+            // que no quedan en ningun archivo. Con el mod diciendo "menu=0" y
+            // la pagina mostrando un panel, los dos lados tienen que estar en el
+            // mismo log; si no, la contradiccion se busca a ciegas.
+            //
+            // "hidden" es el que sirve: es la clase que REALMENTE quedo en el
+            // DOM, no la que se pidio. El bug del panel que no se apagaba era
+            // dos funciones peleandose por la misma clase, y eso solo se
+            // diferencia mirando el resultado.
+            case "ui:diag":
+                // Los campos vienen en `cmd`, no en un `data`: leer `data` era un
+                // ReferenceError tragado por el catch de abajo — el canal de
+                // diagnostico nunca se emitio.
+                log("[UI] pagina dice: " + (cmd && cmd.dice) +
+                    " flow=\"" + (cmd && cmd.flow) + "\"" +
+                    " menu=" + (cmd && cmd.menu) +
+                    " #panel" + (cmd && cmd.hidden ? " OCULTO" : " VISIBLE"));
+                return false;
+
+            // --- INVENTARIO ---
+            //
+            // `inv:equip` manda el itemId. El modulo de armas decide que variante
+            // es, y la pagina no sabe ni le importa el numero. `attachments`, si
+            // viene, es la configuracion que se quiere; si no viene, el arma se
+            // equipa como este, que es lo que hace el boton de primera vez.
+            case "inv:equip":
+                if (!id) return false;
+                equipWeapon(id, cmd.attachments);
+                log("[UI] equipó " + id +
+                    (cmd.attachments && cmd.attachments.length
+                        ? " con " + cmd.attachments.join(" + ") : ""));
+                return true;
+
+            case "inv:unequip":
+                if (cmd.slot === undefined || cmd.slot === null) return false;
+                unequipWeapon(parseInt(cmd.slot, 10));
+                log("[UI] desequipó el slot " + cmd.slot);
+                return true;
+
+            case "inv:belt":
+                if (!id) return false;
+                equipMagToBelt(id);
+                log("[UI] cargador al cinturón: " + id);
+                return true;
+
+            // El camino de vuelta del cinturon. No estaba: unequipBeltMag ya
+            // existia pero nadie la llamaba, asi que un cargador equipado no
+            // tenia forma de volver al inventario desde la pagina. La pagina lo
+            // manda con slot = indice de casilla, no con id, porque en el
+            // cinturon puede haber dos cargadores del mismo tipo y la casilla es
+            // lo unico que las distingue.
+            case "inv:belt:off":
+                if (cmd.slot === undefined || cmd.slot === null) return false;
+                unequipBeltMag(parseInt(cmd.slot, 10));
+                log("[UI] cargador fuera del cinturón: casilla " + cmd.slot);
+                return true;
+
+            case "inv:drop":
+                if (!id) return false;
+                // qty viene del boton "tirar": 1 por defecto, o lo que pida la
+                // pagina. removeItem es el unico que saca de verdad.
+                removeItem(id, cmd.qty ? parseInt(cmd.qty, 10) : 1);
+                log("[UI] tirar " + id);
+                return true;
+
+            // ------------------------------------------------------------- FLUJOS --
+            //
+            // Los cuatro menus de proximidad. Cada caso es una linea: el
+            // prechequeo de peso, el aviso y la validacion viven en el modulo
+            // owner (putInTrunk, doOffer, collectItem), no aca.
+            //
+            // Eso es lo que hace que el modulo tenga que ser el que valida: la
+            // pagina ve un snapshot que tiene hasta 400ms. Si el peso lo
+            // calculara la pagina, su respuesta seria la de hace un snapshot.
+            //
+            // El clearNotice() del principio no es cosmetico: un comando que
+            // vuelve temprano (payload invalido) no escribe aviso, y si el
+            // anterior siguiera pendiente la pagina repetiria el mensaje viejo
+            // como si fuera la respuesta de este.
+
+            case "trunk:put":
+            case "trunk:take":
+                if (!id) return false;
+                if (what === "trunk:put") {
+                    putInTrunk(id, cmd.qty);
+                } else {
+                    takeFromTrunk(id, cmd.qty);
+                }
+                log("[UI] baul: " + what + " " + id + " x" + cmd.qty);
+                return true;
+
+            case "dealer:add":
+                if (!id) return false;
+                clearNotice();
+                addToCart(id, cmd.qty);
+                log("[UI] carrito +" + (cmd.qty || 1) + " " + id);
+                return true;
+
+            // Quitar de la lista del carrito (el pane derecho de la armeria).
+            // Mismo esquema que dealer:add: el modulo decide si habia algo que
+            // sacar, y el aviso lo escribe el (ver removeFromCart / setNotice).
+            case "dealer:cart:remove":
+                if (!id) return false;
+                clearNotice();
+                removeFromCart(id, cmd.qty);
+                log("[UI] carrito -" + (cmd.qty || 1) + " " + id);
+                return true;
+
+            case "dealer:cart:clear":
+                clearNotice();
+                resetCart();
+                log("[UI] carrito vaciado");
+                return true;
+
+            case "dealer:checkout":
+                clearNotice();
+                checkout();
+                log("[UI] carrito pagado");
+                return true;
+
+            case "pickup:take":
+                clearNotice();
+                if (!id) return false;
+                collectItem(id, cmd.qty);
+                log("[UI] retiro " + id + " x" + cmd.qty);
+                return true;
+
+            case "pickup:takeAll":
+                clearNotice();
+                collectAll();
+                log("[UI] retiro de todo el pedido");
+                return true;
+
+            case "pickup:cancel":
+                // clearNotice() SI va, aunque no haya id que validar: cancelOrder
+                // escribe su propio aviso (cancelado / no hay pedido), y sin
+                // limpiar el aviso anterior de la pantalla sobrevive a este
+                // comando y la pagina lo repite como si fuera la respuesta.
+                clearNotice();
+                cancelOrder();
+                log("[UI] cancelacion del pedido pendiente");
+                return true;
+
+            case "seller:offer":
+                if (!id) return false;
+                doOffer(id, cmd.qty, cmd.price);
+                log("[UI] oferta " + id + " x" + cmd.qty + " a " + cmd.price);
+                return true;
+
+            // Mueve la oferta de una fila (las teclas +/- y los dos botones del
+            // pie). Sin clearNotice() a proposito: el aviso que quedo de la
+            // oferta anterior es el que trae el precio seguro, y es justamente
+            // el dato con el que se esta ajustando. El siguiente seller:offer
+            // lo sobreescribe solo.
+            case "seller:quote":
+                if (!id) return false;
+                moveOffer(id, cmd.delta);
+                log("[UI] oferta movida " + id + " " +
+                    (cmd.delta >= 0 ? "+" : "") + cmd.delta);
+                return true;
+
+            default:
+                if (!_unknownCmds[String(what)]) {
+                    _unknownCmds[String(what)] = true;
+                    log("[UI] comando desconocido: " + JSON.stringify(cmd));
+                }
+                return false;
+        }
+    } catch (e) {
+        // Un comando que revienta no puede llevarse por delante el loop: se
+        // loguea y el frame sigue.
+        log("[UI] comando '" + what + "' fallo: " + e.message);
+        return false;
+    }
+}

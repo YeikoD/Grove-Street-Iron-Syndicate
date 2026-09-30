@@ -24,7 +24,7 @@ import { t, money } from "../core/gsis_L10n.js";
 import { setNotice } from "../core/gsis_Notice.js";
 import { getItemName, getItemWeight } from "../data/gsis_item_data.js";
 import { getSpots } from "../data/gsis_spot_data.js";
-import { addItem, getTotalWeight, entregaOpts } from "./gsis_Items.js";
+import { addItem, getTotalWeight, entregaOpts } from "./inventory/index.js";
 import {
     createSpotGate, updateSpotSpheres, closeSpotFlow, spotCanOpen,
     spotHas, beginSpotCooldown
@@ -49,7 +49,7 @@ export function closePickupMenu() {
     _showPickupMenu = false;
 }
 
-// Abrir el menu, si se puede. La llave la pide el bridge (modules/gsis_WebInterface.js)
+// Abrir el menu, si se puede. La llave la pide el bridge (modules/ui/index.js)
 // cuando el jugador aprieta ESPACIO.
 //
 // El retiro no necesita pedirle nada al pedido: spotCanOpen ya mira la esfera, y la

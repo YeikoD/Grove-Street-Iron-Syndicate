@@ -9,24 +9,34 @@
 // superficie que el resto del mod usa para hablar con las armas SIN importarlas.
 //
 // ============================================================================
-// POR QUE EXISTE, Y POR QUE TODAVIA NADIE ESCUCHA
+// QUE RESPONDE ESTE ARCHIVO
+// ============================================================================
+// Los nombres de los eventos de armas, los helpers para emitirlos, y LA
+// PREGUNTA que el modulo de inventario le hace: la capacidad de un item.
+//
+// Esa pregunta es la que cierra el ultimo import directo que quedaba entre los
+// dos modulos. Antes inventory/state.js importaba getClipSizeByItemId de
+// data/gsis_weapon_data.js, y eso era el modulo de inventario leyendo la tabla
+// de armas por la puerta de atrás: dos caminos a la misma verdad, y cambiar la
+// tabla podia cambiar un cargador y no el otro.
+//
+// Ahora inventory PREGUNTA y weapons RESPONDE, y ninguno importa al otro.
+//
+// ============================================================================
+// POR QUE EXISTE, Y QUE CONSUMIDOR LE FALTA
 // ============================================================================
 // La regla de la casa es que los modulos no se importan entre si: se comunican
-// por el EventBus. Y el modulo de armas hoy tiene dos importadores directos, que
-// son los dos que la fase anterior dejo:
+// por el EventBus.
 //
-//   gsis_WebInterface.js         equipWeapon, unequipWeapon
-//   gsis_InventorySerialization.js  getEquipped, getEquippedAmmo
+// weapon:changed y weapon:variant se EMITEN y todavia no los escucha nadie: la UI
+// los recibira cuando la pagina dibuje el arma equipada, y ese consumidor es la
+// parte que todavia no esta. weapons:capacityOfItem, en cambio, YA tiene
+// consumidor: inventory/state.js.
 //
-// Los dos son UI, y la UI se migra en su fase. Cuando lo haga, estos dos
-// importadores pasan a ser `emit("weapon:equip", ...)` y este archivo pasa a ser
-// el punto de entrada de verdad.
-//
-// Es una estructura preparada con el consumidor pendiente, y se dice en voz alta
-// porque un archivo con un solo emisor y ningun suscriptor parece un error y en
-// realidad es una mudanza a medio hacer. Si la fase siguiente no conecta el
-// EventBus, esto es lo que hay que borrar.
-//
+// Un archivo con un emisor y ningun suscriptor parece un error y a veces es una
+// mudanza a medio hacer. Por eso el nombre del consumidor esta escrito aca, al
+// lado del evento, y no solo en el archivo del otro modulo: para que el que lea
+// este sepa si lo que falta es algo o si se esta飘逸.
 // ============================================================================
 // LOS NOMBRES
 // ============================================================================
@@ -48,7 +58,9 @@
 // que dibuja filas necesita las dos.
 // ============================================================================
 
-import { emit } from "../../core/gsis_EventBus.js";
+import { emit, on } from "../../core/gsis_EventBus.js";
+import { WEAPONS_CAPACITY } from "../../core/gsis_EventNames.js";
+import { getClipSizeByItemId } from "../../data/gsis_weapons.js";
 
 export var WEAPON_CHANGED = "weapon:changed";
 export var WEAPON_VARIANT = "weapon:variant";
@@ -71,3 +83,28 @@ export function weaponVariant(que, family, attachments, weaponType, slot) {
         slot: slot === undefined ? null : slot
     });
 }
+
+// ---------------------------------------------------------------------------
+// LA PREGUNTA QUE RESPONDE ESTE MODULO
+// ---------------------------------------------------------------------------
+// query("weapons:capacityOfItem", { itemId }) -> la capacidad DECLARADA de ese
+// item, o 0 si no es un item con capacidad.
+//
+// Que sea la DECLARADA y no la de runtime tiene una razon: el modulo de inventario
+// fabrica filas, y una fila nueva nace con la capacidad que el catalogo dice. La
+// de runtime la lee Engine.clipCapacityOf(weaponType) desde weapons/logic.js, que
+// es donde ya se sabe que weaponType hay.
+//
+// Y por que vive en events.js y no en un "catalog.js": es UNA pregunta de este
+// modulo al bus, y events.js es la superficie de este modulo hacia afuera. Un
+// archivo nuevo con una sola funcion seria estructura para lucirse.
+//
+// OJO con lo que se responde: la capacidad de un CARGADOR, que es la de su
+// variante, y la de un ARMA pelada, que es la de su variante base. No se
+// responde por weaponType: el weaponType es la representacion y este modulo
+// no lo expone por el bus. Quien lo necesite lo deriva antes con
+// resolveWeaponType().
+on(WEAPONS_CAPACITY, function (e) {
+    var id = e.data && e.data.itemId;
+    e.respond(id ? (getClipSizeByItemId(id) || 0) : 0);
+});

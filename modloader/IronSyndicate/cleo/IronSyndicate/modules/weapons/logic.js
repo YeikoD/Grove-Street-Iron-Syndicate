@@ -60,6 +60,11 @@
 // ============================================================================
 
 import { query } from "../../core/gsis_EventBus.js";
+import {
+    ITEMS_TAKE_WEAPON, ITEMS_STORE_WEAPON,
+    ITEMS_SWAP_MAGAZINE, ITEMS_EXTRACT_MAGAZINE,
+    ITEMS_TAKE_ATTACHMENT, ITEMS_STORE_ATTACHMENT
+} from "../../core/gsis_EventNames.js";
 import { t } from "../../core/gsis_L10n.js";
 import * as Engine from "../../core/gsis_Engine.js";
 import {
@@ -67,7 +72,7 @@ import {
     canonicalAttachmentId, inventoryAttachmentId, magazineIdsFor, getFamilyById,
     mountedMagazineOf
 } from "../../data/gsis_weapons.js";
-import { clampSalud } from "../../data/gsis_item_data.js";
+import { ITEMS, clampSalud } from "../../data/gsis_item_data.js";
 import {
     getEntry, setEntry, mountedMagazine, hasMagazine, familyOfItem
 } from "./state.js";
@@ -122,7 +127,29 @@ export function getAttachments(instancia) {
 // ============================================================================
 // Del inventario al slot de GTA. Si el slot ya tiene un arma, esa se desequipa
 // antes (auto-swap). Devuelve true si se equipo.
-export function equipWeapon(itemId) {
+//
+// `attachmentsPedidos` es lo que la pagina pide montar. Es OPCIONAL y esa
+// opcionalidad tiene una razon: el comando de la UI manda `id` y, si quiere una
+// configuracion distinta de la que ya trae la instancia, manda tambien la lista.
+// Sin el, el arma se equipa con la configuracion que YA tiene guardada en el
+// inventario, que es el camino de siempre.
+//
+// ---------------------------------------------------------------------------
+// LO QUE ESTA FUNCION NO HACE: CREAR ACCESORIOS
+// ---------------------------------------------------------------------------
+// Montar un accesorio lo CONSUME del inventario. Un accesorio que aparece en el
+// arma sin salir de ningun lado es un accesorio regalado, y el precedente esta
+// escrito en ITEM_RENAMES: cuando `silenced_9mm` dejo de ser un arma y paso a ser
+// un accesorio, la migracion NO lo "[[equipo]]" en la Colt, porque el item viejo
+// valia 1.800 y el silenciador 1.200, y hacerlo asi era regalar 600. Dar un arma
+// con un accesorio montado que no salio del inventario es exactamente el mismo
+// error, y por eso el consumo va ANTES de dar el arma y se revierte entero si el
+// motor la rechaza.
+//
+// Y `attachmentsPedidos` NO puede contener un weaponType disfrazado: son ids de
+// accesorios, se canonicalizan, y la lista tiene que resolver a una variante
+// real. Si no resuelve, no se aplica nada. Ver configure() arriba.
+export function equipWeapon(itemId, attachmentsPedidos) {
     var family = familyOfItem(itemId);
     if (!family) return false;                       // chaleco, material, etc
     var char = Engine.playerChar();
@@ -131,7 +158,7 @@ export function equipWeapon(itemId) {
     var slot = fam.slot;
     if (getEntry(slot) && !unequipWeapon(slot)) return false;
 
-    var taken = query("items:takeWeapon", { id: itemId });
+    var taken = query(ITEMS_TAKE_WEAPON, { id: itemId });
     if (!taken) return false;
 
     // La configuracion con la que vuelve. Un arma que se desequipo con un
@@ -142,16 +169,113 @@ export function equipWeapon(itemId) {
     var salud = clampSalud(taken.salud);
     var ammo = Math.max(0, taken.ammo || 0);
 
-    var r = _giveInternal(char, family, attachments, ammo, "equipar");
+    // --- lo que la pagina pidio, si pidio algo ---
+    //
+    // Solo se toma como pedido valido si resuelve a una variante. Un accesorio que no
+    // existe, o una combinacion que no esta en la tabla, se descarta ANTES de
+    // tocar el inventario: asi una pagina con un boton viejo no gasta un
+    // cargador que el jugador quizas no quiere gastar.
+    var aMontar = [];
+    if (Array.isArray(attachmentsPedidos) && attachmentsPedidos.length) {
+        var pedido = [];
+        for (var pi = 0; pi < attachmentsPedidos.length; pi++) {
+            var ca = canonicalAttachmentId(attachmentsPedidos[pi]);
+            if (ca && pedido.indexOf(ca) < 0) pedido.push(ca);
+        }
+        // Un pedido que NO RESUELVE hace fallar la accion, y no se equipa "lo que
+        // traia". Equipar otra cosa que la que se pidio es peor que no equipar
+        // nada: el jugador cree que monto un silenciador y no lo monto, y no hay
+        // nada en la pantalla que le diga que no. Un false deja que la pagina
+        // avise; un true silencioso deja un arma que no es la que se pidio.
+        if (!pedido.length || resolveWeaponType(family, pedido) === null) {
+            log("[Weapons] la pagina pidio equipar " + family + " + [" +
+                pedido.join(", ") + "], que no es ninguna variante. No se equipa nada.");
+            return false;
+        }
+        aMontar = pedido;
+    }
+
+    // Los accesorios que hay que CONSUMIR: los que se piden y no estan ya en la
+    // instancia. Los que ya estan montados no se vuelven a sacar del inventario:
+    // seria cobrar dos veces por la misma pieza.
+    var aConsumir = [];
+    for (var mi = 0; mi < aMontar.length; mi++) {
+        if (attachments.indexOf(aMontar[mi]) < 0) aConsumir.push(aMontar[mi]);
+    }
+
+    // --- se consumen ANTES de dar el arma, y se guardan para poder volver ---
+    //
+    // El orden importa: si se diera el arma primero y despues faltara un
+    // accesorio, el arma quedaria equipada con una configuracion que el
+    // inventario no respalda, que es el estado que el reconciliador no sabe
+    // arreglar.
+    var consumidos = [];
+    for (var ci = 0; ci < aConsumir.length; ci++) {
+        var acc = aConsumir[ci];
+        var itemAcc = inventoryAttachmentId(acc);
+        var saga = query(ITEMS_TAKE_ATTACHMENT, { id: itemAcc });
+        if (!saga || !saga.item) {
+            // No habia: se devuelve TODO lo que ya se habia sacado, y el arma
+            // tambien, y no se aplica nada. El jugador no pierde nada y la
+            // pagina recibe un false que puede mostrar.
+            for (var dv = 0; dv < consumidos.length; dv++) {
+                query(ITEMS_STORE_ATTACHMENT, { item: consumidos[dv], force: true });
+            }
+            query(ITEMS_STORE_WEAPON, {
+                id: itemId, salud: salud, ammo: taken.ammo || 0,
+                hasMag: mountedMagazineOf(family, attachments) !== null,
+                attachments: taken.attachments || null, force: true
+            });
+            log("[Weapons] no se pudo montar " + acc + ": no hay ninguno en el " +
+                "inventario. El arma vuelve al inventario como estaba.");
+            return false;
+        }
+        // `saga.item` y NO `saga`: lo que se guarda para la vuelta es la FILA, y
+        // guardar el sobre entero hace que la vuelta mande {item:{item:fila}} y
+        // el manejador no encuentre el id. El sintoma es silencioso y feo: el
+        // accesorio desaparece del inventario y no vuelve, y el rollback que
+        // existe justamente para eso no devuelve nada.
+        consumidos.push(saga.item);
+    }
+
+    var listaFinal = aMontar.length ? aMontar : attachments;
+
+    // LAS BALAS DEL CARGADOR QUE SE MONTO.
+    //
+    // Un arma se entrega DESNUDA: sin cargador y con 0 balas. Si el jugador monta
+    // un cargador LLENO y el arma se queda en 0, el arma queda inservible: la R
+    // solo recarga desde el CINTURON, y el cargador ya no esta en el cinturon,
+    // esta dentro del arma. Montar un cargador lleno tiene que poner sus balas
+    // en el arma, y no hay ningun otro camino que lo haga.
+    //
+    // Se busca el cargador MONTADO entre lo que se consumio, y no "el ultimo
+    // accesorio": un silenciador no tiene balas y un arma puede llevar un
+    // cargador y un silenciador en cualquier orden de montaje.
+    var ammoDelCargador = -1;
+    for (var am = 0; am < consumidos.length; am++) {
+        var filaCarg = consumidos[am];
+        if (!filaCarg || !ITEMS[filaCarg.id]) continue;
+        if (ITEMS[filaCarg.id].type !== "magazine") continue;
+        var balas = filaCarg.ammo;
+        if (typeof balas === "number" && balas > ammoDelCargador) ammoDelCargador = balas;
+    }
+    if (ammoDelCargador > 0) ammo = ammoDelCargador;
+
+    var r = _giveInternal(char, family, listaFinal, ammo, "equipar");
     if (!r.ok) {
         // El motor no lo acepto: la instancia vuelve al inventario, no se pierde.
-        // `hasMag` va derivado de la lista, y es el vocabulario del INVENTARIO
-        // (su default es true), no un segundo lugar donde vive la capacidad.
-        query("items:storeWeapon", {
+        // Y con ella los accesorios que se habian sacado, que es la parte que no
+        // se puede dejar a medias: un silenciador que desaparece del inventario
+        // por un fallo del motor es un item perdido por un error que el jugador
+        // no puede ver.
+        query(ITEMS_STORE_WEAPON, {
             id: itemId, salud: salud, ammo: taken.ammo || 0,
             hasMag: mountedMagazineOf(family, attachments) !== null,
             attachments: taken.attachments || null, force: true
         });
+        for (var sv = 0; sv < consumidos.length; sv++) {
+            query(ITEMS_STORE_ATTACHMENT, { item: consumidos[sv], force: true });
+        }
         return false;
     }
 
@@ -210,7 +334,7 @@ export function unequipWeapon(slot) {
     // y su default es true, asi que omitirlo haria que un arma descargada
     // volviera con cargador montado. No es una segunda fuente de la capacidad:
     // sale de la misma lista de accesorios, y los dos leen de ahi.
-    if (!query("items:storeWeapon", {
+    if (!query(ITEMS_STORE_WEAPON, {
         id: entry.id, ammo: ammo, salud: entry.salud,
         hasMag: hasMagazine(entry),
         attachments: (entry.attachments || []).map(inventoryAttachmentId)
@@ -333,7 +457,7 @@ export function tryReload() {
     }
 
     // --- caso 1: hay un cargador en el cinturon que le sirve ---
-    var resp = query("items:swapMagazine", {
+    var resp = query(ITEMS_SWAP_MAGAZINE, {
         magIds: magIds,
         ammo: w.ammo || 0,
         mounted: montado !== null,
@@ -365,7 +489,7 @@ export function tryReload() {
     // --- caso 2: sin recambio, el montado sale ---
     if (montado && (w.ammo || 0) > 0) {
         var out = Math.min(w.ammo, Engine.clipCapacityOf(w.type));
-        if (query("items:extractMagazine", {
+        if (query(ITEMS_EXTRACT_MAGAZINE, {
             magId: inventoryAttachmentId(montado), ammo: out
         })) {
             var sinMag = (entry.attachments || []).filter(function (a) { return !_esCargador(a); });

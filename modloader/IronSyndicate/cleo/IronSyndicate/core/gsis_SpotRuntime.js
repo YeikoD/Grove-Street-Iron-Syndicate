@@ -199,7 +199,7 @@ export function updateSpotSpheres(type, gate, want) {
 //
 // Aqui se parte la decision en dos, y la parte la hace el dueno de la tecla.
 //
-// ABRIR lo pide el bridge (modules/gsis_WebInterface.js) con spotCanOpen, porque
+// ABRIR lo pide el bridge (modules/ui/index.js) con spotCanOpen, porque
 // el que lee la tecla es el. Y tiene que ser el: la I abre y cierra el
 // inventario desde el mismo lugar, y si cada modulo leyera la suya, la tecla que
 // abre un menu podria cerrar el que estuviera abierto al mismo tiempo — dos

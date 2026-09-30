@@ -25,7 +25,7 @@ import { emit } from "../core/gsis_EventBus.js";
 import { getSellPrice, WEAPON_DATA } from "../data/gsis_weapon_data.js";
 import { getCharacter } from "../data/gsis_character_data.js";
 import { getItemType } from "../data/gsis_item_data.js";
-import { getItems, removeItem, isInstanced } from "./gsis_Items.js";
+import { getItems, removeItem, isInstanced } from "./inventory/index.js";
 import {
     createSpotGate, updateSpotSpheres, closeSpotFlow, spotCanOpen,
     spotHas, beginSpotCooldown
@@ -87,7 +87,7 @@ export function closeSellMenu() {
     _showSellMenu = false;
 }
 
-// Abrir el menu, si se puede. La llave la pide el bridge (modules/gsis_WebInterface.js)
+// Abrir el menu, si se puede. La llave la pide el bridge (modules/ui/index.js)
 // cuando el jugador aprieta ESPACIO, y el "si se puede" se responde aca.
 //
 // Acá además se genera el estado del NPC si hace falta. Va en la apertura y no en

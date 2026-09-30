@@ -1,20 +1,21 @@
-// GSIS - Item Row
+// GSIS - UI: views/itemRow
 // Copyright (C) 2026  YeikoD
 // License: GNU GPL v3 or later (full text in LICENSE).
 
 // ============================================================================
-// GSIS Item Row - la fila de la tabla web, compartida
+// QUE RESUELVE ESTE ARCHIVO
+// ============================================================================
+// La fila de la tabla web, compartida. Una fila es lo que la pagina dibuja:
+// { id, cat, name, qty, ammo, salud, weight, value, tip, family, attachments }.
 //
-// Una fila es lo que la pagina dibuja: { id, cat, name, qty, ammo, salud,
-// weight, value, tip }. La arman todas las pantallas de items —el inventario, el
-// baul, el retiro— y cada una la necesita igual, asi que vive UNA vez aca.
-//
-// El motivo es el mismo que movio el mapa de iconos a data/gsis_web_data.js: si
-// cada pantalla tiene su copia del constructor, las dos divergen calladas. Peor
-// todavia con las reglas que trae: el recorte de la municion a la capacidad del
-// cargador, el guion en vez del cero, el nombre de la instancia, y el
-// instanciado-vs-apilado. Acas no hay ningun estado y ninguna dependencia de
-// modulos: es una hoja de funciones que el resto de los serializadores importan.
+// La arman todas las pantallas de items —el inventario, el baul, el retiro— y
+// cada una la necesita igual, asi que vive UNA vez aca. El motivo es el mismo que
+// movio el mapa de iconos a data/gsis_web_data.js: si cada pantalla tiene su
+// copia del constructor, las dos divergen calladas. Peor todavia con las reglas que
+// trae: el recorte de la municion a la capacidad del cargador, el guion en vez del
+// cero, el nombre de la instancia, y el instanciado-vs-apilado. Acas no hay
+// ningun estado y ninguna dependencia de modulos: es una hoja de funciones que el
+// resto de los serializadores importan.
 //
 // Por eso "instanciado o N unidades" no pregunta por it.qty: pregunta por
 // isInstanced(id), que es la misma pregunta que hace el modulo al guardar. Si
@@ -25,8 +26,46 @@
 // No depende de: ningun modulo del juego, ningun estado global
 // ============================================================================
 
-import { getItemName, getItemWeight, getItemType, clampSalud, isInstanced } from "../data/gsis_item_data.js";
-import { getClipSizeByItemId, getMagValue } from "../data/gsis_weapon_data.js";
+import {
+    getItemName, getItemWeight, getItemType, clampSalud, isInstanced
+} from "../../../data/gsis_item_data.js";
+import {
+    getClipSizeByItemId, getMagValue, resolveWeaponType, getVariantProfile
+} from "../../../data/gsis_weapon_data.js";
+
+// --------------------------------------------------------------------------- //
+// LA CAPACIDAD DE LA FILA
+// --------------------------------------------------------------------------- //
+// De donde sale el denominador de "17/30", que es la pregunta de la que depende
+// toda la celda.
+//
+// Y tiene DOS fuentes, y equivocarse en la segunda es el bug de la fase 2
+// volviendo por la UI: un arma se identifica por su itemId ("colt45"), y la
+// capacidad de ESE item es la de su variante BASE. Un arma con silenciador y
+// cargador de 15 sigue siendo el item "colt45", asi que getClipSizeByItemId dice
+// 8, y la fila de un arma que en el juego tiene 15 balas muestra "15/8". Peor:
+// se ve recortada, porque ammoCell recorta al denominador, asi que el arma
+// muestra "8/8" cuando esta llena.
+//
+// La capacidad real es la de la VARIANTE, y la variante se deriva de lo que la
+// fila trae: family + attachments. Que es justo lo que la UI ya recibe. Asi que
+// cuando la fila trae configuracion, se resuelve; cuando no —un cargador suelto,
+// un arma de una sola representacion, una fila sin familia— se cae al item, que
+// es lo unico que hay.
+//
+// Y NO se pide el weaponType por el bus ni se resuelve "cual es": se resuelve de
+// la lista, que es la unica fuente. Si la lista no resuelve, es que la fila no
+// tiene configuracion, y se usa el item.
+function _capacidadDe(it) {
+    if (it.family && Array.isArray(it.attachments)) {
+        var tipo = resolveWeaponType(it.family, it.attachments);
+        if (tipo !== null) {
+            var prof = getVariantProfile(tipo);
+            if (prof && prof.clipSize > 0) return prof.clipSize;
+        }
+    }
+    return getClipSizeByItemId(it.id);
+}
 
 // --------------------------------------------------------------------------- //
 
@@ -60,14 +99,14 @@ export function ammoCell(it, esVivo) {
         // del save: ahi no se inventa nada. Si la lectura en vivo fallo, el guion
         // es la respuesta honesta.
         if (esVivo || getItemType(it.id) !== "weapon") return null;
-        var cap0 = getClipSizeByItemId(it.id) || 0;
+        var cap0 = _capacidadDe(it) || 0;
         // cap0 > 0 es lo que protege a body_armor: esta tipado como "weapon" en
         // ITEMS pero no tiene clipSize, asi que sin este guard apareceria un
         // "0/0" en vez del guion de un chaleco.
         if (cap0 > 0) return cap0 + "/" + cap0;
         return null;
     }
-    var cap = getClipSizeByItemId(it.id);
+    var cap = _capacidadDe(it);
     if (cap === null || cap === undefined || cap <= 0) {
         return null; // sin cargador conocido: no hay nada que medir
     }
@@ -105,9 +144,22 @@ export function valueCell(it) {
 //
 // esVivo: la fila no viene del save sino del arma equipada ahora. Solo cambia
 // la municion —ver ammoCell—: el resto de la fila es la misma.
+//
+// family y attachments: la CONFIGURACION del arma, y son la unica parte de la fila
+// que no es un dato del catalogo. Viajan solo si la instancia los trae, y por eso
+// las filas de material y las de un arma sin configurar salen sin las dos claves
+// y no conlas vacias: la pagina distingue "no es un arma" de "es un arma sin
+// accesorios" con `attachments === undefined` contra `attachments.length === 0`.
+//
+// Y el weaponType NO viaja, por dos razones. La primera es que la pagina no lo
+// necesita: dibuja la familia y los accesorios, y el tipo es la representacion
+// interna del motor. La segunda es que si viajara, la pagina podria guardarlo y
+// mandarlo de vuelta, y un numero que vuelve al mod por un lado que no es el del
+// registro es como vuelve el segundo modelo. Ver "family + attachments" en
+// modules/weapons/state.js.
 export function itemRow(it, esVivo) {
     var w = getItemWeight(it.id) * (it.qty || 1);
-    return {
+    var row = {
         id: it.id,
         cat: getItemType(it.id),
         name: getItemName(it.id),
@@ -118,6 +170,13 @@ export function itemRow(it, esVivo) {
         value: valueCell(it),
         tip: tipFor(it)
     };
+    // Solo si vienen. Un `family: undefined` explicitado seria indistinguible de un
+    // null, y la pagina no puede diferenciar "no es un arma" de "no se pudo leer".
+    if (it.family) row.family = it.family;
+    if (it.attachments !== undefined && it.attachments !== null) {
+        row.attachments = it.attachments.slice();
+    }
+    return row;
 }
 
 // El texto que aparece con el mouse sobre la fila. No lo lee nada por codigo:
@@ -148,6 +207,12 @@ export function tipFor(it) {
     parts.push("salud " + clampSalud(it.salud) + "%");
     if (it.hasMag === false) {
         parts.push("sin cargador");
+    }
+    // Los accesorios, y en el ORDEN en que los nombra el catalogo, no en el que
+    // vinieron. La lista que manda el modulo ya viene ordenada, pero el tooltip
+    // tambien se arma sobre filas que arma la pagina y esas no.
+    if (it.attachments && it.attachments.length) {
+        parts.push("con " + it.attachments.join(" + "));
     }
     return parts.join(" · ");
 }

@@ -32,7 +32,7 @@ import {
     getItems,
     getTotalWeight,
     isInstanced
-} from "./gsis_Items.js";
+} from "./inventory/index.js";
 
 // Estado de baules abiertos
 var _openTrunks = {}; // { vehicleId: { handle, pickup, lastUpdate, sphereX/Y/Z } }
@@ -136,7 +136,7 @@ function handleTrunkKey(c) {
 
 // Update por frame: tecla 3, pending sync, esferas, cierre del menu, cooldown
 //
-// El update solo CIERRA. Abrir lo pide el bridge (modules/gsis_WebInterface.js)
+// El update solo CIERRA. Abrir lo pide el bridge (modules/ui/index.js)
 // con la tecla ESPACIO, por openTrunkMenu(): el dueno de la tecla tiene que ser uno
 // solo, o la misma pulsacion abre un menu y cierra el que estuviera abierto.
 export function updateTrunk(c, now, spawning) {
@@ -286,7 +286,7 @@ export function closeTrunkMenu() {
     _trunkVehicleId = -1;
 }
 
-// Abrir el menu, si se puede. La llave la pide el bridge (modules/gsis_WebInterface.js)
+// Abrir el menu, si se puede. La llave la pide el bridge (modules/ui/index.js)
 // cuando el jugador aprieta ESPACIO.
 //
 // Las condiciones, en el orden en que se descartan:

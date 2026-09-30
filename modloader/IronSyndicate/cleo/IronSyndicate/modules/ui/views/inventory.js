@@ -1,79 +1,50 @@
-// GSIS - InventorySerialization
+// GSIS - UI: views/inventory
 // Copyright (C) 2026  YeikoD
 // License: GNU GPL v3 or later (full text in LICENSE).
 
 // ============================================================================
-// GSIS InventorySerialization - view models para la pagina web
+// QUE RESUELVE ESTE ARCHIVO
+// ============================================================================
+// El snapshot del inventario y el del catalogo: lo que la pagina dibuja. Un
+// archivo por grupo de datos, no uno por panel. Cada snapshot() lee el estado de
+// los modulos y devuelve algo que se pueda meter en JSON y cruzar la capa IPC.
+// Nada de esto se dibuja: aca no hay DOM ni HTMLElement.
 //
-// Un archivo por grupo de datos, no uno por panel. Cada snapshot() lee el
-// estado de los modulos y devuelve algo que se pueda meter en JSON y cruzar la
-// capa IPC. Nada de esto se dibuja: aca no hay DOM ni HTMLElement.
+// Regla de la casa: esto importa de core/ y data/, y de modules/ SOLO a traves de
+// sus funciones exportadas. No se toca GameState ni se muta nada — todos los
+// snapshot son de lectura. Las acciones viven en ui/commands.js, que es quien
+// decide si un comando de la pagina se acepta.
 //
-// Regla de la casa: esto importa de core/ y data/, y de modules/ SOLO a traves
-// de sus funciones exportadas. No se toca GameState ni se muta nada — todos los
-// snapshot son de lectura. Las acciones viven en el bridge, que es quien decide
-// si un comando de la pagina se acepta.
+// Que el modulo de armas entre por getEquippedForUI() y no por una pregunta al bus
+// es una excepcion consciousa y vale la pena decirla: esta vista es un CONSUMIDOR
+// del modulo, igual que lo era antes de partirse en ui/, y la regla de no
+// importarse entre modulos es para modulos que se hablan entre si. Una vista que
+// dibuja el estado de otro modulo tiene que leerlo de alguna parte, y leerlo por
+// la funcion publica es mas honesto que simular que no existe. Lo que NO hace es
+// mutarlo: aca no se llama a ninguna funcion que escriba.
 // ============================================================================
 
-import { MISC } from "../core/gsis_Config.js";
-import { getItems, getTotalWeight, getBelt } from "./gsis_Items.js";
-import { getEquippedForUI } from "./weapons/state.js";
-import { getEquippedAmmo } from "./weapons/logic.js";
-import { ITEMS } from "../data/gsis_item_data.js";
-import { WEB_ICONS, WEB_CAT_ORDER, WEB_CAT_LABELS } from "../data/gsis_web_data.js";
-import { itemRow } from "./gsis_ItemRow.js";
+import { MISC } from "../../../core/gsis_Config.js";
+import { getItems, getTotalWeight, getBelt } from "../../inventory/index.js";
+import { getEquippedForUI } from "../../weapons/state.js";
+import { getEquippedAmmo } from "../../weapons/logic.js";
+import { itemRow } from "./itemRow.js";
 
 var MAX_WEIGHT = MISC.MAX_INVENTORY_WEIGHT;
 
-// --------------------------------------------------------------- CATALOGO --
-
-// Lo estatico que la pagina no puede deducir. Se manda una sola vez al abrir el
-// menu, no en cada snapshot: son datos que no cambian, y mandarlos cada 400ms
-// sumaria trozos a un canal con tope de 255 chars por evento.
-export function snapCatalog() {
-    return {
-        maxWeight: MAX_WEIGHT,
-        icons: WEB_ICONS,
-        cats: buildCats()
-    };
-}
-
-// Las bandas de grupo, en el orden de WEB_CAT_ORDER. Los tipos no se inventan
-// aca: salen de ITEMS. Si el catalogo tiene un tipo que WEB_CAT_ORDER no lista,
-// se avisa en el log y la banda se cae al final, en vez de items sin agrupar.
-var _catsChecked = false;
-function buildCats() {
-    var out = [];
-    var known = {};
-
-    for (var c = 0; c < WEB_CAT_ORDER.length; c++) {
-        var key = WEB_CAT_ORDER[c];
-        known[key] = true;
-        out.push({ key: key, label: WEB_CAT_LABELS[key] || key });
-    }
-
-    if (!_catsChecked) {
-        _catsChecked = true;
-        var missing = [];
-        for (var id in ITEMS) {
-            var t = ITEMS[id].type;
-            if (t && !known[t]) {
-                known[t] = true;
-                missing.push(t);
-            }
-        }
-        if (missing.length > 0) {
-            log("[InventorySerialization] Tipo de item sin banda en WEB_CAT_ORDER: " + missing.join(", ") +
-                " — agregalo a data/gsis_web_data.js o esos items no se agrupan");
-        }
-    }
-
-    return out;
-}
-
+// ============================================================================
+// INVENTARIO
+// ============================================================================
+//
+// Lo estatico del catalogo (iconos, bandas, peso maximo) se fue a
+// views/catalog.js, que es su propio archivo porque viaja con una frecuencia
+// distinta: se manda UNA vez al abrir el menu, y el inventario cada 400ms. Un
+// archivo con las dos cosas obliga a que quien manda uno pense en el throttle del
+// otro.
+//
 // ---------------------------------------------------------------- INVENTARIO --
 //
-// La fila en si (itemRow, ammoCell, valueCell, tipFor) vive en gsis_ItemRow.js:
+// La fila en si (itemRow, ammoCell, valueCell, tipFor) vive en views/itemRow.js:
 // la usan tambien el baul, el retiro y el resto de las pantallas de items, y una
 // copia por pantalla divergen calladas. Aca queda solo lo que es del inventario.
 
@@ -90,10 +61,12 @@ function buildCats() {
 // hacen falta para devolverlo: unequipWeapon(slot) para el arma,
 // unequipBeltMag(index) para el cargador.
 //
-// El cargador DENTRO de un arma no sale, y es lo que se busca. No esta ni en
-// items[] ni en el cinturon: lo tiene equipped[slot].hasMag, o sea que ya se
-// consumio en el arma. Si alguna vez hay que mostrarlo, hay que armarlo desde
-// ahi —getEquipped() no lo expone— y no agregarlo desde esta funcion.
+// El cargador DENTRO de un arma no sale como fila, y es lo que se busca. No esta ni
+// en items[] ni en el cinturon: lo tiene la lista de accesorios del registro. Se ve
+// en `attachments` de la fila, que es la CONFIGURACION completa del arma, y no
+// como un item suelto: asi la pagina puede decir "colt45 + suppressor + cargador
+// de 15" en una fila, que es lo que el jugador tiene, en vez de tres filas que no
+// existen.
 function equipadasSnap() {
     var out = [];
 
@@ -112,8 +85,15 @@ function equipadasSnap() {
         // `salud` viene del registro. `hasMag` viene derivado, y antes no viajaba:
         // la fila no podia distinguir un arma descargada de un cargador vacio
         // montado -las dos salian "0/17"-; ahora ademas lo dice el tooltip.
+        //
+        // Y `family` y `attachments` se pasan TAL CUAL. Son lo que la pagina
+        // dibuja para el arma, y son la unica representacion de la configuracion
+        // que cruza el cable: el weaponType no viaja, y sin estos dos la fila de
+        // un arma con silenciador seria indistinguible de la de un arma pelada.
         var w = itemRow({
             id: eq[slot].id,
+            family: eq[slot].family,
+            attachments: eq[slot].attachments,
             qty: 1,
             ammo: live == null ? null : String(live),
             salud: eq[slot].salud,

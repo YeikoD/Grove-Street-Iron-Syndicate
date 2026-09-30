@@ -884,7 +884,7 @@ function readJustPressed(vk) {
 //
 // La lectura de tecla del dueno de los menus. La usan el WebInterface para la I,
 // la ESPACIO y el ESC, y arma el flanco el mismo (down && !_prev): ninguna de las
-// tres pasa por aca. Ver el comentario de pollKeys() en modules/gsis_WebInterface.js
+// tres pasa por aca. Ver el comentario de pollKeys() en modules/ui/index.js
 // para por que el flanco tiene que armarse con esta lectura y no con
 // Pad.IsKeyJustPressed.
 //

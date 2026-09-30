@@ -1,39 +1,46 @@
-// GSIS - WebInterface
+// GSIS - UI: index
 // Copyright (C) 2026  YeikoD
 // License: GNU GPL v3 or later (full text in LICENSE).
 
 // ============================================================================
-// GSIS WebInterface - puente entre la pagina web y los modulos del mod
+// QUE RESUELVE ESTE ARCHIVO
+// ============================================================================
+// El modulo de la UI: cuando se registra, que se manda a la pagina cada frame,
+// y que teclas abren y cierran menus.
 //
-// La UI es una pagina web. Antes lo era con un framework de ventanas nativo; ahora se
-// dibuja con el runtime SAWebUI (CEF).
+// Antes era modules/ui/index.js, un archivo de 1122 lineas que mezclaba
+// el transporte con el estado con la tabla de comandos. La division es por lo que
+// cambia junto:
+//
+//   bridge.js    el cable con el runtime de la pagina. Cambia si el runtime
+//                cambia; nadie mas se entera.
+//   commands.js  que significa cada verbo de la pagina. Cambia si la pagina
+//                agrega un boton.
+//   views/       los snapshots que la pagina dibuja. Cambian si cambia lo que
+//                la pagina dibuja, y no tocan nada del resto.
+//   index.js     esto. Cambia si cambia el ciclo de vida del modulo.
+//
+// ============================================================================
+// EL MODELO, QUE NO CAMBIO
+// ============================================================================
+// La UI es una pagina web, dibujada con el runtime SAWebUI (CEF). Antes lo era
+// con un framework de ventanas nativo.
 //
 // Modelo de dos niveles, igual que el UIManager:
 //   - El bridge es dueno del estado de visibilidad. La pagina solo refleja.
 //   - El browser NUNCA se cierra. Se oculta y se muestra la seccion con
 //     .hidden, asi el DOM sigue vivo y el tick() sigue corriendo a 60fps.
 //
-// LA PAGINA NO MANDA NADA. En CLEO Redux 1.5.0 los scripts JS no reciben
-// eventos: asyncWait no reanuda la corrutina, setTimeout/setInterval no
-// disparan y addEventListener nunca entrega. Probado el 26/09 con un script
-// suelto en cleo\ (sin tocar el mod): timers=0, eventos=0 con 1500 ticks.
-//
-// O sea que no hay router de comandos ni puede haber. La unica direccion que
-// funciona es CLEO -> pagina, que es un comando nativo. Este modulo se limita
-// a PUSH: el es dueno del estado y le empuja a la pagina "panels" cuando cambia
-// y "inv" con el inventario troceado cada PUSH_MS. Las acciones (equipar,
-// guardar en cinturon) quedan sin hacer: no hay canal de vuelta.
-//
 // Orden de imports: este archivo va DESPUES de Trunk / WeaponDealer /
-// DealerPickup / WeaponSeller en gsis_index.js, porque el orden de imports es
-// el orden de updateAll(). Asi los flags de este frame ya estan calculados
-// cuando el bridge los lee.
+// DealerPickup / WeaponSeller en gsis_index.js, porque el orden de imports es el
+// orden de updateAll(). Asi los flags de este frame ya estan calculados cuando
+// el bridge los lee.
 //
 // QUE TECLA ABRE QUE. El inventario, con I. Los cuatro menus de esfera (baul,
-// armeria, retiro, trueque), con ESPACIO y solo parado adentro de su esfera —
-// cada modulo decide si puede abrir desde openXMenu() y el bridge elige a quien
-// llamar (openFlow, en modules/gsis_FlowSerialization.js). La misma tecla abre y
-// cierra, y el Escape tambien cierra.
+// armeria, retiro, trueque), con ESPACIO y solo parado adentro de su esfera —cada
+// modulo decide si puede abrir desde openXMenu() y aca se elige a quien llamar
+// (openFlow, en views/flow.js). La misma tecla abre y cierra, y el Escape tambien
+// cierra.
 //
 // Por que la ESPACIO la lee el bridge y no cada modulo: si los cuatro leyeran la
 // suya, la pulsacion que abre un menu seria vista por todos en el mismo frame, y
@@ -49,25 +56,10 @@
 //
 // Todos los menus se cierran con ESC, y todos se comportan igual: congelan al
 // jugador, esconden el radar y le dan el teclado a la pagina.
-//
-// ============================================================================
-// ACCIONES — functioning (SAWeb v2)
-// ============================================================================
-//
-// Equipar, cinturon y tirar YA NO son de solo lectura. La pagina manda
-// emit("cmd:<algo>", {id, slot}) y el runtime lo encola; este bridge lo PULLA
-// con SAWeb.takeCommand() una vez por frame y lo despacha a los modulos.
-//
-// El canal de ida (TriggerEvent -> addEventListener) sigue muerto: los scripts
-// JS de CLEO Redux 1.5.0 no reciben eventos, y eso no se cambio. Lo que se
-// cambio fue agregar el otro extremo del mismo transporte, que es un native()
-// por frame — eso si funciona. Ver SAWeb_PollCommand en el runtime.
-//
-// Por eso NO se usa on("main", "cmd"): seria el camino que ya se midio roto.
 // ============================================================================
 
-import { register } from "../core/gsis_ModuleRegistry.js";
-import { KEYS, MISC } from "../core/gsis_Config.js";
+import { register } from "../../core/gsis_ModuleRegistry.js";
+import { KEYS, MISC } from "../../core/gsis_Config.js";
 import {
     setMenuVisible,
     anyMenuVisible,
@@ -79,32 +71,21 @@ import {
     setMenuAnchor,
     setMenuKeyPassthrough,
     setMenuGameMouse
-} from "../core/gsis_Input.js";
-import { snapInventory, snapCatalog } from "./gsis_InventorySerialization.js";
-import { currentFlow, closeFlow, openFlow, snapFlow } from "./gsis_FlowSerialization.js";
-import { equipWeapon, unequipWeapon } from "./weapons/logic.js";
-import { removeItem, equipMagToBelt, unequipBeltMag } from "./gsis_Items.js";
-import { putInTrunk, takeFromTrunk } from "./gsis_Trunk.js";
-import { addToCart, removeFromCart, resetCart, checkout } from "./gsis_WeaponDealer.js";
-import { doOffer, moveOffer } from "./gsis_WeaponSeller.js";
-import { collectItem, collectAll, cancelOrder } from "./gsis_DealerPickup.js";
-import { clearNotice, hasNotice, takeNotice } from "../core/gsis_Notice.js";
-import SAWeb from "../../../../SAWebUI/cleo/SAWebUI/SAWeb.js";
+} from "../../core/gsis_Input.js";
+import { hasNotice, takeNotice } from "../../core/gsis_Notice.js";
 
-var UI_ID = "main";
+import { UI_ID, send, pushChunked, canCommand, drainCommands, isOpen as isBrowserOpen } from "./bridge.js";
+import { handleCommand } from "./commands.js";
+import { snapInventory } from "./views/inventory.js";
+import { snapCatalog } from "./views/catalog.js";
+import { currentFlow, closeFlow, openFlow, snapFlow } from "./views/flow.js";
+
+// El brake de pulsaciones. Comparte reloj con los dos toggles, y por eso es UNO:
+// con dos relojes, la I y la ESPACIO presionadas juntas se comerian la una a la
+// otra —la segunda en llegar seria descartada por el debounce de la primera— y
+// dos menus cerrando en el mismo frame es la forma mas rapida de llegar a un
+// estado imposible.
 var DEBOUNCE_MS = 200;
-
-// Cuantos comandos se atienden por frame. Es un tope de seguridad: si la
-// pagina mandara en bucle, el mod no se queda pegado draining. Con un click
-// por vez, 4 es de sobra.
-var MAX_COMMANDS_PER_FRAME = 4;
-
-// El canal se detecta una vez. Con la ASI v1 (sin SAWeb_PollCommand) el
-// comando no existe y native() tira; se desactiva para no reintentar cada
-// frame, y la pagina queda en solo lectura sin que se note.
-var _canCommand = null;
-
-// El brake de pulsaciones vive en DEBOUNCE_MS, arriba.
 
 var _uiState = {
     menuVisible: false,
@@ -121,11 +102,11 @@ var _prevKeyEsc = false;
 var _lastUiState = null;
 
 // Ultimo valor enviado a Hud.DisplayRadar. Mismo latch que el de arriba.
-var _lastRadar = null;
+var _lastRadar = false;
 
 // El catalogo se manda una vez por sesion de UI. El flag se pone solo si el
-// send() volvio true: si fallo, se reintenta en el proximo frame en vez de
-// dejar la pagina sin iconos para siempre.
+// pushChunked() devolvio true: si fallo, se reintenta en el proximo frame en vez
+// de dejar la pagina sin iconos para siempre.
 var _catalogSent = false;
 
 // Log de una sola vez si el build no expone ninguna de las dos formas de tocar
@@ -182,15 +163,6 @@ export function closeMenu() {
 
 // -------------------------------------------------------------- ENVIO A PAGINA --
 
-function send(name, data) {
-    try {
-        return SAWeb.ui.send(UI_ID, name, data);
-    } catch (e) {
-        log("[WebInterface] Error enviando '" + name + "': " + e.message);
-        return false;
-    }
-}
-
 // El radar se esconde con la UI. Hud.DisplayRadar es la forma documentada en
 // CLEO Redux; native("DISPLAY_RADAR", ...) es el mismo comando por su nombre
 // clasico (0581) y es el camino que ya usa SAWeb.js, asi que va de respaldo:
@@ -214,7 +186,7 @@ function setRadar(show) {
     } catch (e2) {
         if (!_radarFallo) {
             _radarFallo = true;
-            log("[WebInterface] no se pudo cambiar el radar: " + e2.message);
+            log("[UI] no se pudo cambiar el radar: " + e2.message);
         }
     }
 }
@@ -237,7 +209,7 @@ function broadcast() {
     // tiene que quedar apagado igual.
     var browserOpen = false;
     try {
-        browserOpen = SAWeb.ui.isOpen(UI_ID);
+        browserOpen = isBrowserOpen();
     } catch (e) { }
     if (!browserOpen) {
         anyVisible = false;
@@ -327,7 +299,7 @@ function broadcast() {
     // latcheada, asi que no cuesta nada por frame.
     //
     // Esta aca, DESPUES de armar st, y no antes: la version anterior logueaba
-    // pantallaVisible(), que es lo que el mod CREEE que deberia verse. Eso no es lo
+    // pantallaVisible(), que es lo que el mod CREE que deberia verse. Eso no es lo
     // que la pagina recibe, y la diferencia entre las dos cosas es el bug —
     // "se abrio el inventario" es exactamente el caso en que anyVisible es true y
     // el flujo es "". Con la variable equivocada en el log, el bug se veía limpio.
@@ -336,7 +308,7 @@ function broadcast() {
     // que el mod cree. Cuando discrepan, se ve en la misma linea.
     var etiqueta = "menu=" + (st.menu ? 1 : 0) + " flow=\"" + flow + "\" (" + (visible || "nada") + ")";
     if (_lastVisible !== etiqueta) {
-        log("[WebInterface] pagina: " + (_lastVisible || "(nada)") + " -> " + etiqueta);
+        log("[UI] pagina: " + (_lastVisible || "(nada)") + " -> " + etiqueta);
         _lastVisible = etiqueta;
     }
 
@@ -346,7 +318,7 @@ function broadcast() {
     // esto se ve, pero llega tarde —en el log del frame siguiente— y con el sintoma
     // de por medio. Sale aca, en el frame en que pasa.
     if (anyVisible && !flow && !_uiState.menuVisible) {
-        log("[WebInterface] DIVERGE: hay menu visible pero ninguno en pantalla. " +
+        log("[UI] DIVERGE: hay menu visible pero ninguno en pantalla. " +
             "La pagina va a mostrar el inventario. anyMenuVisible()=" +
             anyMenuVisible() + " menuVisible=" + _uiState.menuVisible);
     }
@@ -368,7 +340,7 @@ function broadcast() {
         try {
             catJson = JSON.stringify(snapCatalog());
         } catch (e) {
-            log("[WebInterface] snapCatalogo fallo: " + e.message);
+            log("[UI] snapCatalog fallo: " + e.message);
             catJson = null;
         }
         // El flag se levanta solo si la tanda salio completa: si fallo, se
@@ -415,9 +387,9 @@ function pushScreen(force) {
         // Una vez por flujo, no cada 400ms.
         if (_sinSnapDe !== flow) {
             _sinSnapDe = flow;
-            log("[WebInterface] " + flow + ": el menu esta visible pero snapFlow() dio null. " +
+            log("[UI] " + flow + ": el menu esta visible pero snapFlow() dio null. " +
                 "El panel se va a ver vacio. Revisar si el modulo publico su visibilidad antes " +
-                "de tener datos (gsis_FlowSerialization.js).");
+                "de tener datos (ui/views/flow.js).");
         }
         return false;
     }
@@ -432,7 +404,7 @@ function pushScreen(force) {
     try {
         json = JSON.stringify(snap);
     } catch (e) {
-        log("[WebInterface] snapshot de flujo fallo: " + e.message);
+        log("[UI] snapshot de flujo fallo: " + e.message);
         return false;
     }
     return pushChunked("screen", json);
@@ -498,7 +470,7 @@ function togglePanel(now, de) {
         return false;
     }
     if (_uiState.menuVisible) {
-        log("[WebInterface] panel principal cerrado por " + de);
+        log("[UI] panel principal cerrado por " + de);
         closeMenu();
         return true;
     }
@@ -506,10 +478,10 @@ function togglePanel(now, de) {
     if (flow) {
         // REGLA 1: con un flujo abierto la I no abre el inventario. Y no lo
         // "cierra" tampoco, porque no hay inventario abierto que cerrar.
-        log("[WebInterface] toggle ignorado (" + de + "): hay un flujo abierto (" + flow + ")");
+        log("[UI] toggle ignorado (" + de + "): hay un flujo abierto (" + flow + ")");
         return false;
     }
-    log("[WebInterface] panel principal abierto por " + de);
+    log("[UI] panel principal abierto por " + de);
     openMenu();
     return true;
 }
@@ -555,7 +527,7 @@ function toggleFlow(now, de) {
         // el primero en cerrar es el que se lleva el menu, y el otro busca otro
         // punto donde abrir.
         _uiState.keyDebounce = now;
-        log("[WebInterface] menu de " + flow + " cerrado por " + de);
+        log("[UI] menu de " + flow + " cerrado por " + de);
         return true;
     }
     if (_uiState.menuVisible) {
@@ -571,7 +543,7 @@ function toggleFlow(now, de) {
         return false;
     }
     _uiState.keyDebounce = now;
-    log("[WebInterface] menu de " + abierto + " abierto por " + de);
+    log("[UI] menu de " + abierto + " abierto por " + de);
     return true;
 }
 
@@ -629,7 +601,7 @@ function pollKeys() {
             closeMenu();
         } else {
             var cerrado = closeFlow();
-            if (cerrado) log("[WebInterface] Escape cerro el menu de " + cerrado);
+            if (cerrado) log("[UI] Escape cerro el menu de " + cerrado);
         }
     }
 
@@ -653,7 +625,7 @@ function pollKeys() {
     // visible esta siempre (el browser nunca se cierra), asi que en teoria
     // podria mandar algo en cualquier momento, y dejarlo accumulating en la cola
     // seria peor: se atenderian todas juntas en el frame que se abriera.
-    var acted = dispatchCommands();
+    var acted = drainCommands(_alComando);
 
     // Los dos pushes, y con REGLA 1 son excluyentes por construccion: hay una
     // sola pantalla visible, asi que hay un solo snapshot que el panel que se ve
@@ -696,330 +668,11 @@ function pollKeys() {
     }
 }
 
-var _lastFlow = "";
-// Lo que broadcast() calculo este frame: hay algun menu visible Y el browser
-// esta abierto. Lo usan los dos pushes, y es la unica diferencia con
-// _uiState.menuVisible (el flag del panel principal).
-var _anyVisible = false;
-// El flujo que se esta MOSTRANDO, ya con la REGLA 1 aplicada: "" si lo que se ve
-// es el inventario. Lo calcula broadcast() y lo leen los resets de throttle de
-// pollKeys(). Vive aca y no como local de broadcast() porque lo necesitan dos
-// funciones y duplicar el calculo es como se desincronizan.
-var _flowVisible = "";
-// La ultima pantalla que se le dijo a la pagina, para el log de transiciones de
-// arriba. Arranca en "" y no en null a proposito: el log tiene que arrancar con
-// "(nada) -> lo que sea", porque un null inicial haria que la primera pantalla no
-// se registrara y ahi empieza justo el bug que se quiere ver.
-var _lastVisible = "";
-
-// ------------------------------------------------------------ COMANDOS DE LA PAGINA --
-//
-// Lado CLEO del canal que-described en el header. La pagina emite
-// "cmd:<algo>" y el nombre llega encolado como "saweb:main:cmd:<algo>"; aca se
-// saca con takeCommand(), que es un native() y por lo tanto anda.
-//
-// Se drena SIEMPRE, este frame, y no con throttle: un click que tarda 400ms en
-// notarse se siente roto. El costo es una llamada nativa por frame con la
-// pagina cerrada, que es lo unico que hace el trabajo.
-
-function detectCommandChannel() {
-    if (_canCommand !== null) {
-        return _canCommand;
-    }
-    try {
-        SAWeb.takeCommand(UI_ID);
-        _canCommand = true;
-        log("[WebInterface] canal de acciones activo (SAWeb v2)");
-    } catch (e) {
-        _canCommand = false;
-        log("[WebInterface] canal de acciones NO disponible: " + e.message +
-            " — la UI queda en solo lectura (hace falta SAWeb v2)");
-    }
-    return _canCommand;
-}
-
-// Devuelve true si se atendio al menos un comando, para forzar el push del
-// inventario despues.
-function dispatchCommands() {
-    if (!detectCommandChannel()) {
-        return false;
-    }
-
-    var acted = false;
-    for (var i = 0; i < MAX_COMMANDS_PER_FRAME; i++) {
-        var cmd = SAWeb.takeCommand(UI_ID);
-        if (!cmd) {
-            break;
-        }
-        if (handleCommand(cmd)) {
-            acted = true;
-        }
-    }
-    return acted;
-}
-
-var _unknownCmds = {};
-
-function handleCommand(cmd) {
-    var what = cmd && cmd.cmd;
-    var id = cmd ? cmd.id : null;
-
-        try {
-            switch (what) {
-                // v3: la pagina cierra el menu. Es el unico camino que anda
-                // cuando la pagina se quedo con el teclado, porque en ese estado
-                // el WndProc consume la tecla y el juego no la ve: el menu solo
-                // se cerraba sacando el puntero de la UI.
-                //
-                // Cierra lo que se ESTA VIENDO, no lo que haya abierto: con el
-                // panel principal abierto y un flujo esperando turno, el Escape
-                // tiene que cerrar el inventario, no un menu que el jugador ni
-                // esta mirando. Es la misma regla 1 que decide que pantalla se
-                // ve, y por eso usa pantallaVisible().
-                //
-                // El debounce va aca tambien. Sin el, cerrar con Escape desde la
-                // pagina y la I del mod en el mismo frame seanhacian y el menu
-                // cierra y abre.
-                case "ui:close":
-                    if (Date.now() - _uiState.keyDebounce <= DEBOUNCE_MS) return false;
-                    if (_uiState.menuVisible) {
-                        closeMenu();
-                        log("[WebInterface] la pagina cerro el menu");
-                        return true;
-                    }
-                    var cerrado = closeFlow();
-                    if (cerrado) {
-                        log("[WebInterface] la pagina cerro el flujo " + cerrado);
-                        return true;
-                    }
-                    return false;
-
-                 // La I de la pagina. Es la misma accion que la tecla del mod, y va
-                 // por la misma funcion: si cada camino decidiera por su cuenta,
-                 // uno de los dos terminaria abriendo algo que el otro prohibe.
-                 case "ui:toggle":
-                     if (!togglePanel(Date.now(), "comando ui:toggle")) return false;
-                     return true;
-
-                 // La ESPACIO de la pagina, para los menus de esfera. Existe por lo
-                 // mismo que "ui:close": cuando la pagina se queda con el teclado el
-                 // WndProc consume la tecla y el mod no la ve, asi que sin este
-                 // camino el toggle de la ESPACIO solo funcionaria con el puntero
-                 // afuera de la UI.
-                 //
-                 // El debounce de toggleFlow es lo que hace que las dos mitades no
-                 // se cancelen: con el teclado en la pagina, el mod igual lee la
-                 // tecla por GetAsyncKeyState, asi que la misma pulsacion llega por
-                 // los dos caminos. La segunda cae dentro de la ventana.
-                 case "flow:toggle":
-                     if (!toggleFlow(Date.now(), "comando flow:toggle")) return false;
-                     return true;
-
-                // La pagina reporta que le llego y que quedo en el DOM. No es una
-                // accion: no cambia nada, se loguea y se sigue.
-                //
-                // Existe porque la pagina era ciega para diagnosticar: sus _diag()
-                // van a console.log y el runtime no captura OnConsoleMessage, asi
-                // que no quedan en ningun archivo. Con el mod diciendo "menu=0" y
-                // la pagina mostrando un panel, los dos lados tienen que estar en el
-                // mismo log; si no, la contradiccion se busca a ciegas.
-                //
-                // "hidden" es el que sirve: es la clase que REALMENTE quedo en el
-                // DOM, no la que se pidio. El bug del panel que no se apagaba era
-                // dos funciones peleandose por la misma clase, y eso solo se
-                // diferencia mirando el resultado.
-                case "ui:diag":
-                    // Los campos vienen en `cmd`, no en un `data`: handleCommand
-                    // declara `what` e `id` y nada mas, asi que leer `data` era un
-                    // ReferenceError tragado por el catch de abajo — el canal de
-                    // diagnostico nunca se emitio.
-                    log("[WebInterface] pagina dice: " + (cmd && cmd.dice) +
-                        " flow=\"" + (cmd && cmd.flow) + "\"" +
-                        " menu=" + (cmd && cmd.menu) +
-                        " #panel" + (cmd && cmd.hidden ? " OCULTO" : " VISIBLE"));
-                    return false;
-
-                case "inv:equip":
-                if (!id) return false;
-                equipWeapon(id);
-                log("[WebInterface] equipó " + id);
-                return true;
-
-            case "inv:unequip":
-                if (cmd.slot === undefined || cmd.slot === null) return false;
-                unequipWeapon(parseInt(cmd.slot, 10));
-                log("[WebInterface] desequipó el slot " + cmd.slot);
-                return true;
-
-            case "inv:belt":
-                if (!id) return false;
-                equipMagToBelt(id);
-                log("[WebInterface] cargador al cinturón: " + id);
-                return true;
-
-            // El camino de vuelta del cinturon. No estaba: unequipBeltMag ya
-            // existia pero nadie la llamaba, asi que un cargador equipado no
-            // tenia forma de volver al inventario desde la pagina. La pagina lo
-            // manda con slot = indice de casilla, no con id, porque en el
-            // cinturon puede haber dos cargadores del mismo tipo y la casilla es
-            // lo unico que las distingue.
-            case "inv:belt:off":
-                if (cmd.slot === undefined || cmd.slot === null) return false;
-                unequipBeltMag(parseInt(cmd.slot, 10));
-                log("[WebInterface] cargador fuera del cinturón: casilla " + cmd.slot);
-                return true;
-
-
-            case "inv:drop":
-                if (!id) return false;
-                //qty viene del boton "tirar": 1 por defecto, o lo que pida la
-                // pagina. removeItem es el unico que saca de verdad.
-                removeItem(id, cmd.qty ? parseInt(cmd.qty, 10) : 1);
-                log("[WebInterface] tirar " + id);
-                return true;
-
-            // ------------------------------------------------------------- FLUJOS --
-            //
-            // Los cuatro menus de proximidad. Cada caso es una linea: el
-            // prechequeo de peso, el aviso y la validacion viven en el modulo
-            // owner (putInTrunk, doOffer, collectItem), no aca.
-            //
-            // Eso es lo que hace que el modulo tenga que ser el que valida: la
-            // pagina ve un snapshot que tiene hasta 400ms. Si el peso lo
-            // calculara la pagina, su respuesta seria la de hace un snapshot.
-            //
-            // El clearNotice() del principio no es cosmetico: un comando que
-            // vuelve temprano (payload invalido) no escribe aviso, y si el
-            // anterior seguiera pendiente la pagina repetiria el mensaje viejo
-            // como si fuera la respuesta de este.
-
-            case "trunk:put":
-            case "trunk:take":
-                if (!id) return false;
-                if (what === "trunk:put") {
-                    putInTrunk(id, cmd.qty);
-                } else {
-                    takeFromTrunk(id, cmd.qty);
-                }
-                log("[WebInterface] baul: " + what + " " + id + " x" + cmd.qty);
-                return true;
-
-            case "dealer:add":
-                if (!id) return false;
-                clearNotice();
-                addToCart(id, cmd.qty);
-                log("[WebInterface] carrito +" + (cmd.qty || 1) + " " + id);
-                return true;
-
-            // Quitar de la lista del carrito (el pane derecho de la armeria).
-            // Mismo esquema que dealer:add: el modulo decide si habia algo que
-            // sacar, y el aviso lo escribe el (ver removeFromCart / setNotice).
-            case "dealer:cart:remove":
-                if (!id) return false;
-                clearNotice();
-                removeFromCart(id, cmd.qty);
-                log("[WebInterface] carrito -" + (cmd.qty || 1) + " " + id);
-                return true;
-
-            case "dealer:cart:clear":
-                clearNotice();
-                resetCart();
-                log("[WebInterface] carrito vaciado");
-                return true;
-
-            case "dealer:checkout":
-                clearNotice();
-                checkout();
-                log("[WebInterface] carrito pagado");
-                return true;
-
-            case "pickup:take":
-                clearNotice();
-                if (!id) return false;
-                collectItem(id, cmd.qty);
-                log("[WebInterface] retiro " + id + " x" + cmd.qty);
-                return true;
-
-            case "pickup:takeAll":
-                clearNotice();
-                collectAll();
-                log("[WebInterface] retiro de todo el pedido");
-                return true;
-
-            case "pickup:cancel":
-                // clearNotice() SI va, aunque no haya id que validar: cancelOrder
-                // escribe su propio aviso (cancelado / no hay pedido), y sin
-                // limpiar el aviso anterior de la pantalla sobrevive a este
-                // comando y la pagina lo repite como si fuera la respuesta.
-                clearNotice();
-                cancelOrder();
-                log("[WebInterface] cancelacion del pedido pendiente");
-                return true;
-
-            case "seller:offer":
-                if (!id) return false;
-                doOffer(id, cmd.qty, cmd.price);
-                log("[WebInterface] oferta " + id + " x" + cmd.qty + " a " + cmd.price);
-                return true;
-
-            // Mueve la oferta de una fila (las teclas +/- y los dos botones del
-            // pie). Sin clearNotice() a proposito: el aviso que quedo de la
-            // oferta anterior es el que trae el precio seguro, y es justamente
-            // el dato con el que se esta ajustando. El siguiente seller:offer
-            // lo sobreescribe solo.
-            case "seller:quote":
-                if (!id) return false;
-                moveOffer(id, cmd.delta);
-                log("[WebInterface] oferta movida " + id + " " + (cmd.delta >= 0 ? "+" : "") + cmd.delta);
-                return true;
-
-            default:
-                if (!_unknownCmds[String(what)]) {
-                    _unknownCmds[String(what)] = true;
-                    log("[WebInterface] comando desconocido: " + JSON.stringify(cmd));
-                }
-                return false;
-        }
-    } catch (e) {
-        // Un comando que revienta no puede llevarse por delante el loop: se
-        // loguea y el frame sigue.
-        log("[WebInterface] comando '" + what + "' fallo: " + e.message);
-        return false;
-    }
-}
-
-// ------------------------------------------------------------------- INIT --
-
-function initWebInterface() {
-    log("[WebInterface] Bridge CLEO <-> " + UI_ID + " inicializado");
-    log("[WebInterface] Tecla " + String.fromCharCode(KEYS.INVENTORY) + " abre/cierra, ESC cierra");
-    log("[WebInterface] Tecla " + String.fromCharCode(KEYS.FLOW) +
-        " (espacio) abre y cierra los menus de esfera, parado adentro de la esfera");
-    try {
-        log("[WebInterface] isOpen('" + UI_ID + "') -> " + SAWeb.ui.isOpen(UI_ID));
-    } catch (e) {
-        log("[WebInterface] isOpen fallo: " + e.message);
-    }
-    detectCommandChannel();
-}
-
 // ================================================================= PUSH DEL INVENTARIO ==
 //
-//Por que push y no pedido/respuesta: en CLEO Redux 1.5.0 los scripts JS no
-//reciben eventos. Probado el 26/09 con cleo\zz_sonda.js, sin tocar el mod:
-//
-//   [S2] A: async entro
-//   [S2] E: tick sincrono 90 (asyncWait=0 timers=0)     <- asyncWait no reanuda
-//   timers=0  eventos=0
-//
-// o sea: wait(0) rinde, asyncWait no reanuda, setTimeout/setInterval no
-//disparan y addEventListener nunca entrega. La pagina -> CLEO esta muerta: el
-// TriggerEvent del plugin no tiene a quien entregale. La unica direccion que
-// funciona es CLEO -> pagina, que es un comando nativo y anda (los "panels"
-// llegaban).
-//
-// Asique el puente no espera que la pagina pida nada: le empuja el snapshot y la
-// pagina se dibuja sola.
+// Por que push y no pedido/respuesta: en CLEO Redux 1.5.0 los scripts JS no
+// reciben eventos (la medicion esta en bridge.js, con su sonda). La unica
+// direccion que funciona de origen es CLEO -> pagina.
 //
 // CUANDO SE EMPUJA. No cada frame: la UI anterior leia getItems() en vivo
 // y solo dibujaba cuando algo cambiaba. Aca el equivalente es comparar el
@@ -1027,63 +680,9 @@ function initWebInterface() {
 // PUSH_MS para no pagar el stringify en cada frame, pero si no cambio no sale
 // nada. El precio: un cambio tarda hasta PUSH_MS en verse, 400ms, que es
 // imperceptible para un menu.
-//
-// TROCEADO: el dataJson de SAWEB_SEND_EVENT viaja como string de comando CLEO.
-// El plugin lo lee con GetStringParam(ctx, buffer, 255) y maxlen es unsigned char,
-// o sea 255 es el tope DURO del parametro (SAWEB_API.md seccion 8 dice "~255
-// caracteres utiles", lo que implica que el payload real es menor).
-//
-// Con CHUNK=160 el dataJson llegaba a 222 chars: demasiado cerca del tope. Si se
-// trunca, el chunk llega como JSON valido pero corrupto, la pagina arma una
-// string rota, JSON.parse falla, y el error se va a console — invisible sin
-// devtools, y el menu se ve vacio sin explicacion. Por eso 60: el dataJson queda
-// en ~80 chars, lejos de cualquier tope plausible.
 var PUSH_MS = 400;
-var PUSH_CHUNK = 60;
 var _lastPush = 0;
 var _lastJson = null;
-
-// Solo se loguea la primera tanda de cada canal y solo si algo va mal. Asi el
-// log dice si el transporte funciona sin llenarse de ruido.
-var _diag = { primera: {}, fallos: 0 };
-
-function _diagSend(name, i, total, dataJson, ok) {
-    if (ok) {
-        return;
-    }
-    if (_diag.fallos < 3) {
-        _diag.fallos++;
-        log("[WebInterface] send('" + name + "', " + i + "/" + total + ") fallo. dataJson=" + dataJson.length + " chars");
-    }
-}
-
-// Trocea y manda un JSON ya serializado. El sobre es el mismo para todos los
-// canales ({i, n, d}) y la pagina reensambla igual, asi que agregar un canal
-// troceado no obliga a tocar el otro. Devuelve true si salieron todos los trozos.
-//
-// El troceado no es opcional: el limite de 255 chars es del comando, no de la
-// frecuencia. Mandarlo entero una sola vez no lo esquiva. El catalogo son ~1440
-// chars (45 iconos + 3 bandas) y sin trocear llegaba cortado al parser.
-function pushChunked(name, json) {
-    var total = Math.max(1, Math.ceil(json.length / PUSH_CHUNK));
-    var ok = true;
-
-    for (var i = 0; i < total; i++) {
-        var piece = { i: i, n: total, d: json.substr(i * PUSH_CHUNK, PUSH_CHUNK) };
-        if (!send(name, piece)) {
-            _diagSend(name, i, total, JSON.stringify(piece).length, false);
-            ok = false;
-        }
-    }
-
-    // La primera tanda de cada canal se loguea, y solo si salió bien: es lo que
-    // dice si el transporte funciona sin llenarse de ruido.
-    if (ok && !_diag.primera[name]) {
-        _diag.primera[name] = true;
-        log("[WebInterface] " + name + ": " + json.length + " chars en " + total + " chunks");
-    }
-    return ok;
-}
 
 // force saltea el throttle de PUSH_MS: se usa despues de una accion de la
 // pagina, donde esperar 400ms a ver el resultado se siente roto. El throttle
@@ -1100,7 +699,7 @@ function pushInventory(force) {
     try {
         json = JSON.stringify(snapInventory());
     } catch (e) {
-        log("[WebInterface] snapInventory fallo: " + e.message);
+        log("[UI] snapInventory fallo: " + e.message);
         return;
     }
 
@@ -1113,10 +712,70 @@ function pushInventory(force) {
     pushChunked("inv", json);
 }
 
+var _lastFlow = "";
+// Lo que broadcast() calculo este frame: hay algun menu visible Y el browser
+// esta abierto. Lo usan los dos pushes, y es la unica diferencia con
+// _uiState.menuVisible (el flag del panel principal).
+var _anyVisible = false;
+// El flujo que se esta MOSTRANDO, ya con la REGLA 1 aplicada: "" si lo que se ve
+// es el inventario. Lo calcula broadcast() y lo leen los resets de throttle de
+// pollKeys(). Vive aca y no como local de broadcast() porque lo necesitan dos
+// funciones y duplicar el calculo es como se desincronizan.
+var _flowVisible = "";
+// La ultima pantalla que se le dijo a la pagina, para el log de transiciones de
+// arriba. Arranca en "" y no en null a proposito: el log tiene que arrancar con
+// "(nada) -> lo que sea", porque un null inicial haria que la primera pantalla no
+// se registrara y ahi empieza justo el bug que se quiere ver.
+var _lastVisible = "";
+
+// ------------------------------------------------------------------ EL PUENTE
+// CON commands.js
+// ---------------------------------------------------------------------------
+// commands.js necesita llamar a togglePanel, toggleFlow, closeMenu y closeFlow,
+// que viven aca; y este archivo necesita handleCommand, que vive alla. Importar
+// en las dos direcciones seria un ciclo, y un ciclo entre dos archivos de este
+// paquete es un undefined en el menu.
+//
+// Asi que el que decide QUE hacer con un comando no se importa: se le pasa un
+// objeto con lo que necesita. El objeto se arma una vez, aca, y no se
+// reasigna nunca.
+//
+// Lo que NO va por aca: nada del transporte. Que haya un comando no depende de
+// si el canal anda, y meterlo en la misma caja haria que un problema de SAWeb
+// pareciera un problema de la UI.
+var _alComando = (function () {
+    return function (cmd) {
+        return handleCommand(cmd, {
+            keyDebounce: function () { return _uiState.keyDebounce; },
+            debounceMs: DEBOUNCE_MS,
+            isMenuVisible: isMenuVisible,
+            closeMenu: closeMenu,
+            closeFlow: closeFlow,
+            togglePanel: togglePanel,
+            toggleFlow: toggleFlow
+        });
+    };
+})();
+
+// ------------------------------------------------------------------- INIT --
+
+function initUI() {
+    log("[UI] Bridge CLEO <-> " + UI_ID + " inicializado");
+    log("[UI] Tecla " + String.fromCharCode(KEYS.INVENTORY) + " abre/cierra, ESC cierra");
+    log("[UI] Tecla " + String.fromCharCode(KEYS.FLOW) +
+        " (espacio) abre y cierra los menus de esfera, parado adentro de la esfera");
+    try {
+        log("[UI] isOpen('" + UI_ID + "') -> " + isBrowserOpen());
+    } catch (e) {
+        log("[UI] isOpen fallo: " + e.message);
+    }
+    canCommand();
+}
+
 // ------------------------------------------------------------------- REGISTRO --
 
 register({
     name: "WebInterface",
-    init: initWebInterface,
+    init: initUI,
     update: pollKeys
 });

@@ -1,4 +1,4 @@
-// GSIS - FlowSerialization
+// UI: views/flow
 // Copyright (C) 2026  YeikoD
 // License: GNU GPL v3 or later (full text in LICENSE).
 
@@ -54,30 +54,30 @@
 // collectItem, addToCart), que son los que validan.
 // ============================================================================
 
-import { MISC } from "../core/gsis_Config.js";
-import { t, money } from "../core/gsis_L10n.js";
-import { query } from "../core/gsis_EventBus.js";
-import { getModuleData } from "../core/gsis_SaveManager.js";
-import { getItemType } from "../data/gsis_item_data.js";
-import { WEAPON_DATA, getSellPrice } from "../data/gsis_weapon_data.js";
-import { getVehicleName } from "../data/gsis_vehicle_data.js";
-import { itemRow } from "./gsis_ItemRow.js";
+import { MISC } from "../../../core/gsis_Config.js";
+import { t, money } from "../../../core/gsis_L10n.js";
+import { query } from "../../../core/gsis_EventBus.js";
+import { getModuleData } from "../../../core/gsis_SaveManager.js";
+import { getItemType } from "../../../data/gsis_item_data.js";
+import { WEAPON_DATA, getSellPrice } from "../../../data/gsis_weapon_data.js";
+import { getVehicleName } from "../../../data/gsis_vehicle_data.js";
+import { itemRow } from "./itemRow.js";
 import {
     getItems, getTotalWeight, entregaOpts,
     getTrunkItems, getTrunkWeight, getTrunkMaxCapacity
-} from "./gsis_Items.js";import {
+} from "../../inventory/index.js";import {
     isTrunkMenuVisible, closeTrunkMenu, openTrunkMenu, getTrunkVehicleId
-} from "./gsis_Trunk.js";
+} from "../../gsis_Trunk.js";
 import {
     isDealerMenuVisible, closeDealerMenu, openDealerMenu, getActiveCharacterId,
     getDealerPrice, getCart, getCartTotal, getCJMoney
-} from "./gsis_WeaponDealer.js";
+} from "../../gsis_WeaponDealer.js";
 import {
     isSellMenuVisible, closeSellMenu, openSellMenu, getSellState, getOffer
-} from "./gsis_WeaponSeller.js";
+} from "../../gsis_WeaponSeller.js";
 import {
     isPickupMenuVisible, closePickupMenu, openPickupMenu, getOrder
-} from "./gsis_DealerPickup.js";
+} from "../../gsis_DealerPickup.js";
 
 // Los cuatro menus, en el orden en que se consultan. El orden importa: dos
 // menus pueden quedar visibles a los vez si el jugador esta entre dos esferas, y

@@ -17,14 +17,14 @@ export var KEYS = {
     DEBUG_ITEM: 76,     // L — debug: agregar item
     BAG: 80,            // P — toggle bolso visual
     RELOAD: 82,         // R — swap de cargador (Ballistic)
-    ESC: 27,            // ESC — cierra la UI web (modules/gsis_WebInterface.js)
+    ESC: 27,            // ESC — cierra la UI web (modules/ui/index.js)
 
     // SPACE — abre y cierra los menus que viven en una esfera (baul, armeria,
     // retiro, trueque). Es la I de esos menus, con la condicion de que el jugador
     // este parado adentro de la esfera.
     //
     // La misma tecla para abrir y cerrar, y el dueno de la tecla es el bridge
-    // (modules/gsis_WebInterface.js, toggleFlow), no cada modulo. Con un dueno
+    // (modules/ui/index.js, toggleFlow), no cada modulo. Con un dueno
     // solo, una pulsacion se gasta en UNA decision —cerrar lo que esta abierto, o
     // abrir lo que el jugador tiene adelante— en vez de que la abran y la cierren
     // cuatro modulos a la vez en el mismo frame.

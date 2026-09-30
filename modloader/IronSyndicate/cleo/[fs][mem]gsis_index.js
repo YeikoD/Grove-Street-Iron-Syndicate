@@ -19,7 +19,7 @@ import "./IronSyndicate/modules/gsis_Trunk.js";
 import "./IronSyndicate/modules/gsis_Vehicles.js";
 import "./IronSyndicate/modules/gsis_Documents.js";
 import "./IronSyndicate/modules/gsis_Bag.js";
-import "./IronSyndicate/modules/gsis_Items.js";
+import "./IronSyndicate/modules/inventory/index.js";
 import "./IronSyndicate/modules/gsis_PropertyModule.js";
 import "./IronSyndicate/modules/gsis_Actors.js";
 import "./IronSyndicate/modules/gsis_ActorAnims.js";
@@ -31,9 +31,9 @@ import "./IronSyndicate/modules/gsis_WeaponSeller.js";
 // El bridge va aca, y no en cualquier lado: tiene que leer los flags de
 // visibilidad de este frame (los menus de esfera ya decididos por sus modulos),
 // asi que va despues de los modulos que los calculan (Trunk / WeaponDealer /
-// DealerPickup / WeaponSeller) y antes de Ballistic / FireButton, que dependen
+// DealerPickup / WeaponSeller) y antes de weapons/ y FireButton, que dependen
 // de Items.
-import "./IronSyndicate/modules/gsis_WebInterface.js";
+import "./IronSyndicate/modules/ui/index.js";
 import "./IronSyndicate/modules/weapons/index.js";
 import "./IronSyndicate/modules/gsis_FireButton.js";
 

@@ -53,7 +53,7 @@ export function closeDealerMenu() {
     _showDealerMenu = false;
 }
 
-// Abrir el menu, si se puede. La llave la pide el bridge (modules/gsis_WebInterface.js)
+// Abrir el menu, si se puede. La llave la pide el bridge (modules/ui/index.js)
 // cuando el jugador aprieta ESPACIO, y el "si se puede" se responde aca.
 //
 // Devuelve true si este modulo abrio el menu. Con false no se distinguio "no
