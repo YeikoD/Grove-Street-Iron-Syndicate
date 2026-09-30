@@ -12,9 +12,28 @@
 !README.md
 
 # El codigo del mod vive en la carpeta del mod (modloader\)
+# OJO: se abre modloader/IronSyndicate/ y NO modloader/** a proposito. Con
+# !modloader/** entrarian ~1072 archivos de terceros que viven ahi al lado
+# (CheatMenu, SAWebUI, .data) mas modloader.ini y los .log, que son locales.
 !modloader/
 !modloader/IronSyndicate/
 !modloader/IronSyndicate/**
+
+# Los checks de verificacion, dentro de .IronSyndicate/tools/.
+# ESTOS SI VAN A GIT, y no por descarte: son la red de seguridad del sistema.
+#   check-dat.mjs        cruza el .dat contra weapons.js y simula el clon del .asi
+#   check-migration.mjs SAVE_FORMAT_VERSION y los migradores por version
+#   check-ui-flow.mjs    los contratos entre modulos, incluido el assert de que
+#                        weapons/ e inventory/ NO se importan entre si
+#   fake-engine.mjs      el motor falso con el que se prueba toda la logica
+# Sin estos, los docs que dicen "147/147" y "el desacoplamiento es un assert, no
+# una convencion" no son verificables por nadie, y perdemos justo lo que protege
+# el refactor. El resto de .IronSyndicate/ (docs/, y las copias de Sanny Builder
+# y gta3script que hay ahi) sigue ignorado a proposito.
+.IronSyndicate/
+!.IronSyndicate/
+!.IronSyndicate/tools/
+!.IronSyndicate/tools/**
 
 # Assets de terceros: no son nuestros ni de Rockstar, asi que no se distribuyen
 # con el repo. Los archivos quedan en el juego, solo se sacan del control de
