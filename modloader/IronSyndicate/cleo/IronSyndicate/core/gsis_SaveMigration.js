@@ -33,6 +33,13 @@
 // ============================================================================
 //   viejo    ->  nuevo
 //
+// ESTA TABLA ES DEL NAMESPACE DE `itemId`, Y SOLO DE ESE.
+//
+// Un itemId es una clave del catalogo de ITEMS (data/gsis_item_data.js) y de los
+// items del inventario. El RENOMBRE tiene que aterrizar en un id que exista en
+// ITEMS, o el item desaparece del inventario del jugador al cargar: el item deja
+// de ser conocido y el mod lo ignora. Ver "POR QUE NO SE ENCADENA" abajo.
+//
 // La razon del renombre, para que no se repita: `9mm` era el nombre de la
 // MUNICION, no del ARMAMENTO. La pistola de tipo 22 dispara calibre .45 y su
 // cargador de vanilla son 8 balas, no 17. Un item de inventario que dice "9mm" y
@@ -62,12 +69,16 @@ export var ITEM_RENAMES = {
     // prefijo "mag_9mm" ya no corresponde a ninguna familia. La convencion
     // "mag_" + <familia> es la que hay que mantener, y mag_9mm_extended colgado
     // de un item que ya no existe es exactamente el caso que la rompio antes.
+    //
+    // El destino es `mag_colt45_extended` y NO `mag_colt45_15`, aunque el
+    // cargador de 15 balas se llame asi en el catalogo de variantes. Ver
+    // "LOS DOS NAMESPACES DE LOS ACCESORIOS".
     "mag_9mm_replica":  "mag_colt45_replica",
     "mag_9mm_extended": "mag_colt45_extended",
 
     // El alias de crafteo. `pistol_assembled` es el MISMO weaponId 22 que la
     // 9mm con precio 0, y por eso se va con ella: un alias sin canonico no
-    // resuelve. Ver WEAPON_ALIASES en gsis_weapon_data.js.
+    // resuelve. Ver WEAPON_ALIASES en gsis_weapons.js.
     "pistol_assembled": "colt45",
 
     // El item del POC. Cuando el .asi dejo de ser un experimento y las
@@ -80,20 +91,149 @@ export var ITEM_RENAMES = {
 };
 
 // ============================================================================
+// LOS DOS NAMESPACES DE LOS ACCESORIOS, Y POR QUE ESO PROHIBE UN RENOMBRE
+// ============================================================================
+// El mismo cargador de 15 balas tiene DOS nombres, y en ningun lado es el mismo:
+//
+//   mag_colt45_15        CANONICO. El que usa WEAPON_VARIANTS, el que compara
+//                        resolveWeaponType, el que se guarda en
+//                        Ballistic.equipped[slot].attachments.
+//                        Declarado en ATTACHMENTS (data/gsis_weapons.js).
+//
+//   mag_colt45_extended  DE INVENTARIO. El que esta en ITEMS
+//                        (data/gsis_item_data.js), el que viaja en items[] y el
+//                        que el jugador ve. Convertido con
+//                        inventoryAttachmentId().
+//
+// Los dos son ids VALIDOS y NECESARIOS en su namespace. Por eso
+// `mag_colt45_extended -> mag_colt45_15` NO va en ITEM_RENAMES:
+//
+//   * ITEM_RENAMES renombra `item.id`, que es el namespace de inventario.
+//   * `mag_colt45_extended` es HOY un itemId valido. Renombrarlo a
+//     `mag_colt45_15` produce un itemId que NO esta en ITEMS, y el cargador le
+//     desaparece al jugador del inventario en cada carga.
+//
+// La conversion que si hace falta —el save viejo escribio
+// `mag_colt45_extended` dentro de `attachments`, donde el nombre bueno es
+// `mag_colt45_15`— la hace la migracion de weapons (modules/weapons/migrate.js)
+// con canonicalAttachmentId(), que SI conoce los dos namespaces. Ahi el destino
+// es un id canonico y por lo tanto es correcto.
+//
+// POR QUE NO SE ENCADENA
+// ----------------------
+// Un renombre se resuelve con UNA sola tabla: `mag_9mm_extended` se convierte en
+// `mag_colt45_extended` y ahi PARA, aunque `mag_colt45_extended` tenga a su vez
+// entrada. Encadenar seria看似-correcto y estaria mal, por lo de arriba: la
+// segunda tabla es de otro namespace y su destino no es un itemId.
+//
+// La regla que sale de ahi, y que hay que leer antes de tocar esta tabla: TODO
+// destino tiene que existir en ITEMS. Si un dia hace falta renombrar un
+// accesorio, el rename va en la migracion del modulo que lo usa, no aca.
+
+// ============================================================================
+// LA VERSION DEL FORMATO
+// ============================================================================
+// SAVE_FORMAT_VERSION es la version del ESQUEMA del save entero, y la que se
+// graba en GameState.version.
+//
+//   1  el esquema de antes de las fases 1-3. Los 12 modulos mas el registro de
+//      armas con 7 campos por slot, incluido `weaponType`.
+//   2  el de hoy. El registro de armas es { id, family, attachments, salud }.
+//
+// NO es "cuantos modulos toco la ultima version". Es "que forma tiene un save
+// legible", y sube cuando un modulo cambia la forma de lo que persiste. Por eso
+// subirlo a 2 sin tocar los otros 12 modulos es correcto: sus datos no cambiaron
+// de forma, y la migracion de la version 1 a la 2 solo recorre Ballistic.
+//
+// QUE HACE QUE SUBIRLO SEA OBLIGATORIO, Y NO OPCIONAL
+// ----------------------------------------------------
+// Un save viejo y uno nuevo tienen el MISMO `version: 1` mientras no se suba. Sin
+// el numero no hay forma de saber si `equipped[2].magId` hay que traducirlo o si
+// es un campo sobrante, y las dos lecturas dan un resultado distinto. Peor: sin
+// version no hay forma de saber si la migracion YA corrio, asi que un save
+// migrado se volveria a migrar en cada carga.
+export var SAVE_FORMAT_VERSION = 2;
+
+// La version de un save, como numero comparable.
+//
+// Los saves viejos tienen `"1.0"`, que es un string y ademas "1.0" no es un
+// entero. Un save sin version es de antes de que existiera el campo, o sea
+// version 1: se asume la mas baja que se pueda migrar, porque la migracion es
+// idempotente y correrla de mas no cambia nada, mientras que NO correrla deja
+// campos viejos sin traducir.
+export function versionDe(v) {
+    if (typeof v === "number" && isFinite(v)) return Math.floor(v);
+    if (typeof v === "string") {
+        var n = parseInt(v, 10);           // "1.0" -> 1, "2" -> 2
+        if (!isNaN(n)) return n;
+    }
+    return 1;
+}
+
+// ============================================================================
+// MIGRADORES DE MODULOS
+// ============================================================================
+// Un migrador es `function (save) -> informe` y se registra para la version que
+// CORRIGE, no para la que produce.
+//
+//   registerSaveMigrator(1, "weapons-v2", fn)
+//
+//   1 -> 2. El save entro en 1 y hay que dejarlo en 2.
+//
+// Por que el modulo se registra a si mismo y no lo llama SaveManager: SaveManager
+// no tiene que saber que existe un modulo de armas. Con un registro, agregar la
+// migracion de otro modulo es escribir un archivo nuevo, y no tocar el nucleo.
+//
+// Y por que se registra al IMPORTAR el modulo, y no en su init(): SaveManager
+// corre `loadGame` desde initSaveManager(), que el entry llama DESPUES de todos
+// los imports. Un import se evalua antes que la primera linea de codigo del
+// entry, asi que un migrador registrado al importarse ya esta registrado cuando
+// loadGame busca migradores. En init() llegaria tarde: el save viejo se cargaria
+// sin migrar una vez, y esa partida quedaria con el registro en la forma vieja.
+var _migradores = [];
+
+export function registerSaveMigrator(version, nombre, fn) {
+    if (typeof fn !== "function") return false;
+    _migradores.push({ version: version, nombre: nombre, fn: fn });
+    return true;
+}
+
+// Solo para diagnostico y para los tests: que migradores hay registrados y para que
+// version.
+export function registeredMigrators() {
+    return _migradores.map(function (m) { return { version: m.version, nombre: m.nombre }; });
+}
+
+// ============================================================================
 // QUE SE MIGRA Y QUE NO
 // ============================================================================
 // Se migran los `id` de item, en todas partes donde un item puede aparecer:
 // inventario, baul, cinturon, equipado, ordenes del dealer, crafteo.
 //
-// NO se migra `weaponType`. Y esa distincion es el punto entero del refactor:
-// el weaponType es la REPRESENTACION, y las representaciones se renumeran
-// soltas. Un save con type 60 (que era colt45+30) ahora es colt45+15, y el
-// weaponType 60 sigue siendo colt45+15. El numero se preserva por construccion.
+// SE MIGRA el weaponType guardado del registro de armas, y el motivo es el
+// cambio de faz de este refactor: el registro ya no guarda un weaponType, guarda
+// la LISTA de accesorios de la que se deriva. Asi que un `variantWeaponType: 60`
+// de un save viejo hay que traducirlo a `attachments: ["suppressor"]`. No es una
+// renumeracion: el 60 sigue siendo el 60, lo que cambio es que el save ya no lo
+// guarda.
+//
+// El weaponType NO se vuelve a guardar. Y esa distincion es el punto entero: el
+// weaponType es la REPRESENTACION, y las representaciones se renumeran soltas.
+// Un save con type 60 (que era colt45+30) ahora es colt45+15, y el weaponType 60
+// sigue siendo colt45+15. El numero se preserva por construccion.
 //
 // Tampoco se migra ningun otro campo numerico: si un save tiene un cargador de 30
 // balas y ahora la variante base es de 8, el save se queda con 30 hasta que se
 // recargue. Cambiar la municion guardada en una partida a medias es peor que
 // dejarla.
+//
+// ---------------------------------------------------------------------------
+// POR QUE LA MIGRACION DE UN MODULO NO ESTA ACA
+// ---------------------------------------------------------------------------
+// Este archivo sabe renombrar `id`s. No sabe que es una familia, un accesorio o
+// una variante, y no deberia aprenderlo: en cuanto un modulo persiste una forma
+// propia, la migracion de esa forma va en el modulo. La de las armas esta en
+// modules/weapons/migrate.js y se registra sola. Ver "MIGRADORES DE MODULOS".
 
 // ============================================================================
 // APLICACION
@@ -193,8 +333,97 @@ function _migrarNodo(nodo, profundidad) {
     return n;
 }
 
-// Punto de entrada. Se llama desde loadGame con el save ya parseado.
+// ============================================================================
+// PUNTO DE ENTRADA
+// ============================================================================
+// Se llama desde loadGame con el save ya parseado. Muta `parsed` en el sitio y
+// devuelve un INFORME, no un numero.
+//
+// Por que un informe y no el numero de renombres que devolvia antes: el llamador
+// lo muestra en el log, y con la version de las fases 1-3 un `0` no significaba
+// nada util. Con un informe se puede decir "llego en 1, se corrigio a 2, y el
+// registro de armas de 3 slots migro 2 y degrado 1", que es la unica forma de
+// distinguir "no tenia nada viejo" de "no se esta corriendo".
+//
+// El ORDEN importa y son tres pasos:
+//
+//   1. leer la version
+//   2. los renombres de itemId, SIEMPRE
+//   3. los migradores de modulo, de la version que tiene a la que esta
+//
+// El 2 antes del 3 porque un `id` de la forma vieja ("9mm") tiene que ser
+// "colt45" ANTES de que la migracion de armas lo lea para buscarle la familia. Al
+// reves, la migracion de armas no reconoceria el item y lo tiraria, y el renombre
+// correcto llegaria tarde.
+//
+// Y el 2 siempre, sin mirar la version, porque renombrar un id que ya esta
+// renombrado no hace nada: la tabla es una funcion de un solo salto y un destino
+// que no es clave no se renombra. Correrlo siempre deja el codigo sin una
+// pregunta de version que responder.
 export function migrateSave(parsed) {
-    if (!parsed || typeof parsed !== "object") return 0;
-    return _migrarNodo(parsed, 0);
+    var informe = {
+        versionAntes: SAVE_FORMAT_VERSION,
+        versionDespues: SAVE_FORMAT_VERSION,
+        renombrados: 0,
+        pasos: []
+    };
+    if (!parsed || typeof parsed !== "object") return informe;
+
+    var v = versionDe(parsed.version);
+    informe.versionAntes = v;
+
+    informe.renombrados = _migrarNodo(parsed, 0);
+
+    // De `v` hasta la actual. Un save mas nuevo que el codigo (v >
+    // SAVE_FORMAT_VERSION) no se toca: es un save de una version posterior, y
+    // bajarlo seria inventar informacion. Se deja como esta y se avisa, porque
+    // que aparezca es senal de que el jugador instalo un mod viejo encima de un
+    // save nuevo.
+    if (v > SAVE_FORMAT_VERSION) {
+        // El informe dice que la version NO cambio. Sin esto queda en
+        // SAVE_FORMAT_VERSION y el log diria que un save de version 99 quedo en 2,
+        // que es mentira: el save sigue en 99 y se cargo sin tocar.
+        informe.versionDespues = v;
+        informe.pasos.push({
+            nombre: "futuro",
+            ok: false,
+            detalle: "el save es version " + v + " y este mod entiende hasta la " +
+                SAVE_FORMAT_VERSION + ". Se carga sin tocar."
+        });
+        return informe;
+    }
+
+    for (var n = v; n < SAVE_FORMAT_VERSION; n++) {
+        for (var i = 0; i < _migradores.length; i++) {
+            var m = _migradores[i];
+            if (m.version !== n) continue;
+            var r = null;
+            try {
+                r = m.fn(parsed);
+            } catch (e) {
+                // Un migrador que tira no puede impedir que se cargue el save. Se
+                // anota el fallo y se sigue con el siguiente: cargar con un
+                // registro sin migrar es mejor que no cargar nada, porque el
+                // reconciliador sabe arreglar un registro viejo por su cuenta.
+                informe.pasos.push({
+                    nombre: m.nombre,
+                    ok: false,
+                    detalle: "lanzo: " + (e && e.message ? e.message : e)
+                });
+                continue;
+            }
+            informe.pasos.push({
+                nombre: m.nombre,
+                ok: true,
+                detalle: r && typeof r === "object" ? r : null
+            });
+        }
+    }
+
+    // Se graba la version solo si se llego. Un save que entro en 1 y tiene el
+    // paso 1->2 sin registro migradores (porque el modulo no se importo) se queda
+    // en 1, y la proxima carga lo intenta de nuevo en vez de darlo por bueno.
+    if (v <= SAVE_FORMAT_VERSION) parsed.version = SAVE_FORMAT_VERSION;
+    informe.versionDespues = versionDe(parsed.version);
+    return informe;
 }

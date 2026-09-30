@@ -41,11 +41,20 @@
 //   2. el catalogo, validado contra la tabla de variantes
 //   3. la cola de modelos propios, SOLO armada (la carga corre por frame)
 //
-// La migracion de saves NO esta aca. El registro cambio de 7 campos a 4, y un
-// save viejo con `variantWeaponType` o `magId` necesita una traducion antes de que
-// `resolveWeaponType` pueda trabajar con la lista de accesorios. Eso es de la fase
-// de saves, y hasta que este aca un save viejo se comporta asi: el slot tiene
-// `attachments`, se resuelve con eso, y los campos viejos sobran sin molestar.
+// ----------------------------------------------------------------------------
+// LA MIGRACION DEL REGISTRO ESTA EN migrate.js, Y SE REGISTRA AL IMPORTAR
+// ----------------------------------------------------------------------------
+// El import de arriba no es decorativo: es lo que hace que la migracion exista
+// cuando se carga un save viejo. SaveManager corre loadGame() desde
+// initSaveManager(), y el entry llama initSaveManager() DESPUES de todos sus
+// imports, asi que un migrador registrado al importarse ya esta registrado en el
+// momento de la carga. Registrarlo en el init() de este modulo llegaria tarde y
+// la primera carga de un save viejo pasaria sin migrar.
+//
+// Y por que la migracion no esta dentro de init(): una migracion que corre una
+// sola vez por carga no es codigo de juego, y mezclarla con el update por frame la
+// hace mas dificil de leer y mas facil de volver a correr.
+import "./migrate.js";
 import { register } from "../../core/gsis_ModuleRegistry.js";
 import { registerModule, getModuleData, setModuleData } from "../../core/gsis_SaveManager.js";
 import { KEYS } from "../../core/gsis_Config.js";
@@ -130,8 +139,10 @@ register({
 // al inventario en 100% por el default de addItem, que es el mismo numero pero por
 // el camino corto y de rebote.
 //
-// Y NO se migra magId ni variantWeaponType aca: son la migracion de saves, y esta
-// fase no la toca. Hasta que exista, sobran sin molestar.
+// Y esto YA NO migra magId ni variantWeaponType: lo hace migrate.js, al cargar,
+// antes de que exista este registro. Lo que queda aca es solo el recorte del
+// rango, que es una garantia de que la salud leída sea un numero usable y no una
+// cadena: no traduce nada, y por eso no puede dejar campos viejos sin traducir.
 function _normalizarSalud() {
     var data = getModuleData(SAVE_KEY);
     if (!data || !data.equipped) return;

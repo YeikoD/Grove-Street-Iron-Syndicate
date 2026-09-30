@@ -7,10 +7,13 @@
 // ============================================================================
 
 import { TIMERS, MISC } from "./gsis_Config.js";
-import { migrateSave } from "./gsis_SaveMigration.js";
+import { migrateSave, SAVE_FORMAT_VERSION, versionDe } from "./gsis_SaveMigration.js";
 
 var GameState = {
-    version: "1.0",  // Version del formato de guardado
+    // El numero del ESQUEMA del save, no la del mod. Lo sube el modulo que cambia
+    // la forma de lo que persiste, y es lo que decide que migraciones corren al
+    // leer. Ver SAVE_FORMAT_VERSION en gsis_SaveMigration.js.
+    version: SAVE_FORMAT_VERSION,
     ts: 0,  // Timestamp de ultimo guardado
     player: { model: 0, cleanMoney: 0, dirtyMoney: 0 }  // Datos del jugador
 };
@@ -182,6 +185,10 @@ function saveGame(slot) {
     } catch (e) { _log("Err jugador: " + e.message); }
 
     GameState.ts = Date.now();  // Actualiza timestamp
+    // El numero de version va con cada guardado. Sin esto, un save guardado por
+    // una version nueva y nunca recargado no tendria forma de decir cual es su
+    // esquema, y la unica forma de averiguarlo seria abrir el archivo a mano.
+    GameState.version = SAVE_FORMAT_VERSION;
     if (GameState.VehicleModule && GameState.VehicleModule.vehicles) {
         for (var vi = 0; vi < GameState.VehicleModule.vehicles.length; vi++) {
             var veh = GameState.VehicleModule.vehicles[vi];
@@ -260,17 +267,34 @@ function loadGame(slot) {
         }
     }
 
-    // Migracion de ids ANTES de que GameState reciba nada. Si se hiciera despues
-    // de la linea de abajo, el modulo de inventario ya habria desconocido los
-    // items viejos (no estan en ITEMS todavia) y los habria descartado antes de
-    // que la migracion pudiera tocarlos.
+    // Migracion ANTES de que GameState reciba nada. Si se hiciera despues de la
+    // linea de abajo, el modulo de inventario ya habria desconocido los items
+    // viejos (no estan en ITEMS todavia) y los habria descartado antes de que la
+    // migracion pudiera tocarlos.
     //
-    // El contador importa: si un save se carga y dice 0, o no tenia items viejos
-    // o la migracion no se esta corriendo, y son dos cosas que hay que poder
-    // distinguir desde el log sin abrir el save.
+    // Y el orden de los dos pasos de migrateSave es el de ahi: primero los
+    // renombres de itemId, que son independientes de la version, y despues los
+    // migradores por version, que leen esos ids ya renombrados.
     try {
-        var renombrados = migrateSave(parsed);
-        if (renombrados > 0) _log("Migracion: " + renombrados + " item(s) con id viejo renombrado(s).");
+        var inf = migrateSave(parsed);
+        _log("Migracion: version " + inf.versionAntes + " -> " + inf.versionDespues + ".");
+        if (inf.renombrados > 0) {
+            _log("Migracion: " + inf.renombrados + " item(s) con id viejo renombrado(s).");
+        }
+        // Cada paso se reporta por su cuenta. Un save viejo se carga con el log
+        // diciendo que version entro, que version salio y que hizo cada migrador,
+        // que es lo que hace falta para saber si un arma perdida fue por la
+        // migracion o por otra cosa.
+        for (var mi = 0; mi < inf.pasos.length; mi++) {
+            var paso = inf.pasos[mi];
+            if (!paso.ok) {
+                _log("Migracion AVISO: paso " + paso.nombre + ": " + paso.detalle);
+            } else if (paso.detalle) {
+                _log("Migracion: paso " + paso.nombre + " -> " + JSON.stringify(paso.detalle));
+            } else {
+                _log("Migracion: paso " + paso.nombre + " ok.");
+            }
+        }
     } catch (e) {
         // Un save que no se puede migrar se carga igual. Perder una partida
         // entera por un renombre mal escrito es peor que cargar con items
@@ -279,7 +303,10 @@ function loadGame(slot) {
     }
 
     try {
-        GameState.version = parsed.version || "1.0";
+        // La version sale de `parsed` YA MIGRADO, no del original: migrateSave la
+        // escribio. Copiarla antes seria guardar la version vieja con los datos
+        // nuevos, que es la forma de que la proxima carga vuelva a migrar.
+        GameState.version = versionDe(parsed.version);
         GameState.ts = parsed.ts || 0;
         GameState.player = parsed.player || GameState.player;
 
