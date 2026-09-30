@@ -361,18 +361,51 @@ export function unequipWeapon(slot) {
     var addr = Engine.addressOfType(Engine.pedPointer(char), tipo);
     if (addr && Engine.slotType(addr) === tipo) return false;
 
-    // El arma vuelve CON su cargador montado, porque el cargador va en la lista.
+    // El cargador que estaba MONTADO sale del arma y vuelve a ser un objeto.
     //
-    // `hasMag` va derivado, y es el vocabulario del INVENTARIO, no del registro:
-    // el modulo de inventario tiene su propia idea de "esta fila tiene cargador"
-    // y su default es true, asi que omitirlo haria que un arma descargada
-    // volviera con cargador montado. No es una segunda fuente de la capacidad:
-    // sale de la misma lista de accesorios, y los dos leen de ahi.
-    if (!query(ITEMS_STORE_WEAPON, {
-        id: entry.id, ammo: ammo, salud: entry.salud,
-        hasMag: hasMagazine(entry),
-        attachments: (entry.attachments || []).map(inventoryAttachmentId)
-    })) {
+    // ANTES el arma se guardaba con el cargador en la lista de accesorios, y eso
+    //mentationaba el cargador: no era un objeto que se pudiera sacar, cambiar o
+    // poner en el cinturon, era parte de la fila del arma. Con la R trabajando sobre
+    // cargadores del cinturon, las dos cosas no se podia llevar bien: el cargador
+    // del cinturon se cambiaba por uno, y el que estaba puesto no existia como
+    // objeto en ningun lado.
+    //
+    // Ahora el cargador sale con la municion que tenia, el arma se guarda SIN el, y
+    // el modulo de inventario lo pone en el cinturon si hay sitio y tiene balas, o en
+    // la mochila si no. Un cargador vacio va a la mochila y NO se consume.
+    //
+    // El fallo se maneja solo: si el inventario no puede guardar el arma, el modulo
+    // devuelve el cargador a donde estaba y weapons re-equipa con el cargador puesto,
+    // asi que el estado del ped queda como estaba.
+    var magMontado = mountedMagazine(entry);
+    var attachmentsSinMag = (entry.attachments || []).filter(function (a) { return a !== magMontado; });
+
+    // Sin cargador montado, la lista es la misma y no hay nada que separar.
+    var store;
+    if (magMontado) {
+        // La MUNICION es del cargador: el arma vuelve vacia. El total de un arma con
+        // cargador es lo que hay en el cargador, y si el arma se guardara con las balas
+        // y el cargador volviera con ellas, el mismo cargador estaria contado dos
+        // veces.
+        store = {
+            id: entry.id,
+            ammo: 0,
+            salud: entry.salud,
+            hasMag: false,
+            attachments: attachmentsSinMag.map(inventoryAttachmentId),
+            magazine: { id: inventoryAttachmentId(magMontado), ammo: ammo }
+        };
+    } else {
+        store = {
+            id: entry.id,
+            ammo: ammo,
+            salud: entry.salud,
+            hasMag: hasMagazine(entry),
+            attachments: (entry.attachments || []).map(inventoryAttachmentId)
+        };
+    }
+
+    if (!query(ITEMS_STORE_WEAPON, store)) {
         // Sin espacio en el inventario: el arma sigue siendo del jugador.
         _giveInternal(char, entry.family, entry.attachments, ammo,
             "no entro en el inventario, se re-equipa");
@@ -523,6 +556,11 @@ export function detachAccessory(charId, slot, attachmentId) {
         item: { id: inventoryAttachmentId(canonico), qty: 1, ammo: 0, salud: 100 },
         force: true
     });
+
+    // `saco` es lo que se quito de verdad. Sin esto, un comando que llega sin id no
+    // tiene forma de decir QUE salio del arma, y con dos accesorios la respuesta
+    // "tipo 60" no dice si se saco el silenciador o el cargador.
+    r.saco = canonico;
     return r;
 }
 
@@ -725,7 +763,14 @@ export function _watchdogReload() {
         var state = Engine.slotState(p.addr);
         if (state !== Engine.WEAPONSTATE_RELOADING &&
             state !== Engine.WEAPONSTATE_OUT_OF_AMMO) {
-            _reloadPending = null;   // el motor termino la recarga solo
+            // El motor termino la recarga solo. Este es el volcado que importa:
+            // es el estado FINAL, despues de que la anim corra y Reload() haya
+            // repartido el total en el clip. Si aca el clip no es el que dice la
+            // ficha, el bug es de lo que hizo el motor y no de lo que escribimos
+            // nosotros.
+            var cj = new Player(0).getChar();
+            Engine.dumpState("el motor cerro la recarga", cj, p.type);
+            _reloadPending = null;
             return;
         }
 
@@ -736,11 +781,19 @@ export function _watchdogReload() {
         Engine.setSlotNextShotTime(p.addr, now);
         log("[Weapons] watchdog de recarga: el motor no cerro la recarga del tipo " +
             p.type + " (estado " + state + "). Cerrada a mano con " + p.ammo + " balas.");
+        var cjw = new Player(0).getChar();
+        Engine.dumpState("el watchdog la cerro", cjw, p.type);
         _reloadPending = null;
     } catch (e) {
         _reloadPending = null;
     }
 }
+
+// Contador de pulsaciones de R. Es para separar dos bugs que se ven igual: uno que
+// MUTE un cargador, y otro que corra la operacion DOS veces por pulsacion. Con el
+// numero en el log, dos "R #n" seguidos sin que termine el primero se ven a simple
+// vista, y un solo R #n con dos "[cinturon] ANTES" se ven tambien.
+var _opsRecarga = 0;
 
 export function tryReload() {
     var w = Engine.readCurrentWeapon();
@@ -751,6 +804,16 @@ export function tryReload() {
     var char = w.char;
     var montado = mountedMagazine(entry);
     var magIds = magazineIdsFor(entry.family);
+
+    var op = ++_opsRecarga;
+    log("[R #" + op + "] BEGIN | slot=" + w.slot + " tipo=" + w.type +
+        " ammo=" + (w.ammo || 0) + " montado=" + (montado || "ninguno") +
+        " familia=" + entry.family);
+
+    // El tipo que hay en la mano ANTES de que R haga nada. Con el par
+    // (este, el de despues) se puede comparar la transicion sin depender de
+    // acordarse de que tecla se aprieto.
+    Engine.dumpState("ANTES de R", char, w.type);
     if (!magIds.length) {
         log("[Weapons] recarga: la familia " + entry.family + " no tiene cargadores " +
             "en el catalogo | tipo " + w.type);
@@ -758,20 +821,73 @@ export function tryReload() {
     }
 
     // --- caso 1: hay un cargador en el cinturon que le sirve ---
-    var resp = query(ITEMS_SWAP_MAGAZINE, {
-        magIds: magIds,
-        ammo: w.ammo || 0,
-        mounted: montado !== null,
-        mountedMagId: montado ? inventoryAttachmentId(montado) : null
-    });
+    //
+    // QUE CARGADORES SE OFRECEN. Es el filtro que hace que R sea un ciclo y no una
+    // ratchet, y va ACA y no en el handler de inventario, porque "este cargador
+    // cambia el arma" es una pregunta de variantes, y las variantes son de este
+    // modulo.
+    //
+    // Un cargador con `needsVariant: false` NO se agrega a la lista de accesorios:
+    // es el cargador de fabrica, y lo que define al arma es que el cargador
+    // EXTENDIDO este montado o no. Asi que montarlo equivale a que no haya
+    // cargador extendido.
+    //
+    // MEDIDO el 30/09, y era el bug que quedaba: el cinturon tiene mag_colt45 (8,
+    // needsVariant false) y mag_colt45_15 (15, needsVariant true). Con el de 15
+    // montado, R tomaba el de 8, armaba la lista [mag_colt45, suppressor], ESA
+    // combinacion no tiene variante declarada, el give fallaba, y como el
+    // cargador ya se habia gastado del cinturon y el return era incondicional, el
+    // arma se quedaba en 15 y el cargador de 8 habia desaparecido. El jugador veia
+    // "el de 8 se convierte en el de 15".
+    //
+    // Se ofrecen solo los cargadores que llevan a una variante DISTINTA de la
+    // actual. Los demas no se piden, y si no queda ninguno el handler responde
+    // null y R cae al caso de DESMONTA, que es el camino de vuelta.
+    var otros = (entry.attachments || []).filter(function (a) { return !_esCargador(a); });
+    var magIdsUtiles = [];
+    for (var mi = 0; mi < magIds.length; mi++) {
+        var cand = canonicalAttachmentId(magIds[mi]);
+        var att = getAttachmentById(cand);
+        var listaCand = otros.slice();
+        // needsVariant false = cargador de fabrica = no hay cargador extendido.
+        if (!att || att.needsVariant !== false) listaCand.push(cand);
+        var tipoCand = resolveWeaponType(entry.family, listaCand);
+        if (tipoCand !== null && tipoCand !== w.type) magIdsUtiles.push(magIds[mi]);
+    }
+
+    var resp = magIdsUtiles.length
+        ? query(ITEMS_SWAP_MAGAZINE, {
+              magIds: magIdsUtiles,
+              ammo: w.ammo || 0,
+              mounted: montado !== null,
+              mountedMagId: montado ? inventoryAttachmentId(montado) : null,
+              // Los cargadores de FABRICA de esta oferta. Son los que el arma NO
+              // lleva puestos: needsVariant false significa que el arma sin cargador
+              // extendido YA es esa configuracion, asi que montarlos no produce
+              // ninguna pieza fisica que quede en el arma.
+              //
+              // El handler lo necesita para no hacer un intercambio que no es un
+              // intercambio. MEDIDO el 30/09 con cinturon [8, 15]:
+              //
+              //   R #2  entra mag_colt45(8), sale mag_colt45_extended(15)
+              //         el arma queda en 60 SIN cargador, y el handler escribia
+              //         la 15 en la casilla de la 8 -> cinturon [15, 15]
+              //
+              // El cargador de 8 no desaparecia por la duplicacion: desaparecia
+              // porque se consumia del cinturon sin quedar montado en ningun lado.
+              // Con dos cargadores y tres pulsaciones los dos acaban perdidos.
+              deFabrica: _deFabrica(magIdsUtiles, entry.family)
+          })
+        : null;
     if (resp) {
         var nuevo = canonicalAttachmentId(resp.magId);
         // El cargador viejo sale de la lista y entra el nuevo. Con dos cargadores
         // en la lista la clave de la variante seria distinta y el resolver no
         // encontraria fila. Los OTROS accesorios (un silenciador) sobreviven:
         // montar el tambor del AK no le quita el silenciador.
-        var lista = (entry.attachments || []).filter(function (a) { return !_esCargador(a); });
-        lista.push(nuevo);
+        var lista = otros.slice();
+        var attNuevo = getAttachmentById(nuevo);
+        if (!attNuevo || attNuevo.needsVariant !== false) lista.push(nuevo);
         var r = _aplicar(char, w.slot, entry, lista, "recarga: monta " + nuevo);
         if (r.ok) {
             // Las balas las trae el cargador del cinturon, recortadas a la
@@ -786,8 +902,17 @@ export function tryReload() {
             _animarRecarga(char, w.slot, r.weaponType, ammo);
             log("[Weapons] recarga: tipo " + r.weaponType + " con " + ammo +
                 "/" + r.cap + " balas");
+            log("[R #" + op + "] END   | MONTADO " + nuevo + " -> tipo " + r.weaponType);
+            return;
         }
-        return;
+        // El give fallo con un cargador YA GASTADO del cinturon. No se puede
+        // devolver entero porque el handler del swap ya cambio el cinturon, asi
+        // que se avisa fuerte y se sigue al caso de DESMONTA en vez de volver en
+        // silencio: volver en silencio dejaba el arma como estaba y el cargador
+        // perdido, que es lo que el jugador no puede diagnosticar.
+        log("[Weapons] ERROR: se gasto el cargador " + nuevo + " del cinturon y el " +
+            "motor no acepto la variante " + (r.motivo || "?") + ". El cinturon quedo " +
+            "cambiado. Conviene revisarlo a mano.");
     }
 
     // --- caso 2: sin recambio, el montado sale ---
@@ -812,7 +937,13 @@ export function tryReload() {
                 // total es 0, y el arma queda descargada cuando termina.
                 _animarRecarga(char, w.slot, r2.weaponType, 0);
                 showTextBox(t("MAG_OUT"));
+                log("[R #" + op + "] END   | DESMONTA -> tipo " + r2.weaponType +
+                    " con 0 balas, " + montado + "(" + out + ") a la mochila");
+            } else {
+                log("[R #" + op + "] END   | el DESMONTA fallo: " + (r2.motivo || "?"));
             }
+        } else {
+            log("[R #" + op + "] END   | el DESMONTA no entro: no hay donde meter el cargador");
         }
         // Si no cabe: INV_FUL lo muestra Items y el arma no cambia.
         return;
@@ -842,6 +973,7 @@ export function tryReload() {
     showTextBox(t("NO_MAG"));
     log("[Weapons] recarga sin resultado: tipo " + w.type + " | montado=" +
         (montado || "ninguno") + " ammo=" + (w.ammo || 0) + " | cinturon sin recambio util");
+    log("[R #" + op + "] END   | NADA: sin cargador util en el cinturon, tipo " + w.type);
 }
 
 // La animacion de recarga, y solo la animacion.
@@ -858,8 +990,20 @@ export function tryReload() {
 function _animarRecarga(char, slot, weaponType, ammoEsperado) {
     var ped = Engine.pedPointer(char);
     var targets = _reloadTargets(ped, slot);
-    if (!targets) return false;
-    return _startReloadAnim(targets, char, ammoEsperado);
+    // Antes de la anim. El estado de partida es el que hay que comparar contra el
+    // que quede cuando el motor la cierre: si el motor cambia el clip solo, se ve
+    // en la diferencia entre estos dos volcados.
+    Engine.dumpState("antes de la anim", char, weaponType);
+    if (!targets) {
+        log("[diag] sin anim: el tipo " + weaponType + " no se puede animar " +
+            "(ya recargando, o sin WEAPON_RELOAD, o de un tiro)");
+        return false;
+    }
+    var ok = _startReloadAnim(targets, char, ammoEsperado);
+    Engine.dumpState("con la anim disparada", char, weaponType);
+    log("[diag] anim " + (ok ? "disparada" : "NO se pudo disparar") +
+        " | reloadTime=" + targets.ms + "ms | esperado=" + ammoEsperado);
+    return ok;
 }
 
 // Si un accesorio es un cargador. Lo demas (un silenciador) sobrevive al cambio de
@@ -867,6 +1011,21 @@ function _animarRecarga(char, slot, weaponType, ammoEsperado) {
 function _esCargador(attachmentId) {
     var a = getAttachmentById(attachmentId);
     return !!(a && a.type === "magazine");
+}
+
+// De una lista de magIds (namespace de INVENTARIO), cuales son de FABRICA, o sea
+// los que NO definen variante.
+//
+// Se calcula con el catalogo y no en el handler de inventario porque "este
+// cargador cambia el weaponType" es una pregunta de variantes, y las variantes son
+// de este modulo. El handler recibe la lista ya clasificada.
+function _deFabrica(magIds, family) {
+    var out = [];
+    for (var i = 0; i < magIds.length; i++) {
+        var a = getAttachmentById(canonicalAttachmentId(magIds[i]));
+        if (a && a.type === "magazine" && a.needsVariant === false) out.push(magIds[i]);
+    }
+    return out;
 }
 
 // ============================================================================

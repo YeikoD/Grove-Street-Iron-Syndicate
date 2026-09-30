@@ -287,12 +287,6 @@ export var WEAPON_ATTACHMENTS = [
         clipSize: 8, needsVariant: false, weight: 0.2, price: 220
     },
     {
-        id: "mag_colt45_replica", type: "magazine", name: "Cargador Colt .45 replica",
-        realWorldName: "Colt .45 magazine replica 8 rds",
-        compatibleFamilies: ["colt45"],
-        clipSize: 8, needsVariant: false, weight: null, price: 18
-    },
-    {
         // RENAME PENDIENTE: el item de inventario se llama `mag_colt45_extended`
         // en item_data, weapon_data, web_data, Items y SaveMigration. Aca se
         // llama `mag_colt45_15` porque es el nombre del diseno final. El cambio
@@ -384,30 +378,12 @@ export var WEAPON_ATTACHMENTS = [
         compatibleFamilies: ["mp5"],
         clipSize: 30, needsVariant: false, weight: null, price: 540
     },
-    {
-        id: "mag_mp5_replica", type: "magazine", name: "Cargador MP5 replica",
-        realWorldName: "Cargador 9x19 30 rds replicado",
-        compatibleFamilies: ["mp5"],
-        clipSize: 30, needsVariant: false, weight: null, price: 38
-    },
     // --- AK-47: cuatro, y el tambor cambia la capacidad ---
     {
         id: "mag_ak47", type: "magazine", name: "Cargador AK-47",
         realWorldName: "AKM 30 balas acero surplus",
         compatibleFamilies: ["ak47"],
         clipSize: 30, needsVariant: false, weight: null, price: 300
-    },
-    {
-        id: "mag_ak47_polymer", type: "magazine", name: "Cargador AK polimero",
-        realWorldName: "AK polymer 5.45x39 30 rds",
-        compatibleFamilies: ["ak47"],
-        clipSize: 30, needsVariant: false, weight: null, price: 16
-    },
-    {
-        id: "mag_ak47_bulgarian", type: "magazine", name: "Cargador AK bulgaro",
-        realWorldName: "AK Bulgarian 5.45x39 30 rds",
-        compatibleFamilies: ["ak47"],
-        clipSize: 30, needsVariant: false, weight: null, price: 48
     },
     {
         id: "mag_ak47_drum", type: "magazine", name: "Cargador AK tambor",
@@ -421,12 +397,6 @@ export var WEAPON_ATTACHMENTS = [
         realWorldName: "STANAG 30 USGI",
         compatibleFamilies: ["m4"],
         clipSize: 30, needsVariant: false, weight: null, price: 320
-    },
-    {
-        id: "mag_m4_polymer", type: "magazine", name: "Cargador M4 polimero",
-        realWorldName: "STANAG polymer 5.56x45 30 rds",
-        compatibleFamilies: ["m4"],
-        clipSize: 30, needsVariant: false, weight: null, price: 16
     },
     {
         id: "mag_m4_lancer", type: "magazine", name: "Cargador M4 Lancer",

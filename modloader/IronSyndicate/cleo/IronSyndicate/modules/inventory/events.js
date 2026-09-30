@@ -50,6 +50,31 @@ import {
 import { addItem } from "./logic.js";
 
 // ---------------------------------------------------------------------------
+// TRAZA DEL CINTURON
+// ---------------------------------------------------------------------------
+// Un volcado del cinturon antes y después de cada mutacion, con indice, id, balas
+// y capacidad. Es lo que hace falta para separar dos bugs que se ven igual desde
+// afuera:
+//
+//   A. una sola operacion que MUTA un cargador que no deveria
+//   B. varias operaciones aceptadas mientras la anterior sigue activa
+//
+// El cinturon es un array de tamano FIJO con nulls, asi que el volcado imprime los
+// indices: sin el indice no se ve si se escribio la casilla correcta.
+function _volcarCinturon(etiqueta) {
+    var belt = ensureBelt(getModuleData(SAVE_KEY));
+    var partes = [];
+    for (var i = 0; i < belt.length; i++) {
+        var it = belt[i];
+        if (!it) continue;
+        partes.push("[" + i + "]" + it.id + "(" + it.ammo + "/" +
+            (capacityOfItem(it.id) || "?") + ")");
+    }
+    log("[cinturon] " + etiqueta + ": " + (partes.length ? partes.join(" ") : "VACIO"));
+    return belt;
+}
+
+// ---------------------------------------------------------------------------
 // LOS NOMBRES QUE ESTE MODULO ATIENDE
 // ---------------------------------------------------------------------------
 // Los cuatro estan declarados en core/gsis_EventNames.js, no aca. La razon esta
@@ -132,13 +157,57 @@ on(ITEMS_SWAP_MAGAZINE, function (e) {
     if (!magIds.length) { e.respond(null); return; }
     var data = _data();
     var belt = ensureBelt(data);
+    _volcarCinturon("swap ANTES (pide " + magIds.join(",") + ", montado=" +
+        (e.data.mountedMagId || "ninguno") + ")");
+
+    // QUE CARGADOR ENTRA. Esta es la parte que estaba rota, y la razon de que
+    // "volver a las 8 balas" fuera imposible.
+    //
+    // La regla anterior era "el que tiene MAS balas". Con eso, si el cinturon
+    // tiene un cargador de 15, R elige el de 15 SIEMPRE, y el arma se queda en 15
+    // para siempre. Es una ratchet de una sola direccion: MEDIDO el 30/09, cuatro
+    // presses seguidos de R, las cuatro veces "monta mag_colt45_15", y el caso de
+    // DESMONTA de tryReload inalcanzable porque el swap siempre respondia OK.
+    //
+    // El cinturon tiene DOS cargadores de colt45: mag_colt45 (8, de fabrica) y
+    // mag_colt45_15 (15, extendido). Y solo UNO de los dos cambia el weaponType: el
+    // extendido tiene needsVariant, el de fabrica es el cargador de ORIGEN del arma y
+    // no mueve el tipo. Por eso el arma esta en 8 balas cuando el extendido NO esta
+    // montado, y en 15 cuando esta. "El mas lleno" elige siempre el extendido cuando
+    // existe, y nunca el camino de vuelta.
+    //
+    // (Hubo un tercero, mag_colt45_replica, con la misma capacidad que el de fabrica.
+    //  No hacia nada y se quito del catalogo el 30/09. Ver ACCESORIOS_RETIRADOS en
+    //  core/gsis_SaveMigration.js, que es donde se redimen los saves que lo tengan.)
+    //
+    // La regla nueva, en orden:
+    //
+    //   1. el cargador IGUAL al montado no cuenta. No es un cambio: el mismo
+    //      accesorio resuelve al mismo weaponType y el arma no se mueve. Ademas,
+    //      como en ese caso el GIVE no hace REMOVE, GIVE_WEAPON_TO_CHAR SUMA: con
+    //      15 balas y un GIVE de 15 el total pasaba a 30. MEDIDO.
+    //   2. si hay un cargador montado, se prefiere uno de OTRA capacidad. Es la
+    //      unica distincion que cambia el weaponType, asi que es el unico
+    //      intercambio que el jugador puede estar pidiendo.
+    //   3. si no hay cargador montado, el mas lleno. Subir de 8 a 15 es lo que se
+    //      quiere cuando no hay nada puesto.
+    //   4. si no queda nada, se responde null y R cae al caso de DESMONTA.
+    //
+    // Con eso R es un ciclo de verdad: 8 -> 15 -> 8, y no una ida sin vuelta.
+    var montadoCap = e.data.mountedMagId ? capacityOfItem(e.data.mountedMagId) : 0;
     var best = -1;
+    var otro = -1;
     for (var i = 0; i < belt.length; i++) {
         var it = belt[i];
         if (!it || magIds.indexOf(it.id) === -1) continue;
         if (!it.ammo || it.ammo <= 0) continue;
+        if (e.data.mountedMagId && it.id === e.data.mountedMagId) continue;
         if (best < 0 || it.ammo > belt[best].ammo) best = i;
+        if (montadoCap && capacityOfItem(it.id) !== montadoCap) {
+            if (otro < 0 || it.ammo > belt[otro].ammo) otro = i;
+        }
     }
+    best = (otro >= 0) ? otro : best;
     if (best < 0) { e.respond(null); return; }
     var magId = belt[best].id;
     var freshAmmo = belt[best].ammo;
@@ -149,10 +218,15 @@ on(ITEMS_SWAP_MAGAZINE, function (e) {
         // cambia un cargador por otro de otra capacidad. Se avisa porque perder un
         // item en silencio es el peor resultado posible aca.
         var backId = e.data.mountedMagId || magId;
-        if (backId !== magId) {
-            log("[Inventory] WARN: el cargador montado (" + backId +
-                ") vuelve al cinturon. Si el llamador no manda mountedMagId, " +
-                "se reconstruye con el id del que entra (" + magId + ").");
+        // El aviso es por el llamador que NO manda mountedMagId, no por el hecho de
+        // que los ids sean distintos. Son dos cosas distintas: con el 15 montado y
+        // el de 8 entrando los ids SIEMPRE son distintos, y eso es un intercambio
+        // legitimo, no una aproximacion. MEDIDO el 30/09: el aviso salia en cada R
+        // del ciclo y hacia creer que se estaba reconstruyendo el cargador.
+        if (!e.data.mountedMagId) {
+            log("[Inventory] WARN: el llamador no mando mountedMagId. El cargador que " +
+                "vuelve al cinturon se reconstruye con el id del que entra (" + magId +
+                "), y si no son el mismo se perdio el que estaba montado.");
         }
         // El cargador vuelve con las balas que tenia, recortadas a SU capacidad.
         // Sin el recorte puede nacer sobrecargado, y un cargador con mas balas
@@ -163,11 +237,60 @@ on(ITEMS_SWAP_MAGAZINE, function (e) {
         var backAmmo = e.data.ammo || 0;
         var backCap = capacityOfItem(backId);
         if (backCap && backAmmo > backCap) backAmmo = backCap;
-        belt[best] = makeMagazineInstance(backId, backAmmo);
+        var saliente = makeMagazineInstance(backId, backAmmo);
+
+        // *** SI EL QUE ENTRA ES DE FABRICA, NO HAY INTERCAMBIO ***
+        //
+        // Un cargador de fabrica (needsVariant false) es el cargador de ORIGEN del
+        // arma: el arma sin cargador extendido YA es esa configuracion, asi que
+        // montarlo no deja ninguna pieza fisica puesta en el arma.
+        //
+        // Y aca estaba el bug del 30/09. El codigo de abajo escribia SIEMPRE
+        // `belt[best] = saliente`: ponia el cargador montado en la casilla de la que
+        // entra. Con un cargador de FABRICA entrando, eso destruia el de la fabrica,
+        // que no queda montado en ningun lado, y duplicaba el montado en su lugar.
+        //
+        // MEDIDO, cinturon [8, 15], silenciadora con el 15 puesto:
+        //
+        //   R #2  ANTES   [0]mag_colt45(8) [1]mag_colt45_extended(15)
+        //         DESPUES [0]mag_colt45_extended(15)          <- el 8 murio
+        //
+        // Con dos cargadores y tres pulsaciones, los dos acaban perdidos. Perder
+        // un item es la peor falla que puede tener un inventario, y no se ve en
+        // pantalla: el cinturon tiene menos cosas y el arma parece igual.
+        //
+        // Lo correcto: el de FABRICA SE QUEDA en su casilla, y el montado vuelve
+        // en una casilla libre. El cinturon no pierde nada. Si no hay casilla
+        // libre, no se hace el cambio y R cae al caso de DESMONTA, que es un
+        // camino que ya existe y no pierde nada.
+        var esFabrica = e.data.deFabrica && e.data.deFabrica.indexOf(magId) >= 0;
+        if (esFabrica) {
+            var libre = -1;
+            for (var k = 0; k < belt.length; k++) { if (!belt[k]) { libre = k; break; } }
+            if (libre < 0) {
+                log("[Inventory] el cinturon esta lleno: " + magId +
+                    " se queda y " + backId + " no tiene donde volver. No se hace el cambio.");
+                e.respond(null);
+                return;
+            }
+            belt[libre] = saliente;
+            log("[Inventory] " + magId + " es de FABRICA: no se monta, se queda en " +
+                "[best] y " + backId + " vuelve en [" + libre + "]");
+            _save(data);
+            _volcarCinturon("swap DESPUES (entra " + magId + " DE FABRICA: se queda; " +
+                backId + "(" + backAmmo + ") vuelve)");
+            e.respond({ ammo: freshAmmo, magId: magId });
+            emit(INVENTORY_CHANGED, { motivo: "swapMagazine", id: magId });
+            return;
+        }
+        belt[best] = saliente;
     } else {
         belt[best] = null;  // descarga: casilla libre
     }
     _save(data);
+    _volcarCinturon("swap DESPUES (entra " + magId + "(" + freshAmmo + "), sale " +
+        (e.data.mounted !== false ? backId + "(" + (e.data.ammo || 0) + ")" : "nada") +
+        ") indice " + best);
     e.respond({ ammo: freshAmmo, magId: magId });
     emit(INVENTORY_CHANGED, { motivo: "swapMagazine", id: magId });
 });
@@ -178,8 +301,10 @@ on(ITEMS_SWAP_MAGAZINE, function (e) {
 on(ITEMS_EXTRACT_MAGAZINE, function (e) {
     var magId = e.data.magId;
     if (!magId || !isMagazine(magId)) { e.respond(null); return; }
+    _volcarCinturon("extract ANTES (saca " + magId + ")");
     var out = e.data.ammo || 0;
     if (!addItem(magId, 1, { ammo: out })) { e.respond(null); return; }
+    _volcarCinturon("extract DESPUES (a la mochila: " + magId + "(" + out + "))");
     e.respond({ ammo: out });
     emit(INVENTORY_CHANGED, { motivo: "extractMagazine", id: magId });
 });
@@ -243,12 +368,76 @@ on(ITEMS_TAKE_WEAPON, function (e) {
 // Y `attachments` entra en el namespace de INVENTARIO: weapons/ lo convierte con
 // inventoryAttachmentId() antes de mandar. Este modulo no sabe de canonicos.
 on(ITEMS_STORE_WEAPON, function (e) {
+    // EL CARGADOR QUE ESTABA MONTADO, PRIMERO. Ver el contrato en
+    // core/gsis_EventNames.js.
+    //
+    // Va antes que el arma a proposito, y con compensacion, porque la operacion
+    // tiene que ser ATOMICA: o entran las dos cosas o no entra ninguna. Si el arma
+    // entra y el cargador no, se perdio un item, y un item perdido no se ve: el
+    // cinturon tiene una cosa menos y el arma esta igual.
+    //
+    // Se hace ACU y no en weapons por dos razones de propiedad: el cinturon y el
+    // inventario son de este modulo, y "este cargador estaba montado" es un dato de
+    // weapons (sale de la lista de accesorios) mientras que "donde va un cargador
+    // suelto" es un dato de aca.
+    var puesto = null;   // donde quedo el cargador, para poder deshacerlo
+    if (e.data.magazine) {
+        var mag = e.data.magazine;
+        if (!isMagazine(mag.id)) { e.respond(null); return; }
+        var mAmmo = mag.ammo || 0;
+        var mCap = capacityOfItem(mag.id) || 0;
+        if (mCap && mAmmo > mCap) mAmmo = mCap;
+
+        var d2 = _data();
+        if (!d2 || !d2.items) { e.respond(null); return; }
+        var belt2 = ensureBelt(d2);
+        var libre2 = -1;
+        for (var k2 = 0; k2 < belt2.length; k2++) { if (!belt2[k2]) { libre2 = k2; break; } }
+
+        if (libre2 >= 0 && mAmmo > 0) {
+            // 1. Cinturon, si hay casilla y el cargador tiene balas.
+            //
+            //    Un cargador VACIO no va al cinturon: no es municion, y ocupa una de
+            //    las pocas casillas que un cargador lleno necesita. Va a la mochila.
+            belt2[libre2] = makeMagazineInstance(mag.id, mAmmo);
+            _save(d2);
+            puesto = { donde: "cinturon", indice: libre2, id: mag.id };
+        } else {
+            // 2. Inventario. Y aqui NO se filtra por ammo: un cargador vacio tambien
+            //    se guarda. Perder un cargador porque estaba vacio es la clase de bug
+            //    mas dificil de ver que hay: el jugador pierde una pieza y no hay
+            //    ningun aviso.
+            if (!addItem(mag.id, 1, { ammo: mAmmo })) {
+                log("[Inventory] el cargador " + mag.id + "(" + mAmmo + ") no entra: " +
+                    (libre2 < 0 ? "cinturon lleno" : "cinturon sin sitio para uno con balas") +
+                    " y la mochila sin lugar. No se guarda el arma.");
+                e.respond(null);
+                return;
+            }
+            puesto = { donde: "mochila", id: mag.id, ammo: mAmmo };
+        }
+    }
+
     var ok = addItem(e.data.id, 1, {
         hasMag: e.data.hasMag,
         ammo: e.data.ammo,
         salud: e.data.salud,
         force: e.data.force === true
     });
+    if (!ok && puesto) {
+        // El arma no entro y el cargador ya estaba puesto: se saca el cargador y no
+        // se guarda nada. weapons re-equipa con el cargador puesto, asi que el
+        // estado del ped queda como estaba.
+        if (puesto.donde === "cinturon") {
+            var d3 = _data();
+            ensureBelt(d3)[puesto.indice] = null;
+            _save(d3);
+        } else {
+            removeItem(puesto.id, 1);
+        }
+        log("[Inventory] el arma " + e.data.id + " no entro: se devuelve el cargador " +
+            puesto.id + " y no se guarda nada.");
+    }
     if (ok && e.data.attachments) {
         // addItem devuelve el id, no la instancia recien creada, asi que el
         // attachments se pega a la fila por id y no hay que devolverla. Es lo
@@ -263,6 +452,11 @@ on(ITEMS_STORE_WEAPON, function (e) {
             }
             _save(data);
         }
+    }
+    if (puesto) {
+        log("[Inventory] el cargador " + puesto.id + " que estaba montado vuelve a " +
+            (puesto.donde === "cinturon" ? ("el cinturon [" + puesto.indice + "]")
+                                         : "la mochila"));
     }
     e.respond(ok ? { ok: true } : null);
     if (ok) emit(INVENTORY_CHANGED, { motivo: "storeWeapon", id: e.data.id });

@@ -119,7 +119,19 @@ export function _giveInternal(char, family, attachments, ammo, que) {
     ensureModelForType(tipo);
 
     var viejo = tipoEnPies();
-    if (REMOVE_ANTES_DE_GIVE && viejo !== null && viejo !== tipo) {
+    // El REMOVE va SIEMPRE, y no solo cuando el tipo cambia.
+    //
+    // MEDIDO el 30/09: cuando el tipo es el MISMO, `GIVE_WEAPON_TO_CHAR` NO
+    // reemplaza, SUMA. Con un arma de 15 balas y un GIVE de 15, el total pasaba a
+    // 30. No se perdia nada porque el codigo de abajo reescribia el total, pero
+    // mientras tanto el arma tenia el doble de municion.
+    //
+    // Y no es solo un numero feo: `GIVE_WEAPON_TO_CHAR` con el mismo tipo tampoco
+    // refresca el modelo ni el estado, asi que un give del mismo tipo es un give
+    // a medias. Quitar y dar es lo unico que es "dar este arma con esta
+    // configuracion" sin letra chica, y ya es lo que se hacia en cada cambio de
+    // tipo, que es el caso comum.
+    if (REMOVE_ANTES_DE_GIVE && viejo !== null) {
         Engine.removeWeapon(char, viejo);
     }
     if (!Engine.giveWeapon(char, tipo, total)) {
@@ -129,6 +141,12 @@ export function _giveInternal(char, family, attachments, ammo, que) {
         return { ok: false, motivo: "el tipo " + tipo + " no quedo en el ped" };
     }
     Engine.setCurrentWeapon(char, tipo);
+
+    // INMEDIATAMENTE DESPUES DEL GIVE, antes de tocar el clip a mano. Es el estado
+    // que dejo el motor, y es el que hay que comparar entre dos tipos: si el motor
+    // ya entrego un clip equivocado, el bug es de la ficha del tipo y no de las
+    // escrituras de abajo.
+    Engine.dumpState("tras GIVE (sin tocar)", char, tipo);
 
     // El clip y el estado en memoria, para que el arma pueda disparar sin que el
     // motor la recargue primero. El estado en READY importa: si el motor lo
@@ -140,6 +158,9 @@ export function _giveInternal(char, family, attachments, ammo, que) {
         Engine.setSlotTotal(addr, total);
         Engine.setSlotState(addr, Engine.WEAPONSTATE_READY);
     }
+
+    // Y despues de escribirlos, para ver que quedo.
+    Engine.dumpState("tras GIVE (ya escrito)", char, tipo);
 
     log("[Weapons] " + que + ": " + getFamilyItemId(family) + " -> tipo " + tipo +
         (viejo !== null && viejo !== tipo ? " (era " + viejo + ")" : "") +

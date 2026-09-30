@@ -125,6 +125,19 @@ function _ponerEnElSlotDe(tipo, ammo) {
     _escribirSlot(REGISTRO.char, slot, tipo, ammo, ammo);
 }
 
+// El motor real NO reemplaza el arma cuando se la vuelve a dar con el mismo tipo:
+// la SUMA. MEDIDO el 30/09 en el juego: un arma de 15 balas con un GIVE de 15
+// quedaba con 30.
+//
+// El fake antes la modelaba como reemplazo, y por eso el suite no podia ver un
+// bug que ya estaba pasando en el juego: una guarda que no reproduce el defecto
+// no es una guarda. Esto lo hace aditivo, que es lo que hay que verificar.
+function _darSumandoSiYaEsta(tipo, ammo) {
+    const yaEsta = Object.keys(REGISTRO.slots).some(s => REGISTRO.slots[s] === tipo);
+    if (!yaEsta) return ammo || 0;
+    return (REGISTRO.ammo[tipo] || 0) + (ammo || 0);
+}
+
 globalThis.log = function (msg) {
     REGISTRO.log.push(String(msg));
 };
@@ -146,7 +159,7 @@ globalThis.Fs = { DoesFileExist: function () { return false; } };
 const NATIVES = {
     GIVE_WEAPON_TO_CHAR: (c, tipo, ammo) => {
         REGISTRO.dar.push([tipo, ammo]);
-        _ponerEnElSlotDe(tipo, ammo);
+        _ponerEnElSlotDe(tipo, _darSumandoSiYaEsta(tipo, ammo));
         return true;
     },
     REMOVE_WEAPON_FROM_CHAR: (c, tipo) => {

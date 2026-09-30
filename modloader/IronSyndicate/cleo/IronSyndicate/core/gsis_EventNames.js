@@ -63,6 +63,29 @@
 export var ITEMS_TAKE_WEAPON = "items:takeWeapon";
 
 // Guarda 1 instancia de arma con su estado. Responde { ok } o null si no cabe.
+//
+// `magazine` es opcional y es un cargador QUE ESTABA MONTADO en el arma: { id, ammo }
+// en namespace de INVENTARIO. Cuando viene, el arma se guarda SIN ese cargador y el
+// cargador vuelve a ser un objeto propio, con las balas que tenia.
+//
+// Donde se pone, en este orden, y el orden ES la regla:
+//
+//   1. si el cinturon tiene casilla libre Y el cargador tiene balas -> al Cinturon.
+//   2. si no -> al inventario.
+//
+// Y en los dos casos NUNCA se consume. Un cargador vacio tampoco: va al inventario, que
+// es donde un cargador sin balas tiene sentido, y ocupa una casilla de la mochila pero
+// no una del cinturon.
+//
+// Si el arma entra pero el cargador no se puede guardar en ningun lado, NO se guarda
+// el arma: responde null y weapons re-equipa. Guardar el arma y perder el cargador es
+// perder un item, que es la peor falla de un inventario.
+//
+// El motivo de que el Cinturon este primero: un cargador con balas es MUNICION, y la
+// municion va en el cinturon para estar a mano. Un cargador vacio no es municion, asi
+// que no gasta una casilla de cinturon que un cargador lleno necesita.
+//
+// Namespace de INVENTARIO en los dos ids, como todos los de esta seccion.
 export var ITEMS_STORE_WEAPON = "items:storeWeapon";
 
 // Saca un cargador del cinturon y deja el montado en su casilla.

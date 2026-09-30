@@ -82,13 +82,8 @@ export var ITEMS = {
     // capacidad vive en WEAPON_DATA (campo `capacity`) y NO se deriva del arma:
     // un cargador de 15 SIEMPRE tiene 15. Ver gsis_weapon_variants.js.
     "mag_colt45":          { name: "Cargador Colt .45",     weight: 0.2, type: "magazine" },
-    "mag_colt45_replica":  { name: "Cargador Colt .45 replica",   weight: 0.2, type: "magazine" },
     "mag_colt45_extended": { name: "Cargador Colt .45 extendido", weight: 0.2, type: "magazine" },
-    "mag_mp5_replica": { name: "Cargador MP5 replica", weight: 0.2, type: "magazine" },
-    "mag_ak47_polymer": { name: "Cargador AK polimero", weight: 0.3, type: "magazine" },
-    "mag_ak47_bulgarian": { name: "Cargador AK bulgaro", weight: 0.3, type: "magazine" },
     "mag_ak47_drum": { name: "Cargador AK tambor", weight: 0.8, type: "magazine" },
-    "mag_m4_polymer": { name: "Cargador M4 polimero", weight: 0.3, type: "magazine" },
     "mag_m4_lancer": { name: "Cargador M4 Lancer", weight: 0.4, type: "magazine" },
     "mag_m4_drum": { name: "Cargador M4 D-60", weight: 0.9, type: "magazine" },
     "mag_desert_eagle":  { name: "Cargador Desert Eagle",    weight: 0.2, type: "magazine" },

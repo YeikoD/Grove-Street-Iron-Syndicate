@@ -73,8 +73,22 @@ export var ITEM_RENAMES = {
     // El destino es `mag_colt45_extended` y NO `mag_colt45_15`, aunque el
     // cargador de 15 balas se llame asi en el catalogo de variantes. Ver
     // "LOS DOS NAMESPACES DE LOS ACCESORIOS".
-    "mag_9mm_replica":  "mag_colt45_replica",
+    "mag_9mm_replica":  "mag_colt45",
     "mag_9mm_extended": "mag_colt45_extended",
+
+    // Los cargadores QUE NO HACIAN NADA, que se quitaron del catalogo el 30/09.
+    // Eran un segundo cargador con la MISMA capacidad que el arma de base, asi que
+    // montarlos no cambiaba el weaponType y no había nada que ganar. Ver
+    // ACCESORIOS_RETIRADOS.
+    //
+    // Cada uno va a su equivalente que sobrevive, y no se borran: un save con el id
+    // viejo tiene el item, y un item con un id que el catalogo no reconoce es un
+    // item que el jugador tiene y no puede usar.
+    "mag_colt45_replica":  "mag_colt45",
+    "mag_mp5_replica":     "mag_mp5",
+    "mag_ak47_polymer":    "mag_ak47",
+    "mag_ak47_bulgarian":  "mag_ak47",
+    "mag_m4_polymer":      "mag_m4_assembled",
 
     // El alias de crafteo. `pistol_assembled` es el MISMO weaponId 22 que la
     // 9mm con precio 0, y por eso se va con ella: un alias sin canonico no
@@ -334,6 +348,82 @@ function _migrarNodo(nodo, profundidad) {
 }
 
 // ============================================================================
+// ACCESORIOS_RETIRADOS
+// ============================================================================
+// Los ids de ACCESORIO (namespace de INVENTARIO) que se quitaron del catalogo.
+//
+// Por que hace falta y por que NO es lo mismo que ITEM_RENAMES:
+//
+//   ITEM_RENAMES  camina el save y renombra todo lo que tiene un `id` de ITEM. Un
+//                 cargador suelto en la mochila es eso, y el jugador recibe el
+//                 cargador que lo reemplaza.
+//
+//   ESTA TABLA    los `attachments` de un arma, que son STRINGS en un array.
+//                 `_migrarNodo` no los toca: solo baja a nodos con `id` propio, y
+//                 un string no lo tiene.
+//
+// Y sin esto, sacar un cargador del catalogo deja armas PERMANENTEMENTE
+// inequipables: el save dice `attachments: ["mag_ak47_polymer"]`, `resolveWeaponType`
+// no encuentra esa combinacion porque la fila no existe, y el arma queda en la
+// mochila sin poder usarse.
+//
+// ---------------------------------------------------------------------------
+// POR QUE SE QUITAN Y NO SE REEMPLAZAN
+// ---------------------------------------------------------------------------
+// Los cinco retirados eran cargadores NEUTRROS: la misma capacidad que el arma de
+// base, asi que montarlos no cambiaba el weaponType. Su equivalente que sobrevive
+// tambien es neutro (mag_colt45, mag_mp5, mag_ak47, mag_m4_assembled).
+//
+// Y un accesorio NEUTRO dentro de `attachments` ROMPE la resolucion en cuanto hay
+// otro que si necesita tipo propio. `resolveWeaponType` tiene tres salidas: la fila
+// exacta, la base si la lista esta vacia, y la base solo si TODOS son neutros. Una
+// lista con un neutro y uno que no lo es no cae en ninguna: devuelve null.
+//
+// MEDIDO el 30/09: un M4 con [mag_m4_polymer, mag_m4_lancer] redimido a
+// [mag_m4_assembled, mag_m4_lancer] deja de resolver, y el Lancer se pierde con el
+// arma. Redimido a [mag_m4_lancer] resuelve a 65 y no se pierde nada.
+//
+// O sea: como el retirado era neutro y su reemplazo tambien, la redencion
+// CORRECTA es quitarlo. El arma vuelve a la base, que es exactamente lo que ese
+// cargador hacia.
+export var ACCESORIOS_RETIRADOS = {
+    "mag_colt45_replica": true,
+    "mag_mp5_replica": true,
+    "mag_ak47_polymer": true,
+    "mag_ak47_bulgarian": true,
+    "mag_m4_polymer": true
+};
+
+// Reescribe los `attachments` de un save. Se recorre el arbol entero porque un arma
+// puede estar en items[], en un baul, en el cinturon o en el registro de equipado, y
+// el lugar donde aparece es el que menos se nota.
+function _migrarAttachments(nodo, profundidad) {
+    if (!nodo || typeof nodo !== "object" || profundidad > PROFUNDIDAD_MAX) return 0;
+    var n = 0;
+    if (Array.isArray(nodo.attachments)) {
+        var out = [];
+        for (var i = 0; i < nodo.attachments.length; i++) {
+            var a = nodo.attachments[i];
+            if (typeof a === "string" && ACCESORIOS_RETIRADOS[a]) { n++; continue; }
+            out.push(a);
+        }
+        nodo.attachments = out;
+    }
+    if (Array.isArray(nodo)) {
+        for (var k = 0; k < nodo.length; k++) {
+            if (nodo[k] && typeof nodo[k] === "object") n += _migrarAttachments(nodo[k], profundidad + 1);
+        }
+        return n;
+    }
+    for (var key in nodo) {
+        if (!Object.prototype.hasOwnProperty.call(nodo, key)) continue;
+        var v = nodo[key];
+        if (v && typeof v === "object") n += _migrarAttachments(v, profundidad + 1);
+    }
+    return n;
+}
+
+// ============================================================================
 // PUNTO DE ENTRADA
 // ============================================================================
 // Se llama desde loadGame con el save ya parseado. Muta `parsed` en el sitio y
@@ -365,6 +455,7 @@ export function migrateSave(parsed) {
         versionAntes: SAVE_FORMAT_VERSION,
         versionDespues: SAVE_FORMAT_VERSION,
         renombrados: 0,
+        accesoriosRetirados: 0,
         pasos: []
     };
     if (!parsed || typeof parsed !== "object") return informe;
@@ -373,6 +464,9 @@ export function migrateSave(parsed) {
     informe.versionAntes = v;
 
     informe.renombrados = _migrarNodo(parsed, 0);
+    // Y los accesorios retirados, que son strings en un array y `_migrarNodo` no
+    // alcanza. Ver ACCESORIOS_RETIRADOS.
+    informe.accesoriosRetirados = _migrarAttachments(parsed, 0);
 
     // De `v` hasta la actual. Un save mas nuevo que el codigo (v >
     // SAVE_FORMAT_VERSION) no se toca: es un save de una version posterior, y

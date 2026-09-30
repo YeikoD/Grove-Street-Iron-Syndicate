@@ -240,8 +240,32 @@ JSON y **antes** de que `GameState` reciba nada.
 | `pistol_assembled` | `colt45` |
 | `gsis_pistol` | `colt45` |
 | `mag_gsis_pistol` | `mag_colt45_extended` |
-| `mag_9mm_replica` | `mag_colt45_replica` |
+| `mag_9mm_replica` | `mag_colt45` |
 | `mag_9mm_extended` | `mag_colt45_extended` |
+
+**Y los que se RETIRARON del catalogo, con su redencion.** El 30/09 se quitaron cinco
+cargadores que no hacian nada: eran un segundo cargador con la misma capacidad que el
+arma de base, asi que montarlos no cambiaba el `weaponType`. Eran `mag_colt45_replica`,
+`mag_mp5_replica`, `mag_ak47_polymer`, `mag_ak47_bulgarian` y `mag_m4_polymer`.
+
+| retirado | redencion |
+|---|---|
+| `mag_colt45_replica` | `mag_colt45` |
+| `mag_mp5_replica` | `mag_mp5` |
+| `mag_ak47_polymer` | `mag_ak47` |
+| `mag_ak47_bulgarian` | `mag_ak47` |
+| `mag_m4_polymer` | `mag_m4_assembled` |
+
+Un id que desaparece del catalogo **no se borra de la migracion**: se redime a su
+equivalente. Un item con un id que el catalogo no reconoce es un item que el jugador
+tiene y no puede usar, y en un inventario eso es la peor clase de perdida porque no se
+ve.
+
+Y hay una segunda tabla, `ACCESORIOS_RETIRADOS`, que es distinta y hace falta por
+separado: los `attachments` de un arma son **strings** en un array, y el recorrido que
+renombra items solo baja a nodos que tienen `id` propio. Sin esa tabla, un arma con un
+cargador retirado en su `attachments` queda **permanentemente inequipable**: no pierde
+el cargador, deja de funcionar el arma.
 
 **Regla: renombrar un item se escribe acá primero.** Un `itemId` es clave
 primaria y va en los saves; la alternativa —borrar los saves viejos— no es una

@@ -176,22 +176,55 @@ export function handleCommand(cmd, ui) {
             // lo canonicaliza, asi que la pagina puede mandar "suppressor" o el
             // nombre de inventario de un cargador sin tener que saber cual es
             // cual. Ver canonicalAttachmentId en data/gsis_weapons.js.
+            // Y el id NO es obligatorio en los dos.
+            //
+            //   inv:mount    lo necesita: hay que saber QUE pieza se saca de la
+            //                mochila.
+            //   inv:unmount   NO lo necesita, y la pagina no lo manda a proposito
+            //                (app.js:889): el modulo sabe cual es el accesorio que no
+            //                es cargador, y la pagina no deberia tener que distinguir
+            //                un silenciador de un cargador por el id.
+            //
+            // MEDIDO el 30/09: los dos casos exigean `id`, y como la pagina no lo
+            // mandaba, `inv:unmount` salia en la primera guarda y devolvia false SIN
+            // LOG. O sea: el silenciador se podia montar y no se podia quitar, y el
+            // log no decia nada. Un comando que falla en silencio es el peor
+            // resultado posible: el jugador aprieta un boton que no hace nada y no hay
+            // ni un renglon que buscar.
             case "inv:mount":
-            case "inv:unmount":
-                if (!id) return false;
-                if (cmd.slot === undefined || cmd.slot === null) return false;
-                var acc = (what === "inv:mount")
-                    ? attachAccessory(null, parseInt(cmd.slot, 10), id)
-                    : detachAccessory(null, parseInt(cmd.slot, 10), id);
-                // Se mira el resultado y no se loguea a ciegas, por la misma razon
-                // que inv:equip: un comando que se loguea como hecho y no lo fue
-                // manda al que investiga a mirar el archivo equivocado.
-                if (!acc.ok) {
-                    log("[UI] " + what + " fallo: " + acc.motivo);
+                if (!id) {
+                    log("[UI] inv:mount sin id: no se sabe que pieza montar");
                     return false;
                 }
-                log("[UI] " + what + ": " + id + " en el slot " + cmd.slot +
-                    " -> tipo " + acc.weaponType);
+                if (cmd.slot === undefined || cmd.slot === null) {
+                    log("[UI] inv:mount sin slot: no se sabe donde montarla");
+                    return false;
+                }
+                var accM = attachAccessory(null, parseInt(cmd.slot, 10), id);
+                if (!accM.ok) {
+                    log("[UI] inv:mount fallo: " + accM.motivo);
+                    return false;
+                }
+                log("[UI] inv:mount: " + id + " en el slot " + cmd.slot +
+                    " -> tipo " + accM.weaponType);
+                return true;
+
+            case "inv:unmount":
+                if (cmd.slot === undefined || cmd.slot === null) {
+                    log("[UI] inv:unmount sin slot: no se sabe de que arma sacarlo");
+                    return false;
+                }
+                // El id es opcional. Si viene, se usa; si no, el modulo lo deduce.
+                // `saco` es lo que se acabo sacando de verdad, que es el dato que
+                // hace falta para diagnosticar: sin el, el log no dice que paso con
+                // un arma que tiene mas de un accesorio.
+                var accU = detachAccessory(null, parseInt(cmd.slot, 10), id || null);
+                if (!accU.ok) {
+                    log("[UI] inv:unmount fallo (" + (id || "sin id") + "): " + accU.motivo);
+                    return false;
+                }
+                log("[UI] inv:unmount: saco " + (accU.saco || id || "?") +
+                    " del slot " + cmd.slot + " -> tipo " + accU.weaponType);
                 return true;
 
             case "inv:belt":

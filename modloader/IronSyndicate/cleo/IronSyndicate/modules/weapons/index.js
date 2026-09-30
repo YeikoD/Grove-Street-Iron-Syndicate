@@ -68,6 +68,7 @@ import { reconcile, resetAvisos } from "./reconcile.js";
 import { queueCustomModels, stepCustomModels } from "./models.js";
 
 var _lastSlot = null;
+var _flancosR = 0;
 
 register({
     // El nombre del modulo es "Weapons" y la clave del save es "Ballistic". No es
@@ -117,7 +118,16 @@ register({
         reconcile();
 
         // 3. La tecla R.
-        if (keyJustPressed(KEYS.RELOAD)) tryReload();
+        //
+        // El contador es para descartar la otra mitad del bug reportado: si una
+        // sola pulsacion fisica entra DOS veces, una sola R produce dos
+        // operaciones y el cinturon se muta dos veces. Con el numero en el log, un
+        // "[R #n] BEGIN" sin "[R #n] END" antes del siguiente BEGIN es eso.
+        if (keyJustPressed(KEYS.RELOAD)) {
+            _flancosR++;
+            if (_flancosR % 1 === 0) log("[R] flanco " + _flancosR + " (tecla R leida como 'recien apretada')");
+            tryReload();
+        }
 
         // 4. El watchdog de la recarga. Va DESPUES de la tecla R y no antes, y no
         //    es casualidad: si R dispara una recarga con un plazo corto, el

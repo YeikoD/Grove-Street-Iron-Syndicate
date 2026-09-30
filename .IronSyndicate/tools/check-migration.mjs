@@ -413,6 +413,93 @@ log.push("=== 9. CASOS BORDEOS DEL CICLO DE VIDA DEL SAVE ===");
 }
 
 log.push("");
+log.push("=== 9b. LOS ACCESORIOS QUE SE RETIRARON DEL CATALOGO ===");
+// El 30/09 se quitaron cinco cargadores que no hacian nada: eran un segundo
+// cargador con la MISMA capacidad que el arma de base, asi que montarlos no
+// cambiaba el weaponType.
+//
+// Quitarlos sin mas es una trampa, y por dos motivos distintos:
+//
+//   1. un ITEM con el id viejo, en la mochila, queda con un id que el catalogo no
+//      reconoce: el jugador tiene una pieza que no puede usar ni vender.
+//   2. un ARMA con ese cargador en sus `attachments` deja de poder equiparse, y
+//      eso NO lo arregla ITEM_RENAMES: los attachments son strings en un array y
+//      el recorrido que renombra items solo baja a nodos con `id` propio.
+//
+// El segundo es el peor: no es que el arma pierda el cargador, es que el arma
+// entera deja de funcionar, sin error visible.
+{
+    const { ACCESORIOS_RETIRADOS } = await import(
+        "../../modloader/IronSyndicate/cleo/IronSyndicate/core/gsis_SaveMigration.js");
+    const RETIRADOS = ["mag_colt45_replica", "mag_mp5_replica", "mag_ak47_polymer",
+        "mag_ak47_bulgarian", "mag_m4_polymer"];
+
+    // 1. Los ids retirados tienen que estar FUERA del catalogo de items.
+    for (const id of RETIRADOS) {
+        ok(!(id in ITEMS), "el id retirado " + id + " no esta en ITEMS");
+    }
+
+    // 2. Y tienen que estar en la tabla de accesorios retirados.
+    for (const id of RETIRADOS) {
+        ok(!!ACCESORIOS_RETIRADOS[id],
+            id + " esta en ACCESORIOS_RETIRADOS (para los attachments)");
+    }
+
+    // 3. Un item suelto con el id viejo se redenciona a su equivalente, porque el
+    //    jugador tiene que recibir una pieza usable.
+    {
+        const s = saveViejo(null, {
+            ItemManager: { items: [{ id: "mag_ak47_polymer", qty: 1, ammo: 30 }], belt: [] }
+        });
+        migrateSave(s);
+        const it = s.ItemManager.items[0];
+        ok(it.id === "mag_ak47",
+            "un cargador de polymer guardado pasa a mag_ak47", it && it.id);
+        ok((it.ammo || 0) === 30, "y conserva las balas", it && it.ammo);
+    }
+
+    // 4. Y UN ARMA CON ESE CARGADOR PUESTO: el caso que no arregla ITEM_RENAMES.
+    //
+    //    Y aqui el retirado SE QUITA en vez de reemplazarse, porque los cinco eran
+    //    neutros: su equivalente tambien lo es, y un neutro en la lista rompe la
+    //    resolucion en cuanto hay otro accesorio que si necesita tipo propio.
+    {
+        const s = saveViejo({
+            5: { id: "ak47", family: "ak47", salud: 100, attachments: ["mag_ak47_polymer"] }
+        });
+        const info = migrateSave(s);
+        const att = s.Ballistic.equipped[5].attachments;
+        ok(att.length === 0,
+            "el arma con un cargador retirado en attachments vuelve a la base", att);
+        ok(info.accesoriosRetirados > 0,
+            "y la migracion lo cuenta en su informe", info.accesoriosRetirados);
+    }
+
+    // 5. Un arma con DOS accesorios, uno retirado y otro que SI cambia el tipo: el
+    //    segundo tiene que sobrevivir. Este es el caso donde reemplazar por el
+    //    equivalente habria perdido el Lancer.
+    {
+        const s = saveViejo({
+            6: { id: "m4_assembled", family: "m4", salud: 100,
+                attachments: ["mag_m4_polymer", "mag_m4_lancer"] }
+        });
+        migrateSave(s);
+        const e6 = s.Ballistic.equipped[6];
+        const att = e6 && e6.attachments;
+        ok(att && att.length === 1 && att[0] === "mag_m4_lancer",
+            "con dos accesorios se quita el retirado y el Lancer SOBREVIVE", att);
+    }
+
+    // 6. Y el redimido de un ITEM tiene que existir en el catalogo: redimir a un id
+    //    que tampoco existe es cambiar un item roto por otro item roto.
+    for (const id of RETIRADOS) {
+        const destino = ITEM_RENAMES[id];
+        ok(!!destino && destino in ITEMS,
+            "la redencion de " + id + " (" + destino + ") existe en ITEMS");
+    }
+}
+
+log.push("");
 log.push("=== 10. UN MIGRADOR QUE LANZA ===");
 // ESTE CASO VA ULTIMO DE TODOS, Y NO POR ORDEN ESTETICO: el registro de
 // migradores es GLOBAL y no hay como dar de baja uno. En cuanto se registra este

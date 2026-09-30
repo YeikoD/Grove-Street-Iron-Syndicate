@@ -92,8 +92,13 @@ function _vaciarInventario() {
     return Inventory.getItems().length;
 }
 
-function arranque() {
-    resetEngine(CAPACIDADES);
+// Las balas de un cargador del cinturon, para los mensajes de error.
+function enCintoronAmmo(belt) {
+    const m = belt.filter(Boolean);
+    return m.length ? (m[0].ammo || 0) : null;
+}
+
+function arranque() {    resetEngine(CAPACIDADES);
     State.setEquipped({});
     const quedan = _vaciarInventario();
     if (quedan) {
@@ -253,16 +258,30 @@ seccion("4. EL CARGADOR DE 75: 75 Y NO 30");
 }
 
 // Y la recarga: con el tambor puesto, la R no debe recortar a 30.
+//
+// MEDIDO el 30/09: esta prueba estaba AFIRMANDO el bug. Dejaba un tambor en el
+// cinturon con otro montado y esperaba que R no hiciera nada, y eso es lo que
+// hacia que el arma quedara trabada en 15 balas para siempre: la R siempre
+// encontraba un tambor, respondia OK, y el caso de DESMONTA era inalcanzable.
+//
+// La regla ahora es que R monte un cargador DISTINTO al montado, y que si no hay
+// ninguno lo saque. Con un solo tambor en el cinturon, R lo saca. Y lo que esta
+// prueba tiene que seguir recommandando es lo de siempre: que las 75 balas no
+// se recorten a 30 por el camino.
 {
-    // Se pone el tambor en el cinturon y se prueba tryReload, que es el camino
-    // de la tecla R.
-    Inventory.addItem("mag_ak47_drum", 1, Inventory.entregaOpts("mag_ak47_drum"));
-    ok(Inventory.equipMagToBelt("mag_ak47_drum"), "el tambor va al cinturon");
+    const tamborEnCinturon = Inventory.addItem("mag_ak47_drum", 1,
+        Inventory.entregaOpts("mag_ak47_drum"));
+    ok(tamborEnCinturon, "el tambor va al cinturon");
+    ok(Inventory.equipMagToBelt("mag_ak47_drum"), "y queda en el cinturon");
     Logic.tryReload();
-    ok(elMotor().slots[SLOT_DE.ak47] === 64,
-        "la R con un tambor en el cinturon deja el 64 puesto", elMotor().slots);
-    ok(elMotor().ammo[64] === 75,
-        "y el arma conserva las 75 (no se recortaron a 30)", elMotor().ammo[64]);
+    // El unico tambor del cinturon es el mismo que esta montado: no es un cambio,
+    // asi que R saca el cargador y el arma vuelve al AK de base.
+    ok(elMotor().slots[SLOT_DE.ak47] === 30,
+        "la R con un solo tambor, que es el mismo, lo SACA y deja el 30", elMotor().slots);
+    const tamborFuera = Inventory.getItems().find(i => i.id === "mag_ak47_drum");
+    ok(tamborFuera && tamborFuera.ammo === 75,
+        "y el tambor sale con las 75 balas (no se recortaron a 30)",
+        tamborFuera && tamborFuera.ammo);
 }
 
 // ---------------------------------------------------------------------------
@@ -394,20 +413,289 @@ seccion("7. WEAPONS E INVENTORY SIGUEN HABLANDO, SIN IMPORTS DIRECTOS");
     ok(taken && taken.salud === 100, "inventory responde el estado del arma", taken);
 
     // Y un cargador por el camino del cinturon.
+    //
+    // MEDIDO el 30/09: esta prueba tambien afirmaba el bug. Pedia un cambio de
+    // cargador con el MISMO id montado y en el cinturon, y esperaba que
+    // respondiera OK. No es un cambio: es el mismo accesorio, y contestando OK la
+    // R se quedaba en un bucle sin poder volver a las 8 balas.
+    //
+    // Y agrega lo que falta, que es la direccion que estaba rota: con un
+    // cargador de otra capacidad montado, R tiene que elegir el de la OTRA
+    // capacidad, no el mas lleno. Antes elegia el mas lleno y por eso no se
+    // podia volver de 15 a 8.
     arranque();
     Inventory.addItem("mag_colt45_extended", 1, Inventory.entregaOpts("mag_colt45_extended"));
     Inventory.equipMagToBelt("mag_colt45_extended");
-    const swapped = (await import(`${MOD}/core/gsis_EventBus.js`))
+    const mismo = (await import(`${MOD}/core/gsis_EventBus.js`))
         .query(Nombres.ITEMS_SWAP_MAGAZINE, {
             magIds: ["mag_colt45_extended"], ammo: 5, mounted: true,
             mountedMagId: "mag_colt45_extended"
         });
-    ok(swapped && swapped.magId === "mag_colt45_extended" && swapped.ammo === 15,
-        "y el cambio de cargador responde con su id y sus balas", swapped);
+    ok(mismo === null,
+        "un cargador IGUAL al montado no es un cambio: responde null", mismo);
+
+    arranque();
+    Inventory.addItem("mag_colt45_extended", 1, Inventory.entregaOpts("mag_colt45_extended"));
+    Inventory.addItem("mag_colt45", 1, Inventory.entregaOpts("mag_colt45"));
+    Inventory.equipMagToBelt("mag_colt45_extended");
+    Inventory.equipMagToBelt("mag_colt45");
+    const bajada = (await import(`${MOD}/core/gsis_EventBus.js`))
+        .query(Nombres.ITEMS_SWAP_MAGAZINE, {
+            magIds: ["mag_colt45", "mag_colt45_extended"], ammo: 15, mounted: true,
+            mountedMagId: "mag_colt45_extended"
+        });
+    ok(bajada && bajada.magId === "mag_colt45",
+        "con uno de 15 montado, R elige el de 8 y NO el mas lleno",
+        bajada && bajada.magId);
+
+    arranque();
+    Inventory.addItem("mag_colt45_extended", 1, Inventory.entregaOpts("mag_colt45_extended"));
+    Inventory.addItem("mag_colt45", 1, Inventory.entregaOpts("mag_colt45"));
+    Inventory.equipMagToBelt("mag_colt45_extended");
+    Inventory.equipMagToBelt("mag_colt45");
+    const subida = (await import(`${MOD}/core/gsis_EventBus.js`))
+        .query(Nombres.ITEMS_SWAP_MAGAZINE, {
+            magIds: ["mag_colt45", "mag_colt45_extended"], ammo: 8, mounted: true,
+            mountedMagId: "mag_colt45"
+        });
+    ok(subida && subida.magId === "mag_colt45_extended",
+        "y al reves, con uno de 8 montado, elige el de 15",
+        subida && subida.magId);
 }
 
 // ---------------------------------------------------------------------------
-seccion("8. UN THROW QUE YA DIO EL ARMA NO ES UN FRACASO");
+seccion("7b. EL CICLO DE LA R, DE 15 A 8 Y DE 8 A 15, CON SILENCIADOR");
+// El bug que reporto el jugador el 30/09, y que las pruebas no veian.
+//
+// El cinturon tiene mag_colt45 (8 balas, needsVariant FALSE) y mag_colt45_15
+// (15, needsVariant TRUE). Con el de 15 montado, la R tomaba el de 8 del
+// cinturon y armaba la lista [mag_colt45, suppressor]. ESA COMBINACION NO TIENE
+// VARIANTE DECLARADA: needsVariant false significa "este es el cargador de
+// fabrica", y lo que define al arma es que el extendido este montado o no.
+//
+// El give fallaba, el cargador de 8 ya se habia gastado del cinturon, y el return
+// era incondicional. Resultado: el arma seguia en 15 y el cargador de 8 habia
+// desaparecido. El jugador lo veia como "el de 8 se convierte en el de 15".
+//
+// Con needsVariant false tratado como "no hay cargador extendido", montar el de 8
+// LLEVA a la variante base, que es la de 8 balas. Y el ciclo se cierra.
+{
+    // --- 15 -> 8 ---
+    conColtDesnuda();
+    Inventory.addItem("suppressor", 1);
+    Inventory.addItem("mag_colt45_extended", 1,
+        Inventory.entregaOpts("mag_colt45_extended"));
+    Logic.equipWeapon("colt45", ["suppressor", "mag_colt45_extended"]);
+    ok(elMotor().slots[SLOT_DE.colt45] === 61,
+        "arranca en el 61 (silenciada con cargador de 15)", elMotor().slots);
+
+    // El cargador de 8 va al cinturon. needsVariant false.
+    Inventory.addItem("mag_colt45", 1, Inventory.entregaOpts("mag_colt45"));
+    Inventory.equipMagToBelt("mag_colt45");
+    Logic.tryReload();
+    ok(elMotor().slots[SLOT_DE.colt45] === 60,
+        "la R con un cargador de 8 DE FABRICA lleva al 60, no al 61", elMotor().slots);
+    ok(Inventory.getBelt().some(i => i && i.id === "mag_colt45_extended"),
+        "y el cargador de 15 salio al cinturon, con las balas que tenia",
+        Inventory.getBelt().filter(Boolean).map(i => i.id + "(" + i.ammo + ")"));
+
+    // --- 8 -> 15 ---
+    Inventory.addItem("mag_colt45_extended", 1,
+        Inventory.entregaOpts("mag_colt45_extended"));
+    Inventory.equipMagToBelt("mag_colt45_extended");
+    Logic.tryReload();
+    ok(elMotor().slots[SLOT_DE.colt45] === 61,
+        "y de vuelta, la R con uno de 15 lleva al 61", elMotor().slots);
+}
+
+// Y el caso degenerado que quedaba antes: con un cargador de 8 de fabrica en el
+// cinturon y NINGUNO de 15, la R no puede subir, y tiene que RESPETAR el arma en
+// vez de gastarse el cargador y quedarse igual.
+{
+    conColtDesnuda();
+    Logic.equipWeapon("colt45", []);
+    Inventory.addItem("mag_colt45", 1, Inventory.entregaOpts("mag_colt45"));
+    Inventory.equipMagToBelt("mag_colt45");
+    Logic.tryReload();
+    ok(elMotor().slots[SLOT_DE.colt45] === 63,
+        "un cargador que no cambia el variante no mueve el arma", elMotor().slots);
+    ok(Inventory.getBelt().some(i => i && i.id === "mag_colt45"),
+        "y NO se gasto: el cargador sigue en el cinturon",
+        Inventory.getBelt().filter(Boolean).map(i => i.id));
+}
+
+// Y el invariante que el bug del 30/09 rompia: NINGUN cargador se pierde.
+//
+// El cinturon tiene mag_colt45 (8, de fabrica) y mag_colt45_extended (15). Con el
+// 15 montado, la R tomaba el de 8 del cinturon y el handler escribia la 15 en la
+// casilla del 8: el de 8 se consumia sin quedar montado en ningun lado y el 15
+// quedaba duplicado. Cinturon [8, 15] -> [15, 15].
+//
+// El conteo del cinturon OSCILA entre 1 y 2, y eso es lo correcto: hay dos
+// cargadores y uno esta en el arma. Lo que no puede pasar es que el total baje de
+// 2, ni que el de 8 desaparezca, ni que aparezca un tercero.
+{
+    conColtDesnuda();
+    Inventory.addItem("suppressor", 1);
+    Logic.equipWeapon("colt45", ["suppressor"]);
+    Inventory.addItem("mag_colt45", 1, Inventory.entregaOpts("mag_colt45"));
+    Inventory.addItem("mag_colt45_extended", 1,
+        Inventory.entregaOpts("mag_colt45_extended"));
+    ok(Inventory.equipMagToBelt("mag_colt45"), "el de 8 al cinturon");
+    ok(Inventory.equipMagToBelt("mag_colt45_extended"), "el de 15 al cinturon");
+
+    let peorTotal = 99, ultimoDe8 = -1, tipos = [];
+    for (let r = 1; r <= 6; r++) {
+        Logic.tryReload();
+        const b = Inventory.getBelt().filter(Boolean);
+        const de8 = b.filter(i => i.id === "mag_colt45").length;
+        if (b.length < peorTotal) peorTotal = b.length;
+        ultimoDe8 = de8;
+        tipos.push(elMotor().slots[SLOT_DE.colt45]);
+    }
+    ok(peorTotal >= 1, "el cinturon nunca queda VACIO en 6 pulsaciones", peorTotal);
+    ok(ultimoDe8 === 1, "y el cargador de 8 sigue en el cinturon", ultimoDe8);
+    ok(tipos[0] === 61 && tipos[1] === 60 && tipos[2] === 61,
+        "el ciclo alterna 15, 8, 15 sin perderse", tipos);
+    ok(tipos.every(t => t === 60 || t === 61),
+        "y nunca sale de la familia silenciada", tipos);
+}
+
+// ---------------------------------------------------------------------------
+seccion("7c. DESEQUIPAR DEVUELVE EL CARGADOR, Y NO SE PIERDE NUNCA");
+// El arma se guardaba con el cargador en la lista de accesorios, y eso lo
+// soldaba: no era un objeto, era parte de la fila del arma. No se podia sacar, ni
+// cambiar, ni poner en el cinturon.
+//
+// Reglas:
+//   1. cargador con balas -> al cinturon, si hay casilla
+//   2. cinturon lleno     -> a la mochila
+//   3. cargador VACIO     -> a la mochila, y NO se consume
+//   4. si no entra en ningun lado -> no se guarda el arma, y se re-equipa
+{
+    // --- 1. con balas -> al cinturon ---
+    conColtDesnuda();
+    Inventory.addItem("suppressor", 1);
+    Inventory.addItem("mag_colt45_extended", 1,
+        Inventory.entregaOpts("mag_colt45_extended"));
+    Logic.equipWeapon("colt45", ["suppressor", "mag_colt45_extended"]);
+    ok(elMotor().ammo[61] === 15, "la silenciadora arranca con 15", elMotor().ammo);
+    ok(Logic.unequipWeapon(SLOT_DE.colt45) === true, "desequipa");
+    const enCinturon1 = Inventory.getBelt().filter(Boolean);
+    ok(enCinturon1.length === 1 && enCinturon1[0].id === "mag_colt45_extended",
+        "el cargador con balas vuelve al cinturon", enCinturon1.map(i => i.id));
+    ok(enCintoronAmmo(enCinturon1) === 15,
+        "y con las 15 balas que tenia", enCintoronAmmo(enCinturon1));
+    const guardada = Inventory.getItems().find(i => i.id === "colt45");
+    ok(guardada && (guardada.attachments || []).indexOf("mag_colt45_extended") < 0,
+        "y el arma se guarda SIN el cargador",
+        guardada && guardada.attachments);
+    ok(guardada && guardada.attachments.indexOf("suppressor") >= 0,
+        "pero el silenciador sigue en el arma", guardada && guardada.attachments);
+    ok(guardada && (guardada.ammo || 0) === 0,
+        "y el arma vuelve vacia: las balas eran del cargador", guardada && guardada.ammo);
+}
+
+// --- 3. cargador VACIO -> a la mochila, sin consumirse ---
+{
+    conColtDesnuda();
+    Inventory.addItem("mag_colt45_extended", 1,
+        Inventory.entregaOpts("mag_colt45_extended"));
+    Logic.equipWeapon("colt45", ["mag_colt45_extended"]);
+    ok(elMotor().ammo[62] === 15, "equipar el cargador lo deja lleno", elMotor().ammo);
+    // Ahora se lo gasta todo: el cargador queda montado y VACIO. Ese es el caso.
+    elMotor().ammo[62] = 0;
+    ok(Logic.unequipWeapon(SLOT_DE.colt45) === true, "desequipa un arma descargada");
+    const mochila = Inventory.getItems().filter(i => i.id === "mag_colt45_extended");
+    ok(mochila.length === 1,
+        "el cargador VACIO va a la mochila y NO se consume", mochila.length);
+    ok(mochila.length === 1 && (mochila[0].ammo || 0) === 0,
+        "y viene vacio", mochila[0] && mochila[0].ammo);
+    ok(Inventory.getBelt().filter(Boolean).length === 0,
+        "y no ocupa casilla de cinturon: no es municion",
+        Inventory.getBelt().filter(Boolean).map(i => i.id));
+}
+
+// --- 2. cinturon LLENO -> a la mochila ---
+{
+    conColtDesnuda();
+    Inventory.addItem("suppressor", 1);
+    Inventory.addItem("mag_colt45_extended", 1,
+        Inventory.entregaOpts("mag_colt45_extended"));
+    Logic.equipWeapon("colt45", ["suppressor", "mag_colt45_extended"]);
+    // Se llena el cinturon con otros cargadores de la MISMA familia.
+    for (let n = 0; n < 3; n++) {
+        Inventory.addItem("mag_colt45_extended", 1,
+            Inventory.entregaOpts("mag_colt45_extended"));
+        Inventory.equipMagToBelt("mag_colt45_extended");
+    }
+    ok(Inventory.getBelt().filter(Boolean).length >= 3,
+        "el cinturon esta lleno", Inventory.getBelt().filter(Boolean).length);
+    ok(Logic.unequipWeapon(SLOT_DE.colt45) === true, "desequipa igual");
+    ok(Inventory.getBelt().filter(Boolean).length >= 3,
+        "el cinturon lleno no se toco: el cargador fue a la mochila",
+        Inventory.getBelt().filter(Boolean).length);
+    const enMochila = Inventory.getItems().filter(i => i.id === "mag_colt45_extended");
+    ok(enMochila.length === 1,
+        "y el cargador que estaba montado esta en la mochila con sus 15", enMochila.length);
+}
+
+// ---------------------------------------------------------------------------
+seccion("7d. EL CONTRATO REAL DE LA PAGINA: QUITAR SIN MANDAR EL ID");
+// El bug del 30/09: el silenciador se podia montar y NO se podia quitar.
+//
+// No era la logica de armas, que andaba bien. Era un desacuerdo de contrato entre
+// dos archivos:
+//
+//   UI/app.js:889        manda `inv:unmount` SIN id, a proposito, con el motivo
+//                        escrito: el modulo sabe cual es el accesorio que no es
+//                        cargador y la pagina no deberia distinguir un silenciador de
+//                        un cargador por el id.
+//   ui/commands.js:181   exigia `id` en los dos comandos y salia en esa guarda.
+//
+// Y el `return false` de esa guarda era SILENCIOSO: sin un renglon en el log, el
+// jugador aprieta un boton que no hace nada y no hay nada que buscar.
+//
+// Este test manda el comando por el MISMO camino que la pagina.
+{
+    const { handleCommand } = await import(`${MOD}/modules/ui/commands.js`);
+    const UI_FALSO = {
+        keyDebounce: () => 0, debounceMs: 0, isMenuVisible: () => false,
+        closeMenu: () => {}, togglePanel: () => true, toggleFlow: () => true
+    };
+    const antes = elMotor().log.length;
+
+    // Montar el silenciador, por su comando, con id. El arma tiene que estar
+    // EQUIPADA antes: `inv:mount` monta sobre el arma de la mano, no sobre una de
+    // la mochila.
+    conColtDesnuda();
+    ok(Logic.equipWeapon("colt45", []) === true, "la Colt queda equipada");
+    Inventory.addItem("suppressor", 1);
+    ok(handleCommand({ cmd: "inv:mount", id: "suppressor", slot: SLOT_DE.colt45 }, UI_FALSO),
+        "inv:mount monta el silenciador");
+    ok(elMotor().slots[SLOT_DE.colt45] === 60, "el arma es la 60", elMotor().slots);
+
+    // Y ahora quitarlo COMO LO MANDA LA PAGINA: sin id.
+    const r = handleCommand({ cmd: "inv:unmount", slot: SLOT_DE.colt45 }, UI_FALSO);
+    ok(r === true, "inv:unmount SIN id acepta el comando", r);
+    ok(elMotor().slots[SLOT_DE.colt45] === 63,
+        "y el arma vuelve a ser la Colt normal (63)", elMotor().slots);
+
+    // Y el log tiene que decir QUE salio, que es lo que faltaba.
+    const lineas = elMotor().log.slice(antes);
+    ok(lineas.some(l => l.indexOf("inv:unmount") >= 0 && l.indexOf("suppressor") >= 0),
+        "el log dice que salio el suppressor, no solo el tipo", lineas.slice(-3));
+    ok(Inventory.getItems().some(i => i.id === "suppressor"),
+        "y el silenciador volvio a la mochila", Inventory.getItems().map(i => i.id));
+
+    // Un comando mal formado tiene que LOGUEAR, no desaparecer.
+    const antes2 = elMotor().log.length;
+    handleCommand({ cmd: "inv:unmount" }, UI_FALSO);          // sin slot
+    handleCommand({ cmd: "inv:mount", slot: SLOT_DE.colt45 }, UI_FALSO);  // sin id
+    const nuevas = elMotor().log.slice(antes2);
+    ok(nuevas.length >= 2,
+        "un comando incompleto se loguea en vez de desaparecer en silencio", nuevas);
+}
 // El bug de la sesion real: p.giveWeapon() da el arma y DESPUES tira, porque la
 // capa JS de CLEO no conoce los weaponType de plugin. El mod tomaba el throw por
 // "no llego", revirtia el armado con storeWeapon, el registro nunca se escribia,
