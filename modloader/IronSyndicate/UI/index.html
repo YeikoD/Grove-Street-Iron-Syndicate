@@ -51,25 +51,34 @@
     <!-- Filas Interactivas -->
     <div id="rows" role="listbox" aria-label="Navegación IronSyndicate"></div>
 
-    <!-- Pie: peso a la izquierda, guía de teclas a la derecha. Las dos keycaps
-         son la misma tecla X en sus dos estados: el de apretar y el de
-         mantener apretado. El texto al lado dice qué hace cada uno, porque la
-         diferencia se ve pero no se lee. -->
+<!-- Pie: peso a la izquierda, contrato de teclado a la derecha.
+
+         Las dos keycaps son el contrato COMPLETO y no un parrafo: el inventario
+         tiene las mismas tres teclas de abrir que los menus de esfera, asi que el
+         jugador no tiene que aprender nada nuevo cuando cambia de panel. La
+         diferencia es que la I tambien entra y sale, y por eso el texto de la
+         primera keycap lo dice.
+
+         La linea va en los CINCO menus y es la misma (app.js, HINT_TECLAS): antes
+         el baul anunciaba un "3: cerrar maletero" que no hace nada con el menu
+         abierto, y ningun otro panel mostraba ayuda. Un contrato que cambia segun
+         el panel no es un contrato. -->
     <div id="foot">
       <div id="weight" aria-live="polite">Peso: 0kg/12kg</div>
 
       <div id="keyhints" class="keyhints" aria-label="Guía de teclas">
-        <button class="keyhint" data-action="equip" type="button"
-          title="X — apretar una vez: equipa el item">
-          <img class="keyhint__cap" src="assets/keys_info/KEY_X.png" alt="">
-          <span class="keyhint__act">Equipar</span>
+        <button class="keyhint" data-action="aceptar" type="button"
+          title="INTRO — apretar: acepta la opción enfocada">
+          <span class="keyhint__cap" aria-hidden="true">INTRO</span>
+          <span class="keyhint__act">Aceptar</span>
         </button>
-        <button class="keyhint" data-action="drop" type="button"
-          title="X — mantener apretado: tira el item">
-          <img class="keyhint__cap" src="assets/keys_info/KEY_X_PRESSED.png" alt="">
-          <span class="keyhint__act">Tirar (Mantener)</span>
+        <button class="keyhint" data-action="cerrar" type="button"
+          title="F — apretar una vez: cierra el menú. I también entra y sale.">
+          <span class="keyhint__cap" aria-hidden="true">F</span>
+          <span class="keyhint__act">Cerrar</span>
         </button>
       </div>
+    </div>
     </div>
 
   </section>

@@ -36,26 +36,41 @@
 // orden de updateAll(). Asi los flags de este frame ya estan calculados cuando
 // el bridge los lee.
 //
-// QUE TECLA ABRE QUE. El inventario, con I. Los cuatro menus de esfera (baul,
-// armeria, retiro, trueque), con ESPACIO y solo parado adentro de su esfera —cada
-// modulo decide si puede abrir desde openXMenu() y aca se elige a quien llamar
-// (openFlow, en views/flow.js). La misma tecla abre y cierra, y el Escape tambien
-// cierra.
+// QUE TECLA ABRE QUE. Es una sola tabla y un solo despacho, resolverTecla().
 //
-// Por que la ESPACIO la lee el bridge y no cada modulo: si los cuatro leyeran la
-// suya, la pulsacion que abre un menu seria vista por todos en el mismo frame, y
-// el primero que la consumiera se la sacaria al resto. Con un dueno solo, la
-// pulsacion se gasta una vez en una decision: cerrar lo que esta abierto, o abrir
-// lo que el jugador tiene adelante. Que el open y el close esten en la MISMA
-// funcion es justamente lo que evita que una pulsacion haga las dos cosas.
+//   MENU CERRADO                  MENU ABIERTO
+//   --------------------------    --------------------------
+//   I     -> inventario           I     -> (REGLA 1: no abre nada)
+//   SPACE -> abrir flujo          INTRO -> (la pagina acepta la fila)
+//   INTRO -> abrir flujo          F     -> cerrar
+//   F     -> abrir flujo          ESC   -> cerrar
 //
-// La I con un menu de esfera abierto no abre el inventario (REGLA 1), y la
-// ESPACIO con el inventario abierto no abre un menu de esfera. La pagina manda
-// "ui:toggle" con la I y "flow:toggle" con la ESPACIO, o sea que los dos caminos
-// de cada tecla pasan por la misma funcion.
+// Los cuatro menus de esfera (baul, armeria, retiro, trueque) abren con tres
+// teclas y por UNA sola funcion, abrirFlujo(): no son tres caminos de apertura,
+// es uno con tres teclas. El unico que cambia entre los cuatro es la esfera
+// donde esta parado el jugador —el resto es el panel de inventario con otra
+// lista— asi que el gesto se unifica y la condicion no.
 //
-// Todos los menus se cierran con ESC, y todos se comportan igual: congelan al
-// jugador, esconden el radar y le dan el teclado a la pagina.
+// Y ninguno de los tres CIERRA. El cierre es F o ESC, en los cinco menus. Una
+// tecla que abre y cierra hace que el jugador aprenda dos reglas por tecla en
+// vez de una, y el error de ese segundo sentido es un menu que se abre solo.
+//
+// F es la unica con doble sentido, y por eso su despacho pregunta PRIMERO si hay
+// un menu visible: si lo hay, cierra; solo si no hay nada busca una esfera para
+// abrir. Un F con el menu abierto no puede reabrir.
+//
+// Por que las teclas las lee el bridge y no cada modulo: si los cuatro leyeran
+// la suya, la pulsacion que abre un menu seria vista por todos en el mismo frame,
+// y el primero que la consumiera se la sacaria al resto. Con un dueno solo, la
+// pulsacion se gasta una vez en una decision.
+//
+// La I con un menu de esfera abierto no abre el inventario (REGLA 1), y el SPACE
+// con el inventario abierto tampoco. La pagina manda "ui:toggle" con la I,
+// "flow:open" con SPACE e INTRO y "ui:close" con F y ESC, o sea que los dos
+// caminos de cada tecla pasan por las mismas funciones que la tecla del mod.
+//
+// Todos los menus congelan al jugador, esconden el radar y le dan el teclado a
+// la pagina.
 // ============================================================================
 
 import { register } from "../../core/gsis_ModuleRegistry.js";
@@ -80,9 +95,9 @@ import { snapInventory } from "./views/inventory.js";
 import { snapCatalog } from "./views/catalog.js";
 import { currentFlow, closeFlow, openFlow, snapFlow } from "./views/flow.js";
 
-// El brake de pulsaciones. Comparte reloj con los dos toggles, y por eso es UNO:
-// con dos relojes, la I y la ESPACIO presionadas juntas se comerian la una a la
-// otra —la segunda en llegar seria descartada por el debounce de la primera— y
+// El brake de pulsaciones. Comparte reloj con TODOS los comandos de teclado, y por
+// eso es UNO: con dos relojes, la I y el F presionadas juntas se comerian la una a
+// la otra —la segunda en llegar seria descartada por el debounce de la primera— y
 // dos menus cerrando en el mismo frame es la forma mas rapida de llegar a un
 // estado imposible.
 var DEBOUNCE_MS = 200;
@@ -92,9 +107,32 @@ var _uiState = {
     keyDebounce: 0
 };
 
-var _prevKeyI = false;
-var _prevKeySpace = false;
-var _prevKeyEsc = false;
+// El estado sostenido de cada tecla del contrato, para armar el flanco. El flanco
+// lo arma ESTE archivo (down && !_prev) y no keyJustPressed: el flanco del juego
+// (Pad.IsKeyJustPressed) puede reportar la misma pulsacion dos frames seguidos, y
+// una pulsacion que se ve dos veces abre y cierra el menu en el mismo instante.
+var _prev = {};
+
+// Las teclas del contrato, en la forma que las lee el despacho. El arreglo es la
+// unica declaracion del contrato de teclado en el lado del mod: resolverTecla()
+// lo recorre, y las paginas de la UI (app.js) tienen el espejo de esta tabla.
+//
+//   abrir   con el menu cerrado, por abrirFlujo() — una sola funcion para tres teclas
+//   cerrar  con el menu abierto, por cerrarVisible() — una sola para dos
+//   panel   el inventario, con su propio toggle porque es el unico que no depende
+//           de una esfera
+var TECLAS = {
+    panel: { vk: KEYS.INVENTORY, nombre: "tecla I" },
+    abrir: [
+        { vk: KEYS.FLOW, nombre: "tecla ESPACIO" },
+        { vk: KEYS.ENTER, nombre: "tecla INTRO" },
+        { vk: KEYS.F, nombre: "tecla F" }
+    ],
+    cerrar: [
+        { vk: KEYS.F, nombre: "tecla F" },
+        { vk: KEYS.ESC, nombre: "tecla ESC" }
+    ]
+};
 
 // Firma de lo ultimo propagado a la pagina. Sirve de latch: sin esto habria que
 // mandar el estado cada frame y se taparia la cola de 256. Es una firma y no el
@@ -486,54 +524,34 @@ function togglePanel(now, de) {
     return true;
 }
 
-// Abrir o cerrar un menu de esfera con la MISMA tecla (ESPACIO), igual que el
-// panel principal con la I. Es la misma funcion para el camino de la tecla y para
-// el comando "flow:toggle" de la pagina, por el mismo motivo que togglePanel: si
-// cada camino decidiera por su cuenta, uno de los dos se desincroniza y la pagina
-// hace algo distinto de lo que hace la tecla.
+// ABRIR un menu de esfera. Es el UNICO camino de apertura de los cuatro, y lo
+// comparten tres teclas (ESPACIO, INTRO y F): tres teclas, una funcion. No son tres
+// caminos que TIENEN que terminar en el mismo lado —son el mismo camino, con tres
+// nombres.
 //
-// El orden de las preguntas es el de "que esta en pantalla":
+// No cierra nada. Ese es el otro medio del contrato: el cierre es F o ESC, por
+// cerrarVisible(). Si esta funcion cerrara, el F —que es la tecla de cierre—
+// cerraria al abrir, y el menu duraria un frame.
 //
-//   1. Hay un menu de esfera abierto → se cierra. No se mira donde esta el
-//      jugador: si esta abierto, se cierra, y punto. Y la pulsacion que lo abrio
-//      no cuenta, porque abrir y cerrar pasan por el mismo debounce (abajo).
-//   2. El panel principal esta abierto → no se hace nada. El panel se abre con la
-//      I y se cierra con la I o con Escape; la ESPACIO no lo toca, asi que no
-//      hay forma de que un menu de esfera aparezca por debajo del inventario.
-//   3. No hay nada abierto → se abre el menu de esfera que tenga al jugador
-//      adentro (openFlow, que prueba los cuatro y gana el primero que puede).
-//
-// El debounce va con el del panel, no uno propio: las dos teclas se leen en el
-// mismo frame y comparten el mismo reloj. Con dos relojes, la I y la ESPACIO
-// presionadas juntas se comerian la una a la otra —la segunda en llegar seria
-// descartada por el debounce de la primera— y dos menus cerrando en el mismo
-// frame es la forma mas rapida de llegar a un estado imposible.
-//
-// Y el debounce es tambien lo que hace que la tecla que ABRE no cierre enseguida:
-// el open es lo que queda despues, con el reloj puesto en now, asi que la segunda
-// mitad de la misma pulsacion cae dentro de la ventana. Sin eso el menu duraria un
-// frame, que es lo que se ve como un parpadeo.
-function toggleFlow(now, de) {
+// El debounce va con el del panel, no uno propio: todas las teclas se leen en el
+// mismo frame y comparten el mismo reloj. Y es tambien lo que hace que la tecla
+// que ABRE no actue de nuevo enseguida: el open es lo que queda despues, con el
+// reloj puesto en now, asi que la segunda mitad de la misma pulsacion cae dentro
+// de la ventana. Sin eso el menu duraria un frame, que es lo que se ve como un
+// parpadeo.
+function abrirFlujo(now, de) {
     if (now - _uiState.keyDebounce <= DEBOUNCE_MS) {
         return false;
     }
-    var flow = currentFlow();
-    if (flow) {
-        closeFlow();
-        // El debounce tambien en el cierre, no solo en la apertura. La misma
-        // pulsacion puede llegar por los dos caminos —el mod la ve por
-        // GetAsyncKeyState y la pagina la manda por el comando—, y sin este reloj
-        // puesto aca, la segunda mitad de la pulsacion abriria el menu de al lado:
-        // el primero en cerrar es el que se lleva el menu, y el otro busca otro
-        // punto donde abrir.
-        _uiState.keyDebounce = now;
-        log("[UI] menu de " + flow + " cerrado por " + de);
-        return true;
-    }
+    // REGLA 1 al reves: con el inventario en pantalla ninguna de las tres teclas
+    // abre nada. El inventario se abre con la I y se cierra con la I, con F o con
+    // ESC, asi que no hay forma de que un menu de esfera aparezca por debajo.
     if (_uiState.menuVisible) {
-        // REGLA 1 al reves: con el inventario en pantalla la ESPACIO no abre nada.
         return false;
     }
+    // openFlow() prueba los cuatro en el orden de FLUJOS y gana el primero que
+    // puede. Cada modulo decide si puede desde su openXMenu(), con su propia idea
+    // de "cerca" y su propio estado para dejar listo al abrir.
     var abierto = openFlow();
     if (!abierto) {
         // Nadie pudo abrir: el jugador no esta en ninguna esfera con la suya
@@ -547,18 +565,140 @@ function toggleFlow(now, de) {
     return true;
 }
 
+// CERRAR lo que se esta viendo: el panel si esta abierto, y si no el menu de
+// esfera. Es el UNICO camino de cierre de los cinco menus, y lo comparten F y ESC.
+//
+// Cierra "lo que se ve", no "lo que haya abierto": es la misma regla 1 que decide
+// que pantalla se ve (pantallaVisible), y por eso usa la misma funcion que ella.
+// Con el panel abierto y un flujo esperando turno, el F tiene que cerrar el
+// inventario, no un menu que el jugador ni esta mirando.
+//
+// El debounce va en el CIERRE tambien, no solo en la apertura: la misma pulsacion
+// puede llegar por los dos caminos —el mod la ve por GetAsyncKeyState y la pagina
+// la manda por el comando— y sin este reloj puesto aca, la segunda mitad de la
+// pulsacion abriria otra vez lo recien cerrado.
+function cerrarVisible(now, de) {
+    if (now - _uiState.keyDebounce <= DEBOUNCE_MS) {
+        return false;
+    }
+    if (_uiState.menuVisible) {
+        log("[UI] panel principal cerrado por " + de);
+        closeMenu();
+        _uiState.keyDebounce = now;
+        return true;
+    }
+    var flow = currentFlow();
+    if (!flow) {
+        // No hay nada que cerrar. No es un error: el F es la misma tecla que abre,
+        // asi que llega aqui con el juego, con el inventario cerrado y sin ninguna
+        // esfera alrededor. Lo que tiene que hacer en ese caso es ABRIR, y eso lo
+        // decide el despacho (resolverTecla), no esta funcion.
+        return false;
+    }
+    closeFlow();
+    _uiState.keyDebounce = now;
+    log("[UI] menu de " + flow + " cerrado por " + de);
+    return true;
+}
+
+// EL DESPACHO. La tabla de prioridad del contrato, escrita en el mismo orden en que
+// se ejecuta, para que se pueda leer contra la documentacion sin traducir.
+//
+//   1. Con un menu VISIBLE:
+//        ESC -> cerrarVisible()          el de mayor prioridad, como el de siempre
+//        F   -> cerrarVisible()          el segundo, con el MISMO camino que el ESC
+//        (INTRO y SPACE no hacen nada aca: con el menu abierto el INTRO lo
+//        atiende la pagina —es la tecla de aceptar— y la ESPACIO ya no cierra)
+//
+//   2. Sin menu visible:
+//        I     -> togglePanel()         el inventario
+//        SPACE -> abrirFlujo()
+//        INTRO -> abrirFlujo()
+//        F     -> abrirFlujo()
+//
+// El punto 1.2 es la regla de la doble funcion de F, y esta escrito como esta a
+// proposito: la pregunta "¿hay un menu visible?" va PRIMERO y en un solo lugar. Si
+// cada tecla preguntara por su cuenta, el F terminaria cerrando y despues
+// buscando una esfera para abrir en el mismo frame, y el menu cerraria y abriria
+// solo. El F solo llega a abrirFlujo() cuando no hay nada abierto.
+function resolverTecla(now) {
+    // PRIMERO se leen TODAS las teclas del contrato, y solo despues se decide.
+    //
+    // El orden importa y no es cosmetico. Si cada tecla se leyera en el momento de
+    // usarla, el estado del frame anterior de las teclas NO usadas quedaria viejo,
+    // y de ahi sale un fallo que no se ve: el jugador llega a un menu con el INTRO
+    // apretado (nada que ver con la apertura, el INTRO no abre si hay menu), lo
+    // cierra con el ESC, y al frame siguiente el INTRO se lee como recien
+    // apretado y le reabre el menu que acababa de cerrar. Leyendo todo primero, el
+    // _prev de cada tecla esta siempre al dia y un menu recien cerrado no se
+    // reabre solo por una tecla que el jugador venia manteniendo.
+    var pulsadas = _leerTeclas();
+
+    var panelAbierto = _uiState.menuVisible;
+    var flowAbierto = panelAbierto ? "" : currentFlow();
+
+    // 1. Hay un menu en pantalla: se cierra con F o con ESC.
+    if (panelAbierto || flowAbierto) {
+        for (var i = 0; i < TECLAS.cerrar.length; i++) {
+            if (pulsadas[TECLAS.cerrar[i].vk]) {
+                return cerrarVisible(now, TECLAS.cerrar[i].nombre);
+            }
+        }
+        return false;
+    }
+
+    // 2. No hay nada en pantalla: la I es del inventario, y las tres de abrir van
+    // por la misma funcion.
+    if (pulsadas[TECLAS.panel.vk]) {
+        return togglePanel(now, TECLAS.panel.nombre);
+    }
+    for (var j = 0; j < TECLAS.abrir.length; j++) {
+        if (pulsadas[TECLAS.abrir[j].vk]) {
+            return abrirFlujo(now, TECLAS.abrir[j].nombre);
+        }
+    }
+    return false;
+}
+
+// El estado SOSTENIDO de cada tecla del contrato, y el estado anterior de cada una.
+// Se devuelven los flancos (una bajada de "no apretada" a "apretada" en este frame),
+// indexados por VK, porque el indice es el contrato: las teclas son DATOS de TECLAS,
+// no codigo, y asi agregar una es agregar una linea a esa tabla.
+//
+// El flanco lo arma ESTE archivo y no keyJustPressed: el flanco del juego
+// (Pad.IsKeyJustPressed) puede reportar la misma pulsacion dos frames seguidos, y
+// una pulsacion que se ve dos veces abre y cierra el menu en el mismo instante.
+function _leerTeclas() {
+    var pulsadas = {};
+    pulsadas[TECLAS.panel.vk] = _flanco(TECLAS.panel.vk);
+    for (var i = 0; i < TECLAS.abrir.length; i++) {
+        pulsadas[TECLAS.abrir[i].vk] = _flanco(TECLAS.abrir[i].vk);
+    }
+    for (var j = 0; j < TECLAS.cerrar.length; j++) {
+        pulsadas[TECLAS.cerrar[j].vk] = _flanco(TECLAS.cerrar[j].vk);
+    }
+    return pulsadas;
+}
+
+function _flanco(vk) {
+    var down = rawKeyDown(vk);
+    var prev = _prev[vk] === true;
+    _prev[vk] = down;
+    return down && !prev;
+}
+
 // ------------------------------------------------------------------ TECLADO --
 //
-// Estas tres teclas son las unicas que se leen SIN supresion, y a proposito: son
+// Estas teclas son las unicas que se leen SIN supresion, y a proposito: son
 // las que abren y cierran los menus, asi que tienen que funcionar justo cuando el
 // menu esta visible, que es el unico momento en que interesan. La supresion de
 // gsis_Input existe para los atajos del juego, no para el dueno del menu.
 //
-// Las tres se leen con rawKeyDown y el flanco lo arma este archivo
-// (down && !_prev), no con keyJustPressed: el flanco del juego (Pad.IsKeyJustPressed)
-// puede reportar la misma pulsacion dos frames seguidos, y una pulsacion que se ve
-// dos veces abre y cierra el menu en el mismo instante. GetAsyncKeyState da false
-// en cuanto el dedo suelta, haya pasado la tecla por el WndProc o no.
+// Se leen con rawKeyDown y el flanco lo arma este archivo (down && !_prev), no con
+// keyJustPressed: el flanco del juego (Pad.IsKeyJustPressed) puede reportar la
+// misma pulsacion dos frames seguidos, y una pulsacion que se ve dos veces abre y
+// cierra el menu en el mismo instante. GetAsyncKeyState da false en cuanto el dedo
+// suelta, haya pasado la tecla por el WndProc o no.
 //
 // Y hay una trampa que las atraviesa: cuando la pagina se queda con el teclado, el
 // WndProc hace return 0 y el juego NUNCA ve ese WM_KEYDOWN. O sea que con el
@@ -567,43 +707,16 @@ function toggleFlow(now, de) {
 // que estaba pasando.
 //
 // La salida es el canal de retorno: la pagina manda "ui:close" / "ui:toggle" /
-// "flow:toggle" con emit(), que no depende del input. Ese camino anda siempre.
-// Estas tres teclas siguen sirviendo para el caso normal (menu recien abierto,
-// puntero todavia afuera) y para cuando la pagina no tiene el teclado.
+// "flow:open" con emit(), que no depende del input. Ese camino anda siempre.
+// Estas teclas siguen sirviendo para el caso normal (menu recien abierto, puntero
+// todavia afuera) y para cuando la pagina no tiene el teclado.
 function pollKeys() {
     var now = Date.now();
 
     // El estado real va primero: decide si el resto de este frame tiene sentido.
     refreshInput();
 
-    var keyI = rawKeyDown(KEYS.INVENTORY);
-    var keySpace = rawKeyDown(KEYS.FLOW);
-    var keyEsc = rawKeyDown(KEYS.ESC);
-
-    var justI = keyI && !_prevKeyI;
-    var justSpace = keySpace && !_prevKeySpace;
-    var justEsc = keyEsc && !_prevKeyEsc;
-
-    _prevKeyI = keyI;
-    _prevKeySpace = keySpace;
-    _prevKeyEsc = keyEsc;
-
-    if (justI) {
-        togglePanel(now, "tecla I");
-    } else if (justSpace) {
-        toggleFlow(now, "tecla ESPACIO");
-    } else if (justEsc && now - _uiState.keyDebounce > DEBOUNCE_MS) {
-        // El Escape cierra lo que se ESTA VIENDO, como el "ui:close" de la pagina:
-        // el panel si esta abierto, y si no el menu de esfera. Los dos casos con el
-        // mismo debounce, porque si no un Escape cerraria el panel en el frame en
-        // que se abrio.
-        if (_uiState.menuVisible) {
-            closeMenu();
-        } else {
-            var cerrado = closeFlow();
-            if (cerrado) log("[UI] Escape cerro el menu de " + cerrado);
-        }
-    }
+    resolverTecla(now);
 
     // El estado se propaga TODOS los frames, no solo cuando cambia la tecla.
     // broadcast() esta latcheado por firma, asi que solo manda cuando algo del
@@ -728,17 +841,23 @@ var _flowVisible = "";
 // se registrara y ahi empieza justo el bug que se quiere ver.
 var _lastVisible = "";
 
-// ------------------------------------------------------------------ EL PUENTE
+// ------------------------------------------------------------------- EL PUENTE
 // CON commands.js
 // ---------------------------------------------------------------------------
-// commands.js necesita llamar a togglePanel, toggleFlow, closeMenu y closeFlow,
-// que viven aca; y este archivo necesita handleCommand, que vive alla. Importar
-// en las dos direcciones seria un ciclo, y un ciclo entre dos archivos de este
-// paquete es un undefined en el menu.
+// commands.js necesita llamar a togglePanel, abrirFlujo, cerrarVisible, closeMenu y
+// closeFlow, que viven aca; y este archivo necesita handleCommand, que vive alla.
+// Importar en las dos direcciones seria un ciclo, y un ciclo entre dos archivos de
+// este paquete es un undefined en el menu.
 //
 // Asi que el que decide QUE hacer con un comando no se importa: se le pasa un
 // objeto con lo que necesita. El objeto se arma una vez, aca, y no se
 // reasigna nunca.
+//
+// Las tres funciones que van por aca son las MISMAS que atiende resolverTecla(), no
+// una version para el camino del comando. Si el comando de la pagina tuviera su
+// propia logica de apertura, "SPACE en el teclado" y "SPACE en la pagina" podrian
+// abrir menus distintos, y la pagina no tendria forma de saber cual de los dos
+// nombres es el que sirve.
 //
 // Lo que NO va por aca: nada del transporte. Que haya un comando no depende de
 // si el canal anda, y meterlo en la misma caja haria que un problema de SAWeb
@@ -752,7 +871,8 @@ var _alComando = (function () {
             closeMenu: closeMenu,
             closeFlow: closeFlow,
             togglePanel: togglePanel,
-            toggleFlow: toggleFlow
+            abrirFlujo: abrirFlujo,
+            cerrarVisible: cerrarVisible
         });
     };
 })();

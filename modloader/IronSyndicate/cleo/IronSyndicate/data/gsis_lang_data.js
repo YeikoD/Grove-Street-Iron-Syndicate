@@ -267,7 +267,9 @@ export var STRINGS = {
     BTN_OPN: { es: "Abrir", en: "Open" },
     BTN_ALL: { es: "RECOGER TODO", en: "PICK UP ALL" },
     BTN_OFF: { es: "Ofrecer", en: "Offer" },
-    BTN_CTB: { es: "Cerrar Maletero", en: "Close Trunk" },
+    // Sin BTN_CTB ("Cerrar Maletero"): era la etiqueta de un boton que nunca
+    // existio en ninguna pagina, y su tecla (el 3) solo abre y cierra la TAPA del
+    // maletero en el mundo —no el menu— asi que no es parte del contrato de la UI.
     MONEY: { es: "Dinero: ${n}", en: "Money: ${n}" },
     MONEY2: { es: "Dinero: $?", en: "Money: $?" },
     FRE_L: { es: "Libre: {n} kg", en: "Free: {n} kg" },
@@ -276,21 +278,26 @@ export var STRINGS = {
     CAT_MAT: { es: "Materiales", en: "Materials" },
     CAT_MAG: { es: "Cargadores", en: "Magazines" },
 
-    // Como se cierra un menu con esfera. Va en el subtitulo de los cuatro, y no es
-    // opcional: el menu congela al jugador, asi que no hay forma de deducirlo, y el
-    // panel aparece en el medio de la pantalla con el pointer capaz de haber quedado
-    // encima — con el pointer encima las teclas son de la pagina.
+    // SIN MENU_HNT. El contrato de teclado no viaja en el snapshot.
     //
-    // Dice la tecla y no solo "cerralo": la ESPACIO abre y cierra, y con el pointer
-    // encima de la UI es la pagina la que la translate, asi que las dos salidas
-    // (la tecla y el boton de cerrar) tienen que estar a mano.
+    // Lo que habia aca era una frase de ayuda que cada menu mandaba en SU subtitulo,
+    // y por eso el baul tenia una propia ("ESPACIO: menu | 3: cerrar maletero") y
+    // los otros cuatro ninguna: cinco menus, cinco contratos.
     //
-    // Ya no dice "alejate": los menus se abren apretando ESPACIO parado en la
-    // esfera y se cierran con la misma tecla o con ESC, como el inventario. Lo que
-    // queda del contrato de proximidad es lo de despues: cerrada la esfera, el
-    // punto queda apagado un rato (TIMERS.SPHERE_COOLDOWN), asi que conviene que el
-    // jugador sepa que el menu se cerro y la esfera se va a volver sola.
-    MENU_HNT: { es: "ESPACIO o ESC para cerrar el menu", en: "SPACE or ESC to close the menu" },
+    // El del baul ademas prometia una tecla que no responde. El 3 no hace nada con
+    // el menu abierto, porque keyJustPressed devuelve false mientras haya un menu
+    // visible (core/gsis_Input.js). Un panel que anuncia una tecla muerta es peor
+    // que uno que no anuncia nada: el jugador la aprieta, no pasa nada, y no hay
+    // forma de que sepa que la tecla funciona en otro momento.
+    //
+    // Ahora es UNA linea, y no depende del snapshot: la dibuja la pagina con
+    // HINT_TECLAS (UI/app.js) en un elemento propio, .panel-keys, visible en los
+    // cinco. Va del lado de la pagina a proposito -es chrome de la UI, no estado
+    // del juego- y mandarla por el cable gastaria trozos de los 60 caracteres del
+    // dataJson para un texto que no cambia.
+    //
+    // Si alguna vez hace falta traducirla, el lugar es la constante de la pagina y
+    // no una clave de este archivo: seria una copia mas del mismo contrato.
 
     // --- UI Inventario ---
     GSIS_MENU: { es: "Grove Street Iron Syndicate", en: "Grove Street Iron Syndicate" },
@@ -346,7 +353,18 @@ export var STRINGS = {
     TRK_MOC: { es: "MOCHILA", en: "BACKPACK" },
     TRK_EMI: { es: "(inventario vacio)", en: "(inventory empty)" },
     TRK_EMB: { es: "(maletero vacio)", en: "(trunk empty)" },
-    TRK_HNT: { es: "ESPACIO: menu | 3: cerrar maletero", en: "SPACE: menu | 3: close trunk" },
+    // SIN hint propio del baul. Antes TRK_HNT vivia aca y decia "ESPACIO: menu |
+    // 3: cerrar maletero", y era el unico de los cinco menus con texto de teclas:
+    // los otros cuatro no mostraban ninguna ayuda.
+    //
+    // Ademas la promesa era falsa —la 3 no hace nada con el menu abierto, porque
+    // keyJustPressed devuelve false mientras hay un menu visible
+    // (core/gsis_Input.js)— asi que el panel anunciaba una tecla muerta.
+    //
+    // Ahora el contrato no viaja en el snapshot: lo dibuja la pagina con
+    // HINT_TECLAS (UI/app.js) en un elemento propio, .panel-keys, que se ve en los
+    // cinco. Si volviera una clave de hint por menu, cada panel seria un contrato
+    // distinto y la unificacion de las teclas no serviria de nada.
 
     // --- UI Retiro ---
     PKC_TTL: { es: "Retiro de pedido", en: "Order pickup" },

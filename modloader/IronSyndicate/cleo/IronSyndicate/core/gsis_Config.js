@@ -17,23 +17,40 @@ export var KEYS = {
     DEBUG_ITEM: 76,     // L — debug: agregar item
     BAG: 80,            // P — toggle bolso visual
     RELOAD: 82,         // R — swap de cargador (Ballistic)
-    ESC: 27,            // ESC — cierra la UI web (modules/ui/index.js)
+    ESC: 27,            // ESC — cierra cualquier menu de la UI web (modules/ui/index.js)
 
-    // SPACE — abre y cierra los menus que viven en una esfera (baul, armeria,
-    // retiro, trueque). Es la I de esos menus, con la condicion de que el jugador
-    // este parado adentro de la esfera.
+    // ============================================================================
+    // EL CONTRATO DE TECLAS DE LOS CINCO MENUS
+    // ============================================================================
+    // Esta tabla es la que el jugador aprende. Vive entera aca y en el despacho
+    // de modules/ui/index.js (resolverTecla); ningun modulo lee teclas de menu, y
+    // el dueño de la pulsacion es UNO.
     //
-    // La misma tecla para abrir y cerrar, y el dueno de la tecla es el bridge
-    // (modules/ui/index.js, toggleFlow), no cada modulo. Con un dueno
-    // solo, una pulsacion se gasta en UNA decision —cerrar lo que esta abierto, o
-    // abrir lo que el jugador tiene adelante— en vez de que la abran y la cierren
-    // cuatro modulos a la vez en el mismo frame.
+    //   MENU CERRADO                MENU ABIERTO
+    //   --------------------------   --------------------------
+    //   I     -> inventario          I     -> (REGLA 1: no abre nada)
+    //   SPACE -> abrir flujo         INTRO -> (la pagina acepta la fila)
+    //   INTRO -> abrir flujo         F     -> cerrar
+    //   F     -> abrir flujo         ESC   -> cerrar
+    //
+    // SPACE, INTRO y F abren SI Y SOLO si el menu esta cerrado: abrir es un
+    // camino unico (abrirFlujo) con tres teclas, no tres caminos. Y ninguno de
+    // los tres CIERRA — el cierre es F o ESC, en cualquier menu— porque una tecla
+    // que abre y cierra hace que el jugador aprenda dos reglas por tecla en vez
+    // de una, y el error de ese segundo sentido es un menu que se abre solo.
+    //
+    // F es la unica con doble sentido, y el orden de las preguntas es el que lo
+    // hace seguro: primero se mira si hay un menu VISIBLE y se cierra; solo si no
+    // hay nada se busca una esfera para abrir. Un F con el menu abierto no puede
+    // reabrir, porque la reopenedura no existe en ese camino.
     //
     // Antes cada menu tenia su tecla (B para el baul, F para los de esfera) y se
-    // abria al TOCAR la esfera. Ahora es una sola tecla para los cuatro, porque lo
-    // unico que cambia entre ellos es la esfera: el resto es el panel de inventario
-    // con otra lista.
-    FLOW: 32
+    // abria al TOCAR la esfera. Lo que se unifico no es el contenido de los menus
+    // —que son cuatro pantallas distintas— sino el gesto: lo unico que cambia
+    // entre ellos es la esfera donde estas parado.
+    FLOW: 32,           // SPACE — abrir (no cierra)
+    ENTER: 13,          // INTRO  — abrir con el menu cerrado; aceptar con el menu abierto
+    F: 70               // F      — cerrar con el menu abierto; abrir con el menu cerrado
 };
 
 // Las teclas de movimiento.
@@ -50,7 +67,7 @@ export var KEYS = {
 // (GetAsyncKeyState) y no del estado del juego, que es lo que las hacia utiles
 // para detectar una pulsacion de verdad (ver updateProximityMove, y la escalera
 // de lectura de readDown en core/gsis_Input.js, que es la que usa el dueno de
-// los menus para armar el flanco de la I, la ESPACIO y el ESC).
+// los menus para armar el flanco de I, SPACE, INTRO, F y ESC).
 //
 // Son codigos de teclado virtual, como los de KEYS. NO son los codigos de tecla de
 // GTA: los dos sistemas numeran distinto (VK_W es 87, y el codigo de tecla de GTA

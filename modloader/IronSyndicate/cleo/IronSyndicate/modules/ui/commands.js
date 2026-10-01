@@ -9,9 +9,9 @@
 // `case` de cada accion, y nada mas.
 //
 // Ni el transporte (eso es bridge.js) ni el estado de la UI (eso es index.js).
-// Por eso el objeto `ui` —open, close, togglePanel, toggleFlow— entra POR
-// PARAMETRO: commands necesita llamar a funciones que viven en index, e index
-// necesita a commands para drenar la cola. Si uno importara al otro habria un
+// Por eso el objeto `ui` —open, close, togglePanel, abrirFlujo, cerrarVisible—
+// entra POR PARAMETRO: commands necesita llamar a funciones que viven en index, e
+// index necesita a commands para drenar la cola. Si uno importara al otro habria un
 // ciclo, y un ciclo entre dos archivos de UI es un undefined en el menu.
 //
 // ============================================================================
@@ -66,28 +66,19 @@ export function handleCommand(cmd, ui) {
             // el WndProc consume la tecla y el juego no la ve: el menu solo
             // se cerraba sacando el puntero de la UI.
             //
-            // Cierra lo que se ESTA VIENDO, no lo que haya abierto: con el
-            // panel principal abierto y un flujo esperando turno, el Escape
-            // tiene que cerrar el inventario, no un menu que el jugador ni
-            // esta mirando. Es la misma regla 1 que decide que pantalla se
-            // ve, y por eso usa el mismo `pantallaVisible` que la tecla.
+// Cierra lo que se ESTA VIENDO, no lo que haya abierto: con el
+            // panel principal abierto y un flujo esperando turno, la tecla de
+            // cierre tiene que cerrar el inventario, no un menu que el jugador
+            // ni esta mirando. Es la misma regla 1 que decide que pantalla se
+            // ve, y por eso va por la MISMA funcion que el teclado
+            // (cerrarVisible, en ui/index.js): el debounce va adentro, y las dos
+            // mitades de la misma pulsacion —el mod la ve por GetAsyncKeyState,
+            // la pagina la manda por aca— se anulan solas.
             //
-            // El debounce va aca tambien. Sin el, cerrar con Escape desde la
-            // pagina y la I del mod en el mismo frame se anulaban y el menu
-            // cierra y abre.
+            // El nombre del comando es el de la ACCION, no el de una tecla: lo
+            // mandan el ESC y el F de la pagina, y las dos quieren lo mismo.
             case "ui:close":
-                if (Date.now() - ui.keyDebounce() <= ui.debounceMs) return false;
-                if (ui.isMenuVisible()) {
-                    ui.closeMenu();
-                    log("[UI] la pagina cerro el menu");
-                    return true;
-                }
-                var cerrado = ui.closeFlow();
-                if (cerrado) {
-                    log("[UI] la pagina cerro el flujo " + cerrado);
-                    return true;
-                }
-                return false;
+                return ui.cerrarVisible(Date.now(), "comando ui:close");
 
             // La I de la pagina. Es la misma accion que la tecla del mod, y va
             // por la misma funcion: si cada camino decidiera por su cuenta,
@@ -96,18 +87,24 @@ export function handleCommand(cmd, ui) {
                 if (!ui.togglePanel(Date.now(), "comando ui:toggle")) return false;
                 return true;
 
-            // La ESPACIO de la pagina, para los menus de esfera. Existe por lo
-            // mismo que "ui:close": cuando la pagina se queda con el teclado el
-            // WndProc consume la tecla y el mod no la ve, asi que sin este
-            // camino el toggle de la ESPACIO solo funcionaria con el puntero
-            // afuera de la UI.
+            // La apertura de los menus de esfera, que ahora son TRES teclas del
+            // contrato (ESPACIO, INTRO y F) y una sola. El comando no se llama
+            // "flow:toggle" porque no alterna mas: el cierre es "ui:close", con
+            // F o ESC, y abrir y cerrar en el mismo comando es justo lo que
+            // hacia que la apertura tuviera que preguntar primero si habia algo
+            // abierto.
             //
-            // El debounce de toggleFlow es lo que hace que las dos mitades no
+            // La pagina no decide si abrir: lo pide, y abrirFlujo() es el mismo
+            // camino que usa el teclado. Si el jugador no esta en una esfera
+            // valida no pasa nada, y eso es lo que la pagina necesita para no
+            // mentirle con una apertura que el mod no puede hacer.
+            //
+            // El debounce de abrirFlujo es lo que hace que las dos mitades no
             // se cancelen: con el teclado en la pagina, el mod igual lee la
             // tecla por GetAsyncKeyState, asi que la misma pulsacion llega por
             // los dos caminos. La segunda cae dentro de la ventana.
-            case "flow:toggle":
-                if (!ui.toggleFlow(Date.now(), "comando flow:toggle")) return false;
+            case "flow:open":
+                if (!ui.abrirFlujo(Date.now(), "comando flow:open")) return false;
                 return true;
 
             // La pagina reporta que le llego y que quedo en el DOM. No es una
@@ -172,10 +169,10 @@ export function handleCommand(cmd, ui) {
             // la pagina, que ya sabe que fila esta equipada. El modulo no busca
             // "el arma equipada" porque puede haber mas de una.
             //
-            // Y el id puede venir en cualquiera de los dos namespaces: el modulo
-            // lo canonicaliza, asi que la pagina puede mandar "suppressor" o el
-            // nombre de inventario de un cargador sin tener que saber cual es
-            // cual. Ver canonicalAttachmentId en data/gsis_weapons.js.
+            // Y el id va tal cual: hay un solo namespace para un accesorio, asi que
+            // la pagina manda el id que ve en la mochila y el modulo lo monta sin
+            // convertir nada. Ver "UN SOLO NOMBRE POR PIEZA" en
+            // data/gsis_weapons.js.
             // Y el id NO es obligatorio en los dos.
             //
             //   inv:mount    lo necesita: hay que saber QUE pieza se saca de la

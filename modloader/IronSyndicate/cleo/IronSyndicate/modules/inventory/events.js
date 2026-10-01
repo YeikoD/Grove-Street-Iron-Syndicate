@@ -105,7 +105,7 @@ function _save(data) {
 // se reconstruya con el id del que ENTRA. El sintoma es invisible la primera vez
 // y sobre todo la segunda:
 //
-//   cinturon: [mag_colt45_extended(15)]   arma: colt45 con mag_colt45(8)
+//   cinturon: [mag_colt45_15(15)]        arma: colt45 con mag_colt45(8)
 //   R -> entra el de 15, y al cinturon vuelve UN cargador... de 15, con 8 balas.
 //
 // El de 8 desaparece y el de 15 queda con la capacidad del de 8. Al cambiar de
@@ -211,47 +211,36 @@ on(ITEMS_SWAP_MAGAZINE, function (e) {
         if (backCap && backAmmo > backCap) backAmmo = backCap;
         var saliente = makeMagazineInstance(backId, backAmmo);
 
-        // *** SI EL QUE ENTRA ES DE FABRICA, NO HAY INTERCAMBIO ***
+        // *** POR QUE NO HAY CASO ESPECIAL PARA EL CARGADOR DE FABRICA ***
         //
-        // Un cargador de fabrica (needsVariant false) es el cargador de ORIGEN del
-        // arma: el arma sin cargador extendido YA es esa configuracion, asi que
-        // montarlo no deja ninguna pieza fisica puesta en el arma.
+        // Hubo una rama `esFabrica` aca que, cuando el cargador que entra era de
+        // fabrica (needsVariant false), dejaba ese cargador en su casilla y mandaba
+        // el montado a una casilla LIBRE. Hacia falta una casilla libre, y si no
+        // habia se rechazaba el cambio. Ademas el `return` de esa rama no llamaba
+        // `e.respond`, que fue la causa directa de que la R duplicara cargadores.
         //
-        // Y aca estaba el bug del 30/09. El codigo de abajo escribia SIEMPRE
-        // `belt[best] = saliente`: ponia el cargador montado en la casilla de la que
-        // entra. Con un cargador de FABRICA entrando, eso destruia el de la fabrica,
-        // que no queda montado en ningun lado, y duplicaba el montado en su lugar.
+        // La rama estaba justificada con "montar el de fabrica no deja ninguna pieza
+        // puesta en el arma, asi que no se lo puede sacar del cinturon". La
+        // invariante que lo desmiente es la del modulo entero: el cargador MONTADO no
+        // esta ni en el cinturon ni en el inventario.
         //
-        // MEDIDO, cinturon [8, 15], silenciadora con el 15 puesto:
+        // Cuando el de fabrica entra, el arma vuelve a su configuracion base, y la
+        // configuracion base de una familia ES "tengo el cargador de fabrica
+        // puesto". O sea: el cargador de fabrica NO se queda en el cinturon, esta
+        // DENTRO del arma. Por eso `belt[best] = saliente` es correcto en las dos
+        // direcciones y no hay nada que exceptuar:
         //
-        //   R #2  ANTES   [0]mag_colt45(8) [1]mag_colt45_extended(15)
-        //         DESPUES [0]mag_colt45_extended(15)          <- el 8 murio
+        //   R, entra el extendido  belt[best] = el de fabrica (con las balas del arma)
+        //   R, entra el de fabrica  belt[best] = el extendido  (con las balas del arma)
         //
-        // Con dos cargadores y tres pulsaciones, los dos acaban perdidos. Perder
-        // un item es la peor falla que puede tener un inventario, y no se ve en
-        // pantalla: el cinturon tiene menos cosas y el arma parece igual.
+        // En los dos casos: uno sale del cinturon y entra al arma, y el que estaba
+        // en el arma sale a la casilla del que entro. Dos cargadores antes, dos
+        // despues, y las balas se mueven con la pieza que las tenia.
         //
-        // Lo correcto: el de FABRICA SE QUEDA en su casilla, y el montado vuelve
-        // en una casilla libre. El cinturon no pierde nada. Si no hay casilla
-        // libre, no se hace el cambio y R cae al caso de DESMONTA, que es un
-        // camino que ya existe y no pierde nada.
-        var esFabrica = e.data.deFabrica && e.data.deFabrica.indexOf(magId) >= 0;
-        if (esFabrica) {
-            var libre = -1;
-            for (var k = 0; k < belt.length; k++) { if (!belt[k]) { libre = k; break; } }
-            if (libre < 0) {
-                log("[Inventory] el cinturon esta lleno: " + magId +
-                    " se queda y " + backId + " no tiene donde volver. No se hace el cambio.");
-                e.respond(null);
-                return;
-            }
-            belt[libre] = saliente;
-            log("[Inventory] " + magId + " es de FABRICA: no se monta, se queda en " +
-                "[best] y " + backId + " vuelve en [" + libre + "]");
-            _save(data);
-            emit(INVENTORY_CHANGED, { motivo: "swapMagazine", id: magId });
-            return;
-        }
+        // Lo que la rama especial rompia, ademas de la duplicacion: la duplicacion
+        // de MUNICION. Dejaba el cargador de fabrica en el cinturon CON SUS 8 BALAS
+        // y despues respondia `ammo: freshAmmo`, asi que el arma recibia 8 balas
+        // que ya estaban en otro lado. Ocho balas que no tienen de donde salir.
         belt[best] = saliente;
     } else {
         belt[best] = null;  // descarga: casilla libre
@@ -305,10 +294,10 @@ on(ITEMS_TAKE_WEAPON, function (e) {
     if ((taken.qty || 1) > 1) taken.qty -= 1; // por si queda un stack heredado
     else data.items.splice(best, 1);
     _save(data);
-    // Y ACa se ve el namespace: esto devuelve el id DE INVENTARIO
-    // ("mag_colt45_extended"), no el canonico ("mag_colt45_15"). weapons/logic.js
-    // lo convierte con inventoryAttachmentId() al recibirlo. Ver "LOS DOS
-    // NAMESPACES DE LOS ACCESORIOS" en data/gsis_weapons.js.
+    // Y ACa no hay namespace que traducir: un accesorio tiene un solo id, el mismo
+    // que declara WEAPON_ATTACHMENTS y el mismo que esta en ITEMS. Lo que devuelve
+    // este id es el que weapons/logic.js monta tal cual. Ver "UN SOLO NOMBRE POR
+    // PIEZA" en data/gsis_weapons.js.
     e.respond({
         hasMag: hasMagT,
         ammo: ammoT,
@@ -329,8 +318,8 @@ on(ITEMS_TAKE_WEAPON, function (e) {
 // guardaba como una Colt .45 pelada: el silenciador no estaba ni en el slot ni en
 // el inventario, y no habria forma de recuperarlo salvo comprarlo de nuevo.
 //
-// Y `attachments` entra en el namespace de INVENTARIO: weapons/ lo convierte con
-// inventoryAttachmentId() antes de mandar. Este modulo no sabe de canonicos.
+// Y `attachments` entra con el MISMO id que tiene en el catalogo: este modulo
+// guarda lo que weapons/ le pasa, sin traducir.
 on(ITEMS_STORE_WEAPON, function (e) {
     // EL CARGADOR QUE ESTABA MONTADO, PRIMERO. Ver el contrato en
     // core/gsis_EventNames.js.
@@ -444,9 +433,8 @@ on(ITEMS_STORE_WEAPON, function (e) {
 
 // query("items:takeAttachment", { id }) -> { item } | null
 //
-// `id` es el itemId DE INVENTARIO del accesorio ("mag_colt45_extended"), no el
-// canonico ("mag_colt45_15"): el namespace de este modulo es el de inventario, y
-// weapons/logic.js convierte con inventoryAttachmentId() antes de preguntar.
+// `id` es el id del accesorio, y es el mismo en ITEMS, en WEAPON_ATTACHMENTS y en
+// las tres capas de weapons/. Este modulo no traduce nada: lo guarda como llega.
 //
 // Para un cargador con varias copias en el inventario se lleva la que mas balas
 // tiene. Montar el cargador de 30 lleno sobre uno de 5 vacio cambia lo que el

@@ -70,7 +70,7 @@ import * as Engine from "../../core/gsis_Engine.js";
 import {
     resolveWeaponType, getVariantByWeaponType, familyForType,
     TIPOS_VANILLA_NO_ADOPTABLES, getFamilyItemId,
-    inventoryAttachmentId, mountedMagazineOf
+    mountedMagazineOf
 } from "../../data/gsis_weapons.js";
 import { SALUD_MAX } from "../../data/gsis_item_data.js";
 import { getEquipped, setEquipped, familyOfItem } from "./state.js";
@@ -216,16 +216,14 @@ function _adoptar(char, slot, enPies, addr) {
     // dibuja el modelo 347, asi que ademas de perder la pieza se perdia el
     // cambio de aspecto.
     //
-    // La variante es la que sabe que accessor lleva el tipo, y el registro guarda
-    // ids de INVENTARIO, no los canonicos. Por eso pasa por
-    // inventoryAttachmentId(): un "mag_colt45_extended" guardado en el inventario
-    // tiene que volver a guardarse con ese nombre, no con el canonico, o la
-    // proxima lectura del item no lo reconoce.
+    // La variante es la que sabe que accesorio lleva el tipo, y el registro guarda los
+    // mismos ids que el inventario y que la tabla: hay una sola forma de escribir
+    // un accesorio y por eso la lista se copia tal cual.
     var v = getVariantByWeaponType(enPies);
     var attachments = [];
     if (v) {
         for (var i = 0; i < v.attachments.length; i++) {
-            attachments.push(inventoryAttachmentId(v.attachments[i]));
+            attachments.push(v.attachments[i]);
         }
     }
     // El cargador es un accesorio montado, no una propiedad del item. Se deduce

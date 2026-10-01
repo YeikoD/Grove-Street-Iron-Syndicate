@@ -69,7 +69,7 @@ import { t } from "../../core/gsis_L10n.js";
 import * as Engine from "../../core/gsis_Engine.js";
 import {
     resolveWeaponType, isAttachmentCompatible, getAttachmentById,
-    canonicalAttachmentId, inventoryAttachmentId, magazineIdsFor, getFamilyById,
+    magazineIdsFor, getFamilyById, factoryMagazineOf,
     mountedMagazineOf, otherAttachmentsOf
 } from "../../data/gsis_weapons.js";
 import { ITEMS, clampSalud } from "../../data/gsis_item_data.js";
@@ -165,7 +165,7 @@ export function equipWeapon(itemId, attachmentsPedidos) {
     // silenciador tiene que volver con el: el inventario guarda la lista, y
     // perderla deja al arma pelada con un cargador de 15 en la mano, que es un
     // estado que el inventario no puede describir.
-    var attachments = (taken.attachments || []).map(canonicalAttachmentId);
+    var attachments = (taken.attachments || []).slice();
     var salud = clampSalud(taken.salud);
     var ammo = Math.max(0, taken.ammo || 0);
 
@@ -179,8 +179,8 @@ export function equipWeapon(itemId, attachmentsPedidos) {
     if (Array.isArray(attachmentsPedidos) && attachmentsPedidos.length) {
         var pedido = [];
         for (var pi = 0; pi < attachmentsPedidos.length; pi++) {
-            var ca = canonicalAttachmentId(attachmentsPedidos[pi]);
-            if (ca && pedido.indexOf(ca) < 0) pedido.push(ca);
+            var pedidoId = attachmentsPedidos[pi];
+            if (pedidoId && pedido.indexOf(pedidoId) < 0) pedido.push(pedidoId);
         }
         // Un pedido que NO RESUELVE hace fallar la accion, y no se equipa "lo que
         // traia". Equipar otra cosa que la que se pidio es peor que no equipar
@@ -212,8 +212,7 @@ export function equipWeapon(itemId, attachmentsPedidos) {
     var consumidos = [];
     for (var ci = 0; ci < aConsumir.length; ci++) {
         var acc = aConsumir[ci];
-        var itemAcc = inventoryAttachmentId(acc);
-        var saga = query(ITEMS_TAKE_ATTACHMENT, { id: itemAcc });
+        var saga = query(ITEMS_TAKE_ATTACHMENT, { id: acc });
         if (!saga || !saga.item) {
             // No habia: se devuelve TODO lo que ya se habia sacado, y el arma
             // tambien, y no se aplica nada. El jugador no pierde nada y la
@@ -392,8 +391,8 @@ export function unequipWeapon(slot) {
             ammo: 0,
             salud: entry.salud,
             hasMag: false,
-            attachments: attachmentsSinMag.map(inventoryAttachmentId),
-            magazine: { id: inventoryAttachmentId(magMontado), ammo: ammo }
+            attachments: attachmentsSinMag.slice(),
+            magazine: { id: magMontado, ammo: ammo }
         };
     } else {
         store = {
@@ -401,7 +400,7 @@ export function unequipWeapon(slot) {
             ammo: ammo,
             salud: entry.salud,
             hasMag: hasMagazine(entry),
-            attachments: (entry.attachments || []).map(inventoryAttachmentId)
+            attachments: (entry.attachments || []).slice()
         };
     }
 
@@ -476,31 +475,28 @@ export function attachAccessory(charId, slot, attachmentId) {
     var char = charId || Engine.playerChar();
     if (!char) return { ok: false, motivo: "no hay ped" };
 
-    // El id puede venir del inventario (el nombre viejo) o de la tabla (el
-    // canonico). Se resuelve a UNO solo antes de tocar nada.
-    var canonico = canonicalAttachmentId(attachmentId);
-    var att = getAttachmentById(canonico);
+    var att = getAttachmentById(attachmentId);
     if (!att) return { ok: false, motivo: "el accesorio " + attachmentId + " no existe" };
-    if (!isAttachmentCompatible(canonico, entry.family)) {
+    if (!isAttachmentCompatible(attachmentId, entry.family)) {
         return { ok: false, motivo: att.name + " no va en " + entry.family };
     }
     var actual = (entry.attachments || []).slice();
-    if (actual.indexOf(canonico) !== -1) return { ok: false, motivo: "ya esta montado" };
+    if (actual.indexOf(attachmentId) !== -1) return { ok: false, motivo: "ya esta montado" };
 
     // Que la combinacion exista ANTES de gastar la pieza. Un accesorio que no
     // lleva a ninguna variante no se saca del inventario para descubrir eso.
-    if (resolveWeaponType(entry.family, actual.concat([canonico])) === null) {
+    if (resolveWeaponType(entry.family, actual.concat([attachmentId])) === null) {
         return { ok: false, motivo: att.name + " con " + entry.family +
             " no es ninguna variante declarada" };
     }
 
-    // Se SACA del inventario. Namespace de inventario: el bus espera el itemId.
-    var saga = query(ITEMS_TAKE_ATTACHMENT, { id: inventoryAttachmentId(canonico) });
+    // Se SACA del inventario.
+    var saga = query(ITEMS_TAKE_ATTACHMENT, { id: attachmentId });
     if (!saga || !saga.item) {
         return { ok: false, motivo: "no tenes ningun " + att.name + " en el inventario" };
     }
 
-    var r = _aplicar(char, slot, entry, actual.concat([canonico]), "montar " + att.name);
+    var r = _aplicar(char, slot, entry, actual.concat([attachmentId]), "montar " + att.name);
     if (!r.ok) {
         // El motor no lo acepto: la pieza vuelve, intacta. Perder un accesorio
         // por un fallo del motor es la peor forma de perderlo, porque el jugador
@@ -517,7 +513,7 @@ export function detachAccessory(charId, slot, attachmentId) {
     var char = charId || Engine.playerChar();
     if (!char) return { ok: false, motivo: "no hay ped" };
 
-    var canonico = canonicalAttachmentId(attachmentId);
+    var accId = attachmentId;
 
     // Sin id, se saca EL accesorio que no es cargador. Y el que decide cual es
     // este modulo, no la pagina.
@@ -529,7 +525,7 @@ export function detachAccessory(charId, slot, attachmentId) {
     // "mag_" en la pagina seria meter en el frontend la convencion de nombres del
     // catalogo, que es exactamente la clase de acoplamiento que el corte del
     // inventory pretendia cerrar.
-    if (!canonico) {
+    if (!accId) {
         var otros = otherAttachmentsOf(entry.attachments || []);
         if (otros.length === 0) {
             return { ok: false, motivo: "no hay ningun accesorio montado en el slot " + slot };
@@ -538,29 +534,29 @@ export function detachAccessory(charId, slot, attachmentId) {
             return { ok: false, motivo: "hay mas de un accesorio montado (" +
                 otros.join(", ") + "): cual sacar" };
         }
-        canonico = otros[0];
+        accId = otros[0];
     }
 
     var actual = (entry.attachments || []).slice();
-    if (actual.indexOf(canonico) === -1) {
-        return { ok: false, motivo: "no tiene " + canonico + " montado" };
+    if (actual.indexOf(accId) === -1) {
+        return { ok: false, motivo: "no tiene " + accId + " montado" };
     }
-    var quedan = actual.filter(function (a) { return a !== canonico; });
+    var quedan = actual.filter(function (a) { return a !== accId; });
 
-    var r = _aplicar(char, slot, entry, quedan, "sacar " + canonico);
+    var r = _aplicar(char, slot, entry, quedan, "sacar " + accId);
     if (!r.ok) return r;
 
     // La pieza vuelve al inventario. Con 0 balas: ver la nota de arriba sobre por
     // que el numero de balas del cargador no existe como pregunta.
     query(ITEMS_STORE_ATTACHMENT, {
-        item: { id: inventoryAttachmentId(canonico), qty: 1, ammo: 0, salud: 100 },
+        item: { id: accId, qty: 1, ammo: 0, salud: 100 },
         force: true
     });
 
     // `saco` es lo que se quito de verdad. Sin esto, un comando que llega sin id no
     // tiene forma de decir QUE salio del arma, y con dos accesorios la respuesta
     // "tipo 60" no dice si se saco el silenciador o el cargador.
-    r.saco = canonico;
+    r.saco = accId;
     return r;
 }
 
@@ -822,7 +818,7 @@ export function tryReload() {
     var otros = (entry.attachments || []).filter(function (a) { return !_esCargador(a); });
     var magIdsUtiles = [];
     for (var mi = 0; mi < magIds.length; mi++) {
-        var cand = canonicalAttachmentId(magIds[mi]);
+        var cand = magIds[mi];
         var att = getAttachmentById(cand);
         var listaCand = otros.slice();
         // needsVariant false = cargador de fabrica = no hay cargador extendido.
@@ -831,32 +827,32 @@ export function tryReload() {
         if (tipoCand !== null && tipoCand !== w.type) magIdsUtiles.push(magIds[mi]);
     }
 
+    // QUE CARGADOR ESTA DENTRO DEL ARMA. Para la R no es lo mismo que
+    // `montado`, porque `montado` lee `attachments` y el cargador de FABRICA no
+    // esta ahi: la variante base se declara con la lista vacia.
+    //
+    // La distincion importa en el caso de DESMONTA, que saca el cargador del arma
+    // al inventario. Ahi si se usa `montado`, porque un cargador de fabrica nunca
+    // se desmonta a la fuerza: no es una pieza que el jugador haya montado, es lo
+    // que el arma tiene.
+    var magEnElArma = montado || factoryMagazineOf(entry.family);
+
     var resp = magIdsUtiles.length
         ? query(ITEMS_SWAP_MAGAZINE, {
               magIds: magIdsUtiles,
               ammo: w.ammo || 0,
-              mounted: montado !== null,
-              mountedMagId: montado ? inventoryAttachmentId(montado) : null,
-              // Los cargadores de FABRICA de esta oferta. Son los que el arma NO
-              // lleva puestos: needsVariant false significa que el arma sin cargador
-              // extendido YA es esa configuracion, asi que montarlos no produce
-              // ninguna pieza fisica que quede en el arma.
-              //
-              // El handler lo necesita para no hacer un intercambio que no es un
-              // intercambio. MEDIDO el 30/09 con cinturon [8, 15]:
-              //
-              //   R #2  entra mag_colt45(8), sale mag_colt45_extended(15)
-              //         el arma queda en 60 SIN cargador, y el handler escribia
-              //         la 15 en la casilla de la 8 -> cinturon [15, 15]
-              //
-              // El cargador de 8 no desaparecia por la duplicacion: desaparecia
-              // porque se consumia del cinturon sin quedar montado en ningun lado.
-              // Con dos cargadores y tres pulsaciones los dos acaban perdidos.
-              deFabrica: _deFabrica(magIdsUtiles, entry.family)
+              // `mounted` dice "hay algo que volver a la casilla de la que entra".
+              // Con el cargador de fabrica de la familia, SIEMPRE lo hay: o hay un
+              // cargador extendido montado, o hay el de fabrica, o el arma no tiene
+              // cargador y no hay que devolver nada. Por eso `magEnElArma` y no
+              // `montado`, y por eso la rama de "descarga" del handler no la
+              // recorre nunca weapons/.
+              mounted: magEnElArma !== null,
+              mountedMagId: magEnElArma
           })
         : null;
     if (resp) {
-        var nuevo = canonicalAttachmentId(resp.magId);
+        var nuevo = resp.magId;
         // El cargador viejo sale de la lista y entra el nuevo. Con dos cargadores
         // en la lista la clave de la variante seria distinta y el resolver no
         // encontraria fila. Los OTROS accesorios (un silenciador) sobreviven:
@@ -894,7 +890,7 @@ export function tryReload() {
     if (montado && (w.ammo || 0) > 0) {
         var out = Math.min(w.ammo, Engine.clipCapacityOf(w.type));
         if (query(ITEMS_EXTRACT_MAGAZINE, {
-            magId: inventoryAttachmentId(montado), ammo: out
+            magId: montado, ammo: out
         })) {
             var sinMag = (entry.attachments || []).filter(function (a) { return !_esCargador(a); });
             var r2 = _aplicar(char, w.slot, entry, sinMag, "descarga");
@@ -970,21 +966,6 @@ function _animarRecarga(char, slot, weaponType, ammoEsperado) {
 function _esCargador(attachmentId) {
     var a = getAttachmentById(attachmentId);
     return !!(a && a.type === "magazine");
-}
-
-// De una lista de magIds (namespace de INVENTARIO), cuales son de FABRICA, o sea
-// los que NO definen variante.
-//
-// Se calcula con el catalogo y no en el handler de inventario porque "este
-// cargador cambia el weaponType" es una pregunta de variantes, y las variantes son
-// de este modulo. El handler recibe la lista ya clasificada.
-function _deFabrica(magIds, family) {
-    var out = [];
-    for (var i = 0; i < magIds.length; i++) {
-        var a = getAttachmentById(canonicalAttachmentId(magIds[i]));
-        if (a && a.type === "magazine" && a.needsVariant === false) out.push(magIds[i]);
-    }
-    return out;
 }
 
 // ============================================================================

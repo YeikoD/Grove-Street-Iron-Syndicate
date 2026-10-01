@@ -70,11 +70,16 @@ export var ITEM_RENAMES = {
     // "mag_" + <familia> es la que hay que mantener, y mag_9mm_extended colgado
     // de un item que ya no existe es exactamente el caso que la rompio antes.
     //
-    // El destino es `mag_colt45_extended` y NO `mag_colt45_15`, aunque el
-    // cargador de 15 balas se llame asi en el catalogo de variantes. Ver
-    // "LOS DOS NAMESPACES DE LOS ACCESORIOS".
+    // El destino es `mag_colt45_15`, el id unico del cargador de 15 de la Colt, y
+    // no un nombre intermedio. Ver "UN SOLO NOMBRE POR PIEZA" mas abajo.
     "mag_9mm_replica":  "mag_colt45",
-    "mag_9mm_extended": "mag_colt45_extended",
+    "mag_9mm_extended": "mag_colt45_15",
+
+    // Los saves que tienen el cargador con el nombre viejo. `mag_colt45_extended` fue
+    // el id de inventario antes de que el accesorio se llamara por su capacidad, y
+    // el renombre se completo: hoy `mag_colt45_15` es el id en ITEMS, en
+    // WEAPON_ATTACHMENTS y en equipped[slot].attachments.
+    "mag_colt45_extended":  "mag_colt45_15",
 
     // Los cargadores QUE NO HACIAN NADA, que se quitaron del catalogo el 30/09.
     // Eran un segundo cargador con la MISMA capacidad que el arma de base, asi que
@@ -101,44 +106,50 @@ export var ITEM_RENAMES = {
     // variante con cargador de 15. Los saves con el item viejo lo migran a
     // colt45 CON cargador, que es lo que el jugador cree que tiene.
     "gsis_pistol":          "colt45",
-    "mag_gsis_pistol":      "mag_colt45_extended"
+    "mag_gsis_pistol":      "mag_colt45_15"
 };
 
 // ============================================================================
-// LOS DOS NAMESPACES DE LOS ACCESORIOS, Y POR QUE ESO PROHIBE UN RENOMBRE
+// UN SOLO NOMBRE POR PIEZA
 // ============================================================================
-// El mismo cargador de 15 balas tiene DOS nombres, y en ningun lado es el mismo:
+// El cargador de 15 balas de la Colt tiene UN id: `mag_colt45_15`. El mismo en
+// ITEMS, el mismo en WEAPON_ATTACHMENTS, el mismo en items[] y el mismo en
+// equipped[slot].attachments. No hay traduccion entre namespaces y no hay tabla de
+// alias.
 //
-//   mag_colt45_15        CANONICO. El que usa WEAPON_VARIANTS, el que compara
-//                        resolveWeaponType, el que se guarda en
-//                        Ballistic.equipped[slot].attachments.
-//                        Declarado en ATTACHMENTS (data/gsis_weapons.js).
+// Hubo dos. `mag_colt45_extended` era el id de INVENTARIO y `mag_colt45_15` el
+// ACCESORIO, con una capa de alias en data/gsis_weapons.js que los traducía en los
+// dos sentidos, una fila extra en la vista legada por cada alias, y dos funciones
+// (`canonicalAttachmentId`, `inventoryAttachmentId`) que el modulo de armas y el
+// reconciliador tenian que acordarse de llamar. Todo eso era el bug esperando: si
+// un camino se olvidaba de traducir, el cargador que el arma pedia no existia en el
+// inventario y la recarga no tenia con que cambiar, sin error en ninguna parte.
 //
-//   mag_colt45_extended  DE INVENTARIO. El que esta en ITEMS
-//                        (data/gsis_item_data.js), el que viaja en items[] y el
-//                        que el jugador ve. Convertido con
-//                        inventoryAttachmentId().
+// POR QUE ESTA TABLA SI ES EL LUGAR DE LA CONVERSION
+// -------------------------------------------------
+// Un save viejo guarda `mag_colt45_extended` en DOS lugares, y cada uno necesita
+// una regla distinta:
 //
-// Los dos son ids VALIDOS y NECESARIOS en su namespace. Por eso
-// `mag_colt45_extended -> mag_colt45_15` NO va en ITEM_RENAMES:
+//   item.id          items[], belt[], trunks[], equipped[].id  ->  ITEM_RENAMES,
+//                    porque es el namespace de inventario y el destino es un id que
+//                    esta en ITEMS.
 //
-//   * ITEM_RENAMES renombra `item.id`, que es el namespace de inventario.
-//   * `mag_colt45_extended` es HOY un itemId valido. Renombrarlo a
-//     `mag_colt45_15` produce un itemId que NO esta en ITEMS, y el cargador le
-//     desaparece al jugador del inventario en cada carga.
+//   attachments      equipped[slot].attachments                  ->  lo recorre
+//                    modules/weapons/migrate.js, porque son ids de ACCESORIO y el
+//                    modulo que los migra es el que sabe si la combinacion que
+//                    forman existe.
 //
-// La conversion que si hace falta —el save viejo escribio
-// `mag_colt45_extended` dentro de `attachments`, donde el nombre bueno es
-// `mag_colt45_15`— la hace la migracion de weapons (modules/weapons/migrate.js)
-// con canonicalAttachmentId(), que SI conoce los dos namespaces. Ahi el destino
-// es un id canonico y por lo tanto es correcto.
+// Ninguno de los dos es "renombrar el accesorio": los dos son leer un save escrito
+// con la nomenclatura anterior. Por eso la conversion va aca y no en una tabla de
+// alias permanente del catalogo.
 //
 // POR QUE NO SE ENCADENA
 // ----------------------
 // Un renombre se resuelve con UNA sola tabla: `mag_9mm_extended` se convierte en
-// `mag_colt45_extended` y ahi PARA, aunque `mag_colt45_extended` tenga a su vez
-// entrada. Encadenar seria casi-correcto y estaria mal, por lo de arriba: la
-// segunda tabla es de otro namespace y su destino no es un itemId.
+// `mag_colt45_15` y ahi PARA, aunque `mag_colt45_15` no tenga entrada. Encadenar
+// seria casi-correcto y estaria mal, porque los destinos de esta tabla tienen que
+// existir en ITEMS y un encadenado puede terminar en un id que es valido en un
+// namespace y no en el otro.
 //
 // La regla que sale de ahi, y que hay que leer antes de tocar esta tabla: TODO
 // destino tiene que existir en ITEMS. Si un dia hace falta renombrar un

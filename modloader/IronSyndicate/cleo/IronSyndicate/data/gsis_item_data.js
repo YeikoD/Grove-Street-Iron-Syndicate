@@ -78,11 +78,14 @@ export var ITEMS = {
     // Instancia { id, qty:1, ammo, salud } — no se apilan
     //
     // Un cargador es un ACCESORIO, no un arma: no se equipa solo y no tiene
-    // weaponType. Va suelto en el inventario y se monta sobre una familia. Su
-    // capacidad vive en WEAPON_DATA (campo `capacity`) y NO se deriva del arma:
-    // un cargador de 15 SIEMPRE tiene 15. Ver gsis_weapon_variants.js.
-    "mag_colt45":          { name: "Cargador Colt .45",     weight: 0.2, type: "magazine" },
-    "mag_colt45_extended": { name: "Cargador Colt .45 extendido", weight: 0.2, type: "magazine" },
+    // weaponType. Va suelto en el inventario y se monta sobre una familia. El id
+    // es el MISMO que declara WEAPON_ATTACHMENTS (data/gsis_weapons.js) — el
+    // cargador de 15 de la Colt se llama `mag_colt45_15` en las tres capas, y los
+    // saves que tienen el nombre viejo lo resuelven ITEM_RENAMES. Su capacidad
+    // vive en WEAPON_ATTACHMENTS (`clipSize`) y NO se deriva del arma: un cargador
+    // de 15 SIEMPRE tiene 15.
+    "mag_colt45":     { name: "Cargador Colt .45",     weight: 0.2, type: "magazine" },
+    "mag_colt45_15":  { name: "Cargador Colt .45 extendido", weight: 0.2, type: "magazine" },
     "mag_ak47_drum": { name: "Cargador AK tambor", weight: 0.8, type: "magazine" },
     "mag_m4_lancer": { name: "Cargador M4 Lancer", weight: 0.4, type: "magazine" },
     "mag_m4_drum": { name: "Cargador M4 D-60", weight: 0.9, type: "magazine" },

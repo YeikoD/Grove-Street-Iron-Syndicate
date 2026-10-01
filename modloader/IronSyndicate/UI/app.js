@@ -22,16 +22,24 @@
 //   tiene la pagina, ya no lo tiene el juego.
 //
 //   CLEO -> pagina   receive("uistate",  { read, menu, anyMenu, keys, mode,
-//                                        focus, openUis })  estado del input
+//                                        focus, openUis, flow })  estado del input
 //                    receive("inv",      { i, n, d })       inventario troceado
 //                    receive("catalog",  { ... })           datos estaticos
+//                    receive("screen",   { i, n, d })       snapshot del menu abierto
 //
-//   El "inv" llega partido porque el dataJson de SAWEB_SEND_EVENT tiene 255
-//   caracteres de tope duro (GetStringParam con maxlen unsigned char) y el
-//   snapshot ronda los 800. La pagina lo arma sola en armarInventario().
+//   pagina -> CLEO   emit("cmd:<verbo>") 22 verbos, y tres de ellos son el
+//                    CONTRATO DE TECLAS de la pagina, que es el espejo del de
+//                    modules/ui/index.js:
+//                      "ui:close"   F o ESC con un menu abierto
+//                      "ui:toggle"  la I
+//                      "flow:open"  ESPACIO, INTRO o F con el menu cerrado
 //
-//   "catalog" no se trocea: son datos estaticos que se mandan una sola vez al
-//   abrir el menu (iconos, bandas de grupo, peso maximo). Ver gsis_WEBUI.md.
+//   Que sean los MISMOS verbos que atiende el teclado del mod, y no otros, es lo
+//   que hace que el gesto sea uno solo: cuando la pagina tiene el teclado
+//   (uiState.keys) el WndProc le manda la tecla a ELLA y el mod no la ve nunca, asi
+//   que si la pagina no tuviera su propio contrato, el menu no se podria ni abrir
+//   ni cerrar. Y si los dos lados tuvieran contratos distintos, abririan y
+//   cerrarian cosas distintas segun donde este el puntero.
 //
 // ARRANQUE. Sin puente (abierto en un navegador normal) la pagina arranca
 // VISIBLE y con el mock de diseño, para poder revisarla a ojo. Con puente
@@ -48,6 +56,18 @@
 // equivocaba: no hay forma de que la pagina sepa si el WndProc le esta
 // mandando las teclas. Ese dato llega, con la fuente etiquetada.
 const INBOUND = ["uistate", "inv", "catalog", "screen"];
+
+// EL CONTRATO DE TECLAS, en una sola linea, para los CINCO menus. Vive en la
+// pagina y no viaja en el snapshot porque es el mismo para todos: el mod lo decide
+// (resolverTecla, modules/ui/index.js) y la pagina lo refleja. Duplicarlo por
+// snapshot seria copiar la misma frase cinco veces, y cinco copias divergen.
+//
+// El texto tiene que decir las DOS mitades del contrato y no una: el jugador
+// primero ve esto, y si solo dijera "F o ESC para cerrar" el primer uso del panel
+// seria descubrir que hay que parada en la esfera para abrirlo. Y si solo dijera
+// como abrir, el menu congelado al jugador sin salida a la vista parece trabado.
+const HINT_TECLAS =
+  "ESPACIO / INTRO / F  abrir   ·   INTRO  aceptar   ·   F / ESC  cerrar";
 
 const bridgeReady = !!(window.SAWeb && window.SAWeb.hasBridge);
 
@@ -261,7 +281,11 @@ const MOCK = {
 const MOCK_FLUJOS = {
   trunk: {
     titulo: "Maletero Vehiculo - Infernus (411)",
-    subtitulo: "ESPACIO: menu | 3: cerrar maletero | ESPACIO o ESC para cerrar el menu",
+// Sin subtitulo de teclas aca: la guia de contrato la dibuja la pagina con
+    // HINT_TECLAS en .panel-keys, y es la MISMA para los cinco menus. Si el mock
+    // trajera la suya, el preview estaria enseñando un contrato que el juego no
+    // tiene, y el preview justamente sirve para ver como se ven las cosas.
+    subtitulo: "",
     // Con aviso, para que se vea como se ven los errores de peso. Es el estado
     // que mas se repite en el juego y el que hay que mirar que se lea.
     notice: "~r~Maletero lleno (libre 1.3 kg, necesitas 2.5 kg)",
@@ -1712,7 +1736,19 @@ function crearPanel(id) {
   panes.className = "flow__panes";
 
   const aviso = document.createElement("p");
-  aviso.className = "aviso hidden";
+aviso.className = "aviso hidden";
+
+  // El contrato de teclado. Es un elemento PROPIO y no parte del subtitulo ni del
+  // pie, por una razon que los otros dos no cubren: el subtitulo del baul lo
+  // ocupa el nombre del auto (partirTituloBaul) y el pie esta oculto en las dos
+  // pantallas con caja de control (seller y pickup, ver renderPie). Un contrato
+  // que se muestra en un panel y en otro no es un contrato: es la misma causa por
+  // la que el jugador tiene que aprender de nuevo donde cerrar.
+  //
+  // Vive aca, entre el aviso y el pie, porque es lo ultimo que se lee antes de
+  // mirar el pie de numeros.
+  const claves = document.createElement("p");
+  claves.className = "panel-keys";
 
   const foot = document.createElement("div");
   foot.className = "panel-foot";
@@ -1729,10 +1765,11 @@ function crearPanel(id) {
   sec.appendChild(head);
   sec.appendChild(panes);
   sec.appendChild(aviso);
+  sec.appendChild(claves);
   sec.appendChild(foot);
   document.body.appendChild(sec);
 
-  return { sec, titulo, subtitulo, panes, aviso, foot, pieIzq, pieDer, footBtns, _avisoTimer: null };
+  return { sec, titulo, subtitulo, panes, aviso, claves, foot, pieIzq, pieDer, footBtns };
 }
 
 // Muestra una pantalla y oculta la otra. El inventario se apaga cuando hay un
@@ -1821,6 +1858,7 @@ function renderFlujo() {
     // se lee como broken.
     p.titulo.textContent = cfg ? cfg.titulo : id;
     p.subtitulo.textContent = "";
+    p.claves.textContent = HINT_TECLAS;
     return;
   }
 
@@ -1829,9 +1867,7 @@ function renderFlujo() {
     // El baul es el unico menu que trae un vehiculo en el titulo, y es el unico
     // que se parte: el resto de las pantallas mandan el menu arriba y la segunda
     // linea (el vendedor, lo que busca el cliente, el pedido) abajo, tal cual
-    // llego. La guia de teclas del baul ("3: cerrar | ESC...") ya no se muestra
-    // en ninguna parte: el pie no anuncia teclas desde que se fueron los
-    // keyhints.
+    // llego.
     const { menu, auto } = partirTituloBaul(bruto);
     p.titulo.textContent = menu || cfg.titulo;
     p.subtitulo.textContent = auto;
@@ -1839,6 +1875,11 @@ function renderFlujo() {
     p.titulo.textContent = bruto;
     p.subtitulo.textContent = flowData.subtitulo || "";
   }
+
+  // El contrato de teclado va SIEMPRE y es el mismo para los cinco menus: es lo
+  // que hace que el jugador no tenga que aprender de nuevo donde abrir y donde
+  // cerrar cada vez que aparece un panel.
+  p.claves.textContent = HINT_TECLAS;
 
   const panes = flowData.panes || [];
   if (paneActual >= panes.length) paneActual = 0;
@@ -2918,12 +2959,14 @@ tabsBox.addEventListener("click", (e) => {
   }
 });
 
-// X: la tecla que el pie anuncia. Apretar equipa la fila elegida, mantener
-// apretado tira una unidad. El umbral decide al soltar, no al apretar, para no
-// tirar un item porque el click se lingerio un frame.
+// X: una tecla de ACCION, no una tecla del contrato. Abrir y cerrar ya son del
+// contrato (ESPACIO/INTRO/F y F/ESC), asi que la X quedo con lo que hacia antes y
+// lo unico que cambio es que no comparte funcion con las caps del pie: esas ahora
+// son INTRO y F, y cada cap hace lo mismo que su tecla.
 //
-// Los dos keycaps del pie hacen lo mismo con un click: son la misma accion
-// escrita de dos formas, y el keycap es el que el jugador ve.
+// Apretar equipa la fila elegida; mantener apretado tira una unidad. El umbral
+// decide al soltar, no al apretar, para no tirar un item porque el click se lingerio
+// un frame.
 const HOLD_MS = 600;
 let _xDownAt = 0;
 let _xFired = false;
@@ -2951,14 +2994,36 @@ function doAction(what) {
   return emitCommand(payload);
 }
 
+// Los dos botones del pie del inventario. Antes eran "equipar" y "tirar con la X
+// mantenida", y cada uno llamaba a doAction() con SU verbo de fila. Con el
+// contrato unificado las dos caps son teclas del contrato general —INTRO y F— y
+// ninguna de las dos es una accion sobre la fila elegida: el INTRO ya esta
+// atendido por el keydown de Enter (que hace la accion principal segun la
+// pantalla) y el F es una de las teclas de cierre.
+//
+// Asi que los dos emiten el MISMO comando que su tecla, por el mismo motivo que
+// el ctxmenu arma su lista desde un registro y no desde codigo: si el boton y la
+// tecla hicieran cosas distintas, el jugador veria que el F no cierra y pensaria
+// que el boton esta roto —o al reves, y el boton cierra algo que la tecla no.
 function wireKeycaps() {
-  const equip = document.querySelector('[data-action="equip"]');
-  const drop = document.querySelector('[data-action="drop"]');
-  if (equip) {
-    equip.addEventListener("click", () => doAction("equip"));
+  const aceptar = document.querySelector('[data-action="aceptar"]');
+  const cerrar = document.querySelector('[data-action="cerrar"]');
+  if (aceptar) {
+    aceptar.addEventListener("click", () => {
+      // El INTRO del teclado resuelve la fila enfocada; el boton hace lo mismo, y
+      // por eso no va por emitCommand: la accion la tiene que aplicar el mod y la
+      // pagina necesita el id de la fila, que es cosa del render.
+      const r = selectedRow();
+      const flow = pantallaActual();
+      if (flow) {
+        correrPrincipal(cfgDe(flow));
+      } else if (r && actionFor(r, "equip")) {
+        doAction("equip");
+      }
+    });
   }
-  if (drop) {
-    drop.addEventListener("click", () => doAction("drop"));
+  if (cerrar) {
+    cerrar.addEventListener("click", () => emitCommand({ cmd: "ui:close" }));
   }
 }
 
@@ -3082,6 +3147,20 @@ function tecladoEnLaPagina() {
   return uiState.keys;
 }
 
+// Si hay ALGO en pantalla. El contrato de teclado lo necesita en tres decisiones
+// distintas —el F para abrir o cerrar, la ESPACIO y el INTRO para abrir— y las tres
+// tienen que preguntar lo mismo: si no, el F cerraria y abriria en el mismo frame,
+// o la ESPACIO con el inventario abierto gastaria un comando que el mod rechaza.
+//
+// "menu" es el panel principal y "flow" el id del menu de esfera, y llegan juntos en
+// el mismo snapshot (uistate). Por eso el OR: con los dos falsos no hay nada en
+// pantalla, y con cualquiera de los dos verdadero hay algo. NUNCA deberian llegar
+// los dos en true —el mod garantiza la exclusion, REGLA 1— asi que el OR no es una
+// regla de desempate, es la forma de que la pregunta sea correcta pase lo que pase.
+function hayMenuVisible() {
+  return !!uiState.menu || !!uiState.flow;
+}
+
 document.addEventListener("keydown", (e) => {
   // Si el WndProc no esta mandando las teclas aca, este keydown no vino de una
   // pulsacion del jugador: es un evento del navegador sin contraparte. Antes el
@@ -3108,16 +3187,41 @@ document.addEventListener("keydown", (e) => {
     return;
   }
 
-  // Escape cierra el menu. Con el menu contextual abierto se queda el y lo
-  // cierra; si no, pide el cierre.
+  // ==========================================================================
+  // EL CONTRATO DE TECLAS DE LA PAGINA
+  // ==========================================================================
+  // La pagina tiene el teclado cuando uiState.keys es true, y ahi el WndProc
+  // manda la tecla ACA y el mod no la ve nunca. Este bloque es el espejo exacto del
+  // contrato de modules/ui/index.js (resolverTecla), y las dos mitades tienen que
+  // decir lo mismo:
   //
-  // El cierre lo pide la pagina con "ui:close" y no lo hace el mod detectando la
-  // tecla, porque cuando la pagina se queda con el teclado el WndProc la
-  // consume (hace return 0) y el juego nunca la ve. Ese camino de vuelta no
-  // depende del input, asi que anda siempre. Ver gsis_Input.js.
+  //   MENU CERRADO                  MENU ABIERTO
+  //   --------------------------    --------------------------
+  //   I     -> "ui:toggle"          ESC   -> "ui:close"
+  //   SPACE -> "flow:open"          F     -> "ui:close"
+  //   INTRO -> "flow:open"          INTRO -> (la accion de la fila elegida)
+  //   F     -> "flow:open"          SPACE -> (nada: ya no cierra)
   //
-  // "ui:close" es un solo comando para las dos cosas: el mod cierra el flujo
-  // si hay uno y, si no, el panel. La pagina no tiene que saber cual era.
+  // La regla que hace que esto no sean tres caminos: la pregunta "¿hay un menu
+  // visible?" va PRIMERO y en un solo lugar (hayMenuVisible), y despues se decide
+  // con ella. El F es la tecla con doble sentido -abre si no hay nada, cierra si
+  // hay algo- y por eso el "menu cerrado" va como PRIMER return y no como una rama
+  // del final: si el F cerrara y despues buscara una esfera para abrir, el menu
+  // cerraria y abriria en el mismo frame.
+  //
+  // Y el INTRO con el menu abierto NO vuelve al mod: la pagina lo resuelve sola
+  // con la fila que tiene enfocada (correrPrincipal / doAction). Ese es el
+  // sentido del contrato -INTRO es la tecla de ACEPTAR- y mandarlo como
+  // "flow:open" haria que cada INTRO de confirmacion intentara abrir un menu.
+  // ==========================================================================
+
+  // El preventDefault no es cosmetico en ninguna de estas: sin el el navegador
+  // scrollea la caja con el ESPACIO, y con el INTRO o el F el boton del navegador
+  // se dispara si el foco quedo en uno.
+  //
+  // El ESC cierra lo que se ESTA VIENDO, y con el menu contextual abierto se queda
+  // el y lo cierra: el contexto esta ADELANTE del panel, asi que el ESC primero lo
+  // desarma y recien despues cierra el menu de fondo.
   if (e.key === "Escape") {
     e.preventDefault();
     if (ctxEl && !ctxEl.hidden) {
@@ -3129,26 +3233,48 @@ document.addEventListener("keydown", (e) => {
     return;
   }
 
-  // La I abre y cierra. Mismo camino que el Escape, mismo motivo: con el teclado
-  // en la pagina, el mod no puede ver la tecla. Con un flujo abierto el mod la
-  // ignora: el menu de esfera tiene la pantalla.
+  // El F es la tecla con doble sentido, y por eso va antes que la I y que las
+  // demas de abrir: primero se pregunta si hay un menu en pantalla.
+  //
+  // Menu cerrado, es una de las tres de apertura. Sin esta rama el F solo
+  // serviria con el menu abierto, y el jugador tendria que cambiar de tecla
+  // segun el estado del panel.
+  if (e.key.toLowerCase() === "f") {
+    e.preventDefault();
+    emitCommand({ cmd: hayMenuVisible() ? "ui:close" : "flow:open" });
+    return;
+  }
+
+  // La I abre y cierra el inventario. Mismo camino que el ESC, mismo motivo: con
+  // el teclado en la pagina el mod no puede ver la tecla. Con un flujo abierto el
+  // mod la ignora: el menu de esfera tiene la pantalla (REGLA 1).
   if (e.key.toLowerCase() === "i") {
     e.preventDefault();
     emitCommand({ cmd: "ui:toggle" });
     return;
   }
 
-  // El ESPACIO abre y cierra los menus de esfera (baul, armeria, retiro, trueque).
-  // Mismo camino que la I, mismo motivo: con el teclado en la pagina el mod no ve
-  // la tecla, y sin esto la tecla solo serviria con el puntero afuera del panel.
+  // ESPACIO e INTRO abren los menus de esfera (baul, armeria, retiro, trueque) con
+  // el menu cerrado. Las dos van por "flow:open", el comando que el mod atiende
+  // con la MISMA funcion que el teclado (abrirFlujo): la pagina pide, el mod decide.
+  //
+  // Ninguna de las dos CIERRA. El cierre es F o ESC, y antes de este cambio la
+  // ESPACIO abria y cerraba — toggleFlow — lo que hacia que el jugador aprendiera
+  // dos reglas para una tecla y que un F recien pulsado cerrara el menu que el
+  // F anterior acababa de abrir.
+  //
+  // Con el menu YA ABIERTO no se mandan: el INTRO lo resuelve la pagina con la
+  // fila enfocada (abajo, en la rama del Enter) y la ESPACIO no tiene nada que
+  // hacer. Mandar "flow:open" con el menu abierto no abriria nada —abrirFlujo()
+  // sale por REGLA 1— pero gastaria un comando por pulsacion.
   //
   // El preventDefault no es cosmetico: sin el, el navegador scrollea la caja de
-  // scroll con el ESPACIO. Y el comando va con el debounce de toggleFlow del lado
+  // scroll con el ESPACIO. Y el comando va con el debounce de abrirFlujo del lado
   // del mod, que es lo que evita que esta pulsacion y la que leyo el mod por
   // GetAsyncKeyState se cancelen entre si.
-  if (e.key === " ") {
+  if (!hayMenuVisible() && (e.key === " " || e.key === "Enter")) {
     e.preventDefault();
-    emitCommand({ cmd: "flow:toggle" });
+    emitCommand({ cmd: "flow:open" });
     return;
   }
 

@@ -58,21 +58,28 @@ register({
     update: updateItemManager
 });
 
-// Debug: tecla L agrega la Colt .45, chatarra y su cargador (probar inventario/baul)
+// Debug: tecla L agrega la Colt .45, chatarra, sus dos cargadores y el
+// silenciador (probar inventario/baul y las 4 configuraciones de la familia).
 //
-// entregaOpts en los tres, para que el camino de prueba diga lo mismo que el de
+// entregaOpts en todos, para que el camino de prueba diga lo mismo que el de
 // la entrega real: el arma llega sin cargador y el cargador llega lleno. Si el
 // debug cuelgue del default de addItem, probar el inventario da un arma con
 // municion que en el juego nunca se ve.
+//
+// El silenciador esta porque es el unico accesorio que la R no toca: la R cambia
+// el cargador del cinturon y el silenciador no es un cargador. Sin el, las
+// variantes 60 y 61 no tienen camino de prueba y quedan sin verificar.
 function updateItemManager() {
     if (keyJustPressed(KEYS.DEBUG_ITEM)) {  // Detecta tecla L
-        // La familia completa: el arma desnuda, el cargador base y el extendido,
-        // para poder probar el sistema de variantes sin pasar por el dealer.
+        // La familia completa: el arma desnuda, los dos cargadores y el
+        // silenciador, para poder probar el sistema de variantes sin pasar por
+        // el dealer.
         var okArma = addItem("colt45", 1, entregaOpts("colt45"));      // Arma de prueba, DESNUDA
         var okScrap = addItem("scrap_metal", 5);  // Agrega material de prueba
         var okMag = addItem("mag_colt45", 1, entregaOpts("mag_colt45"));  // Cargador nuevo, lleno
-        var okExt = addItem("mag_colt45_extended", 1, entregaOpts("mag_colt45_extended"));
-        if (okArma || okScrap || okMag || okExt) {
+        var okExt = addItem("mag_colt45_15", 1, entregaOpts("mag_colt45_15"));
+        var okSup = addItem("suppressor", 1);
+        if (okArma || okScrap || okMag || okExt || okSup) {
             showTextBox(t("DBG_ITM"));  // Muestra mensaje de exito
         } else {
             showTextBox(t("INV_FUL"));  // Muestra error inventario lleno

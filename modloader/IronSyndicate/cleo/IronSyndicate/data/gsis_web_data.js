@@ -58,7 +58,7 @@ export var WEB_ICONS = {
     // otro lado. El PNG sale de la categoria del arma en WEAPON_DATA: los tres
     // primeros son pistolas, los tres siguientes subfusiles.
     "mag_colt45": "mag_9mm.png",
-    "mag_colt45_extended": "mag_9mm.png",
+    "mag_colt45_15": "mag_9mm.png",
     "mag_ak47_drum": "mag_fusil.png",
     "mag_m4_lancer": "mag_fusil.png",
     "mag_m4_drum": "mag_fusil.png",

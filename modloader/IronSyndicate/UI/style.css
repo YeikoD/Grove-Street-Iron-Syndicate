@@ -1904,8 +1904,32 @@ body {
   margin-top: auto;
 }
 
-.panel--flujo .aviso.hidden ~ .panel-foot {
+.panel--flujo .aviso.hidden ~ .panel-keys {
   margin-top: auto;
+}
+
+/* ------------------------------------------------------ RECETA: .panel-keys --
+   El contrato de teclado. Va entre el aviso y el pie, y es lo ULTIMO que se lee
+   antes de los numeros.
+
+   Es su propio elemento y no una parte del subtitulo por una razon concreta: el
+   subtitulo del baul lo ocupa el nombre del auto, y el pie esta oculto en las dos
+   pantallas con caja de control. Un contrato que aparece en un panel y en otro no
+   es un contrato.
+
+   El cuerpo es el de --stat-fs y no uno mas chico porque esta linea es la
+   unica instruccion de uso que ve el jugador: los cinco menus congelan al
+   jugador, asi que sin esto el panel parece trabado. Y lleva el tracking de los
+   rotulos del resto de la UI porque es un rotulo, no un dato: se escanea de
+   arriba abajo y tiene que entrar en la misma lectura que el titulo de las listas. */
+.panel-keys {
+  margin-top: var(--sp-2);
+  font-size: var(--stat-fs);
+  color: var(--text-muted);
+  letter-spacing: var(--spw-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* El titulo del inventario: un <h1 class="panel__title" id="title"> y nada mas.
@@ -2176,7 +2200,7 @@ body {
   align-items: center;
   gap: var(--spw-2);
   min-width: 0;
-  /* Es un <button> porque hace la misma cosa que la tecla X y el jugador la
+  /* Es un <button> porque hace la misma cosa que su tecla y el jugador la
      toca con el mouse. Sin este reset aparecen el fondo, el borde y el padding
      default del browser, que rompen la guia. */
   padding: 0;
@@ -2200,12 +2224,38 @@ body {
 }
 
 .keyhint__cap {
-  /* Las dos keycaps vienen de 50x50. A 2.4vh el mayor display es ~37px a
-     1440p, o sea nunca se estan escalando hacia arriba: se achican nomas. */
-  width: 2.4vh;
-  height: 2.4vh;
-  object-fit: contain;
+  /* La keycap es TEXTO, no una imagen. Antes era un <img> de 50x50 con la tecla
+     dibujada (KEY_X.png / KEY_X_PRESSED.png), y quedo cuando las dos keycaps eran
+     la misma tecla en sus dos estados: apretar y mantener apretado. Con el
+     contrato nuevo las dos caps son teclas DISTINTAS y de nombres distintos
+     (INTRO y F), asi que dos imagenes del mismo "X" ya no alcanzaban: habria que
+     haber dibujado un PNG por tecla, y el unico cambio posible seria retocarlos
+     cada vez que el contrato cambie.
+
+     El texto evita eso y deja el contrato entero en el HTML, que es donde se lee
+     cuando algo no anda. La caja conserva el aspecto de tecla: mismo alto que
+     antes, mismo borde, y el ancho lo deja el texto — INTRO es mas ancha que F y
+     forzar el cuadrado las deformaria. */
   flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.4vh;
+  height: 2.4vh;
+  padding: 0 0.6vh;
+  box-sizing: border-box;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  color: var(--text-gold);
+  font-family: var(--font-ui);
+  font-size: var(--fs-2xs);
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+  user-select: none;
 }
 
 /* El verbo va como esta escrito en el HTML, sin text-transform. El pie entero

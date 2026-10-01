@@ -88,9 +88,20 @@ export var ITEMS_TAKE_WEAPON = "items:takeWeapon";
 // Namespace de INVENTARIO en los dos ids, como todos los de esta seccion.
 export var ITEMS_STORE_WEAPON = "items:storeWeapon";
 
-// Saca un cargador del cinturon y deja el montado en su casilla.
-// Responde { ammo, magId }. Recibe una LISTA de magIds porque un arma puede
-// tener mas de un cargador.
+// Saca un cargador del cinturon y deja el MONTADO en su casilla. Responde
+// { ammo, magId }. Recibe una LISTA de magIds porque un arma puede tener mas de
+// un cargador.
+//
+// "el montado" incluye al cargador de FABRICA del arma, sin excepcion: cuando el
+// que entra es el de fabrica, el arma vuelve a su configuracion base, y esa
+// configuracion ES "tengo el cargador de fabrica puesto". O sea que tambien se
+// consume del cinturon. Por eso la operacion es una sola y no tiene dos ramas:
+// uno entra al arma y el que estaba sale a la casilla de la que entro.
+//
+// NO RECIBE `deFabrica`. Hubo un flag que decia si el que entra era de fabrica,
+// para que el handler no lo gastara. Con la invariante de arriba el flag era
+// redundante y su rama duplicaba MUNICION: dejaba el cargador en el cinturon con
+// sus balas y despues pasaba esas mismas balas al arma.
 export var ITEMS_SWAP_MAGAZINE = "items:swapMagazine";
 
 // El cargador montado pasa al inventario. Responde { ammo } o null si no cabe.

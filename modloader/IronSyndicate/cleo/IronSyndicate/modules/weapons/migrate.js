@@ -88,8 +88,7 @@
 // todos los demas. Importarlo de L10n daria undefined.
 import { registerSaveMigrator, renameItemId } from "../../core/gsis_SaveMigration.js";
 import {
-    getFamilyByItemId, getVariantByWeaponType, resolveWeaponType,
-    canonicalAttachmentId
+    getFamilyByItemId, getVariantByWeaponType, resolveWeaponType
 } from "../../data/gsis_weapons.js";
 import { clampSalud } from "../../data/gsis_item_data.js";
 
@@ -109,22 +108,21 @@ function _entradaV2(id, family, attachments, salud) {
     return { id: id, family: family, attachments: attachments, salud: salud };
 }
 
-// El nombre canonico de un accesorio guardado.
+// El nombre con el que queda guardado un accesorio.
 //
-// Son dos tablas y en ese orden, y el orden no es decorativo:
+// UNA sola conversion: renameItemId(). El save viejo puede traer cualquier nombre
+// viejo —el itemId de la epoca `9mm` ("mag_9mm_extended") o el id de inventario
+// anterior al renombre ("mag_colt45_extended")— y `attachments` guarda el nombre
+// bueno, que es `mag_colt45_15`. Los dos nombres viejos estan en ITEM_RENAMES, que
+// convierte al id unico en un solo paso.
 //
-//   renameItemId()          el save viejo puede traer un itemId de la epoca
-//                           `9mm` ("mag_9mm_extended") dentro de la lista.
-//   canonicalAttachmentId() el save viejo puede traer el nombre DE INVENTARIO
-//                           ("mag_colt45_extended"), y en `attachments` el
-//                           nombre bueno es el canonico ("mag_colt45_15").
-//
-// Al reves, con el mismo resultado, el destino de un rename de itemId seria un
-// id que no existe en ITEMS y el cargador desapareceria del inventario. Ver
-// "LOS DOS NAMESPACES DE LOS ACCESORIOS" en core/gsis_SaveMigration.js.
+// Que el destino sea un id que EXISTE en ITEMS es la razon por la que los dos
+// nombres viejos van en esa tabla y no en una tabla de alias del catalogo: un
+// accesorio con dos nombres es un id duplicado, y el que sobra siempre es el del
+// catalogo. Ver "UN SOLO NOMBRE POR PIEZA" en core/gsis_SaveMigration.js.
 function _canonico(acc) {
     if (typeof acc !== "string" || !acc) return null;
-    return canonicalAttachmentId(renameItemId(acc));
+    return renameItemId(acc);
 }
 
 // La lista de accesorios de una entrada vieja, respaldada por el save.

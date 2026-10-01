@@ -197,7 +197,13 @@ function _snapTrunk() {
 
     return {
         titulo: t("TRK_TTL", { name: _vehicleName(vid), model: _vehicleModel(vid) }),
-        subtitulo: _subtitulo(t("TRK_HNT")),
+        // Sin subtitulo propio: el del baul lo arma la pagina con partirTituloBaul,
+        // que saca el nombre del auto de aca. Y la guia de teclas no viaja en el
+        // snapshot —la dibuja la pagina con HINT_TECLAS, que es la misma para los
+        // cinco menus. Antes aca iba un texto propio del baul ("ESPACIO: menu | 3:
+        // cerrar maletero") que ademas prometia una tecla que no hace nada con el
+        // menu abierto.
+        subtitulo: "",
         panes: [
             {
                 key: "mochila",
@@ -452,17 +458,6 @@ function _snapPickup() {
 }
 
 // ------------------------------------------------------------------ COMUN --
-
-// La segunda linea del panel, con el cierre siempre al final.
-//
-// No es cosmetico: estos menus congelan al jugador —son menus de pausa, como el
-// inventario— asi que la unica forma de salir es el Escape (o el boton de cerrar de
-// la pagina). El panel aparece en el medio de la pantalla y el pointer puede haber
-// quedado encima, y con el pointer encima las teclas son de la pagina: sin esta
-// linea, un menu congelado al jugador sin decir por que parece trabado.
-function _subtitulo(texto) {
-    return texto ? texto + "  |  " + t("MENU_HNT") : t("MENU_HNT");
-}
 
 function _round(kg) {
     return Math.round(kg * 10) / 10;

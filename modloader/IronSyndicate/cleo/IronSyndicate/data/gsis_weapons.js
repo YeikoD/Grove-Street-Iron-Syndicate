@@ -287,12 +287,6 @@ export var WEAPON_ATTACHMENTS = [
         clipSize: 8, needsVariant: false, weight: 0.2, price: 220
     },
     {
-        // RENAME PENDIENTE: el item de inventario se llama `mag_colt45_extended`
-        // en item_data, weapon_data, web_data, Items y SaveMigration. Aca se
-        // llama `mag_colt45_15` porque es el nombre del diseno final. El cambio
-        // completo, con su entrada en ITEM_RENAMES, es de la fase de saves; hasta
-        // entonces el accesorio declarado NO coincide con el item del inventario,
-        // y por eso el validador lo reporta.
         id: "mag_colt45_15", type: "magazine", name: "Cargador Colt .45 extendido",
         realWorldName: "Colt .45 extended magazine 15 rds",
         compatibleFamilies: ["colt45"],
@@ -693,63 +687,27 @@ export function getFamilyByItemId(itemId) {
 }
 
 // ============================================================================
-// COMPATIBILIDAD CON LOS NOMBRES VIEJOS
+// UN SOLO NOMBRE POR PIEZA
 // ============================================================================
-// Un accesorio se llama aca `mag_colt45_15`, que es el nombre del diseno final.
-// El item de inventario todavia se llama `mag_colt45_extended` en cinco archivos
-// (item_data, weapon_data, web_data, Items y SaveMigration) y se va a renombrar
-// en la fase de saves, con su entrada en ITEM_RENAMES.
+// Un accesorio tiene UN id, y es el mismo en las tres capas: el que declara
+// WEAPON_ATTACHMENTS, el que esta en ITEMS, el que viaja en items[] y el que se
+// guarda en equipped[slot].attachments. `mag_colt45_15` es ese id.
 //
-// Mientras tanto los dos nombres tienen que resolver a la misma pieza, o el
-// cargador deja de existir: `mag_colt45_extended` es lo que el jugador tiene en el
-// inventario y lo que el arma guarda montado, y si eso no resuelve, la
-// configuracion no se puede montar y no hay error en ninguna parte.
+// Hubo una capa de alias (`mag_colt45_extended` -> `mag_colt45_15`) que resolvia
+// los dos nombres, y una tabla `_WEAPON_DATA` que sacaba una fila extra por alias
+// para que el inventario la encontrara. Eso era una duplicacion con puente: dos
+// nombres, dos filas y dos funciones de traduccion, y el puente era el unico lugar
+// donde se podia equivocar. Se borro; los saves viejos se resuelven en la
+// migracion, con una entrada en ITEM_RENAMES.
 //
-// La clave es el nombre viejo, el valor el canonico. La resuelve getAttachmentById
-// en los dos sentidos, asi que el resto del codigo no tiene que saber que esto
-// existe. validateWeapons() avisa que el alias sigue vivo, para que no se olvide
-// sacarlo en la fase que corresponde.
-export var ATTACHMENT_ALIASES = {
-    "mag_colt45_extended": "mag_colt45_15"
-};
-
-// El id canonico de un id, sea viejo o canonico.
-export function canonicalAttachmentId(id) {
-    if (!id) return id;
-    return ATTACHMENT_ALIASES[id] || id;
-}
-
+// La regla que sale de ahi: si un accesorio tiene dos nombres, uno de los dos es
+// un id de inventario VALIDO, y por lo tanto el que hay que cambiar es el de
+// WEAPON_ATTACHMENTS o el de ITEMS, jamas agregar una tabla que los traduzca.
 export function getAttachmentById(id) {
-    var canonico = canonicalAttachmentId(id);
     for (var i = 0; i < WEAPON_ATTACHMENTS.length; i++) {
-        if (WEAPON_ATTACHMENTS[i].id === canonico) return WEAPON_ATTACHMENTS[i];
+        if (WEAPON_ATTACHMENTS[i].id === id) return WEAPON_ATTACHMENTS[i];
     }
     return null;
-}
-
-// Los ids viejos que todavia resuelve el catalogo. Para el informe de la fase.
-export function liveAttachmentAliases() {
-    var out = [];
-    for (var viejo in ATTACHMENT_ALIASES) {
-        if (!Object.prototype.hasOwnProperty.call(ATTACHMENT_ALIASES, viejo)) continue;
-        if (!getAttachmentById(viejo)) { out.push(viejo + " (el canonico " + ATTACHMENT_ALIASES[viejo] + " no existe)"); continue; }
-        out.push(viejo + " -> " + ATTACHMENT_ALIASES[viejo]);
-    }
-    return out;
-}
-
-// El nombre que el INVENTARIO usa para un accesorio. Al reves de
-// canonicalAttachmentId: el registro guarda el canonico y el inventario tiene el
-// viejo, asi que la frontera entre los dos necesita las dos direcciones.
-//
-// La usa el cinturon: items:swapMagazine compara contra los ids que HAY en el
-// inventario, no contra los de la tabla de variantes.
-export function inventoryAttachmentId(canonico) {
-    for (var viejo in ATTACHMENT_ALIASES) {
-        if (!Object.prototype.hasOwnProperty.call(ATTACHMENT_ALIASES, viejo)) continue;
-        if (ATTACHMENT_ALIASES[viejo] === canonico) return viejo;
-    }
-    return canonico;
 }
 
 // ============================================================================
@@ -785,15 +743,16 @@ export function familyForType(weaponType) {
 // lo que hace que la decision sea revisable.
 export var TIPOS_VANILLA_NO_ADOPTABLES = { 22: true, 23: true };
 
-// Los cargadores que acepta una familia, en los ids que USA EL INVENTARIO.
-// Es la lista que se le pasa a items:swapMagazine.
+// Los cargadores que acepta una familia, en el MISMO id que usa el inventario.
+// Es la lista que se le pasa a items:swapMagazine, que compara contra los ids que
+// HAY en items[]: por eso no hay ningun paso de conversion ni antes ni despues.
 export function magazineIdsFor(family) {
     var out = [];
     for (var i = 0; i < WEAPON_ATTACHMENTS.length; i++) {
         var a = WEAPON_ATTACHMENTS[i];
         if (a.type !== "magazine") continue;
         if (a.compatibleFamilies.indexOf(family) === -1) continue;
-        out.push(inventoryAttachmentId(a.id));
+        out.push(a.id);
     }
     return out;
 }
@@ -807,6 +766,63 @@ export function mountedMagazineOf(family, attachments) {
         if (a && a.type === "magazine") return a.id;
     }
     return null;
+}
+
+// El cargador PROPIO de la familia: el de `needsVariant: false`, o sea el que ya
+// venia en el arma y con el que el arma sin cargador extendido ya esta
+// configurada.
+//
+// POR QUE ESTA FUNCION EXISTE
+// ---------------------------
+// El cargador de fabrica NO esta en `attachments`. Montarlo no cambia el
+// weaponType, asi que la variante base se declara con la lista VACIA y no hay
+// ningun campo que diga "el arma tiene el cargador de fabrica puesto".
+//
+// Sin ese campo, el cargador de fabrica que esta DENTRO del arma no lo representa
+// nadie. Y ahi se pierden cosas, en las dos direcciones:
+//
+//   base -> extendido   el arma tinha N balas en su cargador de fabrica. Al
+//                       montar el extendido, ese cargador sale del arma y no
+//                       tiene donde ir. Las N balas desaparecen.
+//   extendido -> base   al volver a la base, el cargador de fabrica "aparece" en
+//                       el arma con las balas que le pase el cinturon, que ya
+//                       estan cargadas en otro lado. Las balas quedan en dos
+//                       lugares a la vez.
+//
+// MEDIDO el 30/09, con cinturon [mag_colt45(8), mag_colt45_15(15)]: la R iba de
+// 23 balas a 15, y en el sentido contrario el cargador de 8 se multiplicaba.
+//
+// QUE LO DEVUELVE ESTO
+// -------------------
+// Con esto, la R pasa a ser UN intercambio en las dos direcciones: el cargador
+// que entra sale del cinturon y el que estaba en el arma vuelve a su casilla, y
+// las balas van con la pieza que las tenia. Ni se crean ni se pierden.
+//
+// Se DERIVA de los accesorios en vez de declararse en WEAPON_FAMILIES porque es
+// una propiedad de los datos y no del arma: si se declarara en la familia, un
+// cargador de fabrica nuevo compatible habria que declararlo en DOS lugares, y
+// divergir entre los dos es la forma de que el cargador exista en el cinturon y
+// no en el arma.
+//
+// Y una familia con DOS cargadores de fabrica daria un resultado distinto del que
+// el jugador espera, asi que eso lo comprueba validateWeapons().
+export function factoryMagazineOf(family) {
+    var out = null;
+    for (var i = 0; i < WEAPON_ATTACHMENTS.length; i++) {
+        var a = WEAPON_ATTACHMENTS[i];
+        if (a.type !== "magazine") continue;
+        if (a.needsVariant !== false) continue;
+        if (a.compatibleFamilies.indexOf(family) === -1) continue;
+        // El segundo no pisa al primero: se avisa en validateWeapons().
+        if (out === null) out = a.id;
+    }
+    return out;
+}
+
+// Todas las familias tienen un cargador de fabrica, entonces `mountedMagId` casi
+// nunca es null. Es un atajo para la R, que siempre tiene algo que devolver.
+export function mountedMagazineIdOf(family, attachments) {
+    return mountedMagazineOf(family, attachments) || factoryMagazineOf(family);
 }
 
 // Un accesorio cualquiera (un silenciador) compatible con esta familia.
@@ -1179,6 +1195,31 @@ export function validateWeapons() {
         if (fam.baseClip === null || fam.baseClip === undefined) {
             problemas.push("la familia " + fam.family + " no declara baseClip");
         }
+
+        // Un cargador de fabrica por familia, como maximo.
+        //
+        // factoryMagazineOf() devuelve EL cargador propio de la familia, y con dos
+        // devolveria el primero que encuentre en la tabla. Que uno de los dos sea el
+        // correcto y el otro no se puede adivinar, asi que la R devolveria al
+        // cinturon un cargador que el jugador no tiene.
+        //
+        // Que se compruebe aca y no en el recarga es por la misma razon que todo lo
+        // demas: es un error del DATO, se ve sin arrancar el juego, y no depende de
+        // que el jugador llegue a tener esa familia equipada.
+        var deFabrica = [];
+        for (var af = 0; af < WEAPON_ATTACHMENTS.length; af++) {
+            var at = WEAPON_ATTACHMENTS[af];
+            if (at.type !== "magazine" || at.needsVariant !== false) continue;
+            if (at.compatibleFamilies.indexOf(fam.family) !== -1) deFabrica.push(at.id);
+        }
+        if (deFabrica.length === 0) {
+            problemas.push("la familia " + fam.family + " no tiene cargador de fabrica. " +
+                "Sin el, el cargador propio del arma no tiene id y la recarga pierde sus balas");
+        } else if (deFabrica.length > 1) {
+            problemas.push("la familia " + fam.family + " tiene " + deFabrica.length +
+                " cargadores de fabrica (" + deFabrica.join(", ") + "). Solo puede haber uno: " +
+                "factoryMagazineOf() devolveria el primero de la tabla, que puede ser el incorrecto");
+        }
     }
 
     for (var i = 0; i < WEAPON_VARIANTS.length; i++) {
@@ -1429,9 +1470,10 @@ export var LEGACY_IS_LONG = {
     mag_rpg: true, mag_heat_seeker: true, mag_flamethrower: true, mag_minigun: true
 };
 
-// --- 2. los nombres viejos de los accesorios, resuelto por el alias ---------
-// Ver ATTACHMENT_ALIASES, mas arriba. Lo saca la migracion de saves, junto con
-// ITEM_RENAMES.
+// --- 2. los nombres viejos de los accesorios --------------------------------
+// No hay tabla de alias: un accesorio tiene un solo id, y el que tienen los saves
+// viejos se resuelve en ITEM_RENAMES (core/gsis_SaveMigration.js), que es donde
+// viven los nombres viejos.
 //
 // Y YA NO ESTA EL PUENTE DE LOS weaponType. `LEGACY_WEAPON_TYPES` (22 -> colt45)
 // existia para que getWeaponByWeaponId(22) siguiera contestando la Colt, y sin el
@@ -1483,19 +1525,16 @@ function _legacyFamilyRow(fam, weaponIdOverride) {
         modelId: base ? base.modelId : null,
         clipSize: fam.baseClip
     };
-    // Los cargadores del arma, en el orden de la tabla de accesorios, con el
-    // nombre VIEJO cuando el accesorio tiene alias.
-    //
-    // Y con nombre viejo a proposito: `magIds` es lo que Ballistic usa para
-    // elegir que cargador montar y para rellenar el `magId` del registro, y el
-    // inventario todavia guarda `mag_colt45_extended`. Si esta lista devolviera
-    // el nombre nuevo, el cargador que devuelve el arma no existiria en el
-    // inventario y la recarga no tendria con que cambiar. Ver ATTACHMENT_ALIASES.
+    // Los cargadores del arma, en el orden de la tabla de accesorios. El id es el
+    // MISMO que usan WEAPON_ATTACHMENTS y el inventario, sin traduccion: `magIds` es
+    // lo que Ballistic usa para elegir que cargador montar y para rellenar el
+    // `magId` del registro, y si devolviera otro nombre el cargador que devuelve el
+    // arma no existiria en el inventario y la recarga no tendria con que cambiar.
     var mags = [];
     for (var i = 0; i < WEAPON_ATTACHMENTS.length; i++) {
         var a = WEAPON_ATTACHMENTS[i];
         if (a.type === "magazine" && a.compatibleFamilies.indexOf(fam.family) !== -1) {
-            mags.push(_idVivoDe(a.id));
+            mags.push(a.id);
         }
     }
     r.magIds = mags;
@@ -1503,18 +1542,8 @@ function _legacyFamilyRow(fam, weaponIdOverride) {
     return r;
 }
 
-// El nombre que el INVENTARIO usa para un accesorio: el viejo si tiene alias,
-// el canonico si no.
-function _idVivoDe(canonico) {
-    for (var viejo in ATTACHMENT_ALIASES) {
-        if (!Object.prototype.hasOwnProperty.call(ATTACHMENT_ALIASES, viejo)) continue;
-        if (ATTACHMENT_ALIASES[viejo] === canonico) return viejo;
-    }
-    return canonico;
-}
-
 function _legacyAttachmentRow(att) {
-    var id = _idVivoDe(att.id);
+    var id = att.id;
     return {
         itemId: id,
         name: att.name,
@@ -1549,17 +1578,9 @@ var _WEAPON_DATA = (function () {
             family: null
         });
     }
-    // Una fila mas por cada id viejo, para que el inventario que todavia usa el
-    // nombre viejo lo encuentre. Misma pieza, dos nombres, y Phase 4 saca la vieja.
-    for (var alias in ATTACHMENT_ALIASES) {
-        if (!Object.prototype.hasOwnProperty.call(ATTACHMENT_ALIASES, alias)) continue;
-        var att = getAttachmentById(alias);
-        if (!att) continue;
-        var fila = _legacyAttachmentRow(att);
-        fila.itemId = alias;
-        fila.legacyAliasOf = att.id;
-        out.push(fila);
-    }
+    // Una fila por familia, una por accesorio, una por armadura. El id de cada
+    // fila es el MISMO id que declara la tabla: la vista legada no traduce nada,
+    // porque no hay nada que traducir.
     return out;
 })();
 
@@ -1718,10 +1739,9 @@ export function hasLongWeapon(items) {
 // ============================================================================
 // REPORTES, QUE NO SON FALLOS
 // ============================================================================
-// Lo que sigue esta bien que este como este, y son las tres listas de trabajo de
-// las fases que siguen. No van en validateWeapons(), que devuelve fallos: un
-// alias vivo es lo correcto hasta que se renombre el item, y una variante de
-// plugin pendiente es una decision que todavia no se tomo.
+// Lo que sigue esta bien que este como este, y son las listas de trabajo de las
+// fases que siguen. No van en validateWeapons(), que devuelve fallos: una variante
+// de plugin pendiente es una decision que todavia no se tomo.
 //
 // Que se calculen y no se escriban a mano es lo que los hace confiables: si
 // manana se declara una variante, mag_ak47_drum desaparece de la lista solo.
@@ -1733,7 +1753,6 @@ export function pluginSlotUsage() {
 
 export function pendingDataWork() {
     return {
-        aliases: liveAttachmentAliases(),
         tiposDePluginFaltantes: pendingPluginTypes(),
         accesoriosNoMontables: attachmentsWithoutVariant().filter(function (x) { return !x.sePuedeMontar; })
     };
