@@ -878,43 +878,58 @@ function emitCommand(payload) {
 }
 
 // Que accion corresponde lo decide la pagina segun el tipo de item. El modulo
-// es el que valida: si el item no existe o no se puede equipar, equipWeapon lo
-// dice por su cuenta y la pagina se entera porque el snapshot vuelve sin el.
+// es el que valida: si el item no existe o no se puede equipar, equipar() lo dice
+// por su cuenta y la pagina se entera porque el snapshot vuelve sin el.
 //
-// Un cargador no se equipa: su accion es al cinturon. Un material no tiene
-// ninguna. Devuelve null cuando la fila no admite la accion pedida, para que
-// el keycap no tenga que inventar un resultado.
+// Un cargador no se equipa: su accion es recargar. Un material no tiene ninguna.
+// Devuelve null cuando la fila no admite la accion pedida, para que el keycap no
+// tenga que inventar un resultado.
 function actionFor(r, what) {
   if (!r) return null;
 
-  // LAS CINCO ACCIONES DE ARMAS SE FUERON CON EL SISTEMA
+  // LAS TRES ACCIONES DE ARMAS
   // -------------------------------------------
-  // Antes esta funcion armaba cinco payloads que ya no tienen a quien atenderlos:
+  //   equip     { cmd: "inv:equip", id }        un arma de la mochila
+  //   unequip   { cmd: "inv:unequip", slot }    la fila del arma equipada
+  //   reload    { cmd: "inv:reload" }           un cargador
   //
-  //   inv:equip      equipar un arma del inventario
-  //   inv:unequip    sacarla de vuelta
-  //   inv:mount      montar un accesorio sobre el arma equipada
-  //   inv:unmount    sacarlo
-  //   inv:belt       poner un cargador en el cinturon
-  //   inv:belt:off   sacarlo del cinturon
+  // LAS TRES COSAS QUE NO PUEDE SABER LA PAGINA, Y QUE POR ESO NO PREGUNTA
+  // ---------------------------------------------------------------------------
+  // 1. Que cargador le sirve a que arma. El modulo lo sabe (cargadorDe) y la pagina
+  //    no tiene el catalogo. Por eso recargar no lleva id: el modulo mira el arma
+  //    de la mano y saca el cargador que le corresponde.
   //
-  // Los `case` correspondientes se borraron de modules/ui/commands.js. Esta
-  // pagina no los borra de ACCIONES porque un `aplica` que devuelve null ya
-  // hace que la accion NO aparezca: el filtro es la misma cosa que una guarda,
-  // y es lo que evita el peor sintoma —un boton visible que viaja al mod y no
-  // vuelve con nada.
+  // 2. Si el arma esta llena. `aplica` no puede saberlo y el boton aparece igual:
+  //    recargar un arma llena no hace nada y no gasta cargador, porque el modulo
+  //    corta antes de tocar el inventario. Un boton que a veces no hace nada es
+  //    mejor que uno que aparece y desaparece segun un dato que cambia cada frame.
   //
-  // Lo que queda es lo que el inventario sigue entendiendo: tirar. Y las tres
-  // ramas que se conservan sin cambio son las de `r.equipado`, que hoy siempre
-  // es false porque el modulo ya no manda filas equipadas —pero el codigo no
-  // depende de eso para ser correcto.
-
-  // Un apilado se tira entero por su id y por su cantidad. Un item
-  // instanciado —cuando vuelva a haber uno— se tiraria de a uno, y por eso
-  // la cantidad la decide el modulo y no la pagina.
-  if ((r.qty || 1) > 1) {
-    return what === "drop" ? { cmd: "inv:drop", id: r.id, qty: r.qty || 1 } : null;
+  // 3. Si el cargador tiene balas. Esta fila muestra su municion en la columna, y
+  //    el modulo corta con un aviso si esta en cero. Que la fila se entere sola es
+  //    un problema de distribucion que se resuelve con el aviso, no con una
+  //    predicado que hay que mantener sincronizada con el modulo.
+  //
+  // LO QUE NO VUELVE: montar y sacar accesorios, y el cinturon. No hay accesorios
+  // en el catalogo y el cinturon se decidio no hacerlo: el cargador sale del
+  // inventario directo con la R.
+  if (r.equipado) {
+    // Una fila equipada no esta en items[], asi que no puede tirar ni volver a
+    // equiparse. Y no tiene cargador propio: su cargador esta dentro del arma, y
+    // lo que se ve en la celda de municion son las balas que le quedan.
+    if (what === "unequip") return { cmd: "inv:unequip", slot: r.slot };
+    if (what === "drop") return null;
+    return null;
   }
+
+  // Un apilado se tira entero por su id y por su cantidad. Un item instanciado se
+  // tira de a uno, y por eso la cantidad la decide el modulo y no la pagina.
+  if ((r.qty || 1) > 1) {
+    if (what === "drop") return { cmd: "inv:drop", id: r.id, qty: r.qty || 1 };
+    return null;
+  }
+
+  if (what === "equip" && r.cat === "weapon") return { cmd: "inv:equip", id: r.id };
+  if (what === "reload" && r.cat === "magazine") return { cmd: "inv:reload" };
   if (what === "drop") return { cmd: "inv:drop", id: r.id };
   return null;
 }
@@ -952,6 +967,23 @@ function actionFor(r, what) {
 // pase por actionFor es posible —basta un run() propio— pero entonces el
 // modulo tiene que saber leerla del otro lado.
 const ACCIONES = [
+  {
+    id: "equip",
+    label: "Equipar",
+    aplica: (r) => !!actionFor(r, "equip")
+  },
+  {
+    id: "reload",
+    label: "Recargar",
+    sep: true,
+    aplica: (r) => !!actionFor(r, "reload")
+  },
+  {
+    id: "unequip",
+    label: "Quitar",
+    sep: true,
+    aplica: (r) => !!actionFor(r, "unequip")
+  },
   {
     id: "drop",
     label: "Tirar",

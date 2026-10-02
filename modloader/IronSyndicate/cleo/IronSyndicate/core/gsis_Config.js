@@ -15,10 +15,20 @@ export var KEYS = {
     INVENTORY: 73,      // I — menu inventario
     SAVE: 116,          // F5 — guardar partida
     DEBUG_ITEM: 76,     // L — debug: agregar item
+    // G — debug: dar el arma de pruebas del sistema de armas (modules/weapons/gsis_Weapons.js)
+    // El 71 es el codigo de teclado virtual de la G. Es una tecla de debug: no la
+    // maneja el juego, no esta en el contrato de los menus de la UI, y si algun
+    // dia choca con algo se cambia la de ahi y en ningun otro lado.
+    DEBUG_WEAPON: 71,
     BAG: 80,            // P — toggle bolso visual
-    // NO hay tecla RELOAD. La R (82) cambiaba el cargador del cinturon y hacia
-    // falta en el sistema de armas, que se borro. La tecla queda libre: el 82
-    // vuelve a ser una tecla normal del juego.
+    // R — recargar. Es la tecla que usa "Reload Mod", que es el mod del que sale
+    // la secuencia de animacion. El 82 es su codigo de teclado virtual.
+    //
+    // No compite con la recarga del juego: el motor mueve balas del total al
+    // clip, y con el invariante de modules/weapons/ammo.js el total ES el clip,
+    // asi que la recarga del juego no tiene nada que mover. La R es la unica que
+    // recarga de verdad, y consume un cargador del inventario.
+    RELOAD: 82,
     ESC: 27,            // ESC — cierra cualquier menu de la UI web (modules/ui/index.js)
 
     // ============================================================================
@@ -170,15 +180,61 @@ export var ACTOR_ANIMS = {
     TICK_MS: 200            // polling de cola pending
 };
 
-// Audio seco (click al apretar disparo con arma sin balas) — modules/gsis_FireButton.js
-// DRYFIRE_PATH: camino relativo a la raiz del juego; modloader monta
-// modloader/IronSyndicate/sounds/dryfire.wav como sounds/dryfire.wav
-export var AUDIO = {
-    DRYFIRE_PATH: "sounds/dryfire.wav", // wav del click seco (modloader)
-    DRYFIRE_VOLUME: 0.8               // factor sobre la posicion de la camara (0xB5FCCC)
+// Armas — modules/weapons/
+//
+// EL RANGO DE TIPOS DEL PLUGIN
+// 60..79 es la franja libre de eWeaponType, y es libre SOLO porque fastman92 Limit
+// Adjuster esta apagado: con el prendido, 60 y 61 pasan a ser JETPACK_TYPE y
+// BINOCULARS_TYPE, y 70..79 caen fuera de NumberOfWeaponTypes. Es una
+// precondicion del .asi, no una preferencia; el .asi la exige en su DllMain antes
+// de leer gsis_weapons.dat.
+//
+// Vive aca y no en data/ porque NO es una tabla del mod: es el acuerdo con
+// gsisWeaponLimiter.asi sobre que numeros son suyos. Los numeros de cada tipo
+// —su padre, su modelo, su slot y su cargador— estan en gsis_weapons.dat, que el
+// .asi lee y el mod no abre. Ver "LO QUE NO SE BORRA, Y POR QUE ESTA EN EL DISCO"
+// en SPECIAL_MODELS, abajo.
+//
+// Y el rango no lo usa el modulo para decidir que arma existe: lo usa para
+// distinguir "este tipo es mio" de "este tipo es del juego". La capacidad de cada
+// tipo NO sale de ahi: se lee del motor con Engine.clipCapacityOf, porque la
+// escribio el .asi y no el catalogo.
+export var WEAPONS = {
+    PLUGIN_TYPE_MIN: 60,
+    PLUGIN_TYPE_MAX: 79,
+
+    // El arma de pruebas del paso 1: la fila 63 de gsis_weapons.dat, la Colt .45
+    // pelada —padre 22, modelo 346 de vanilla, cargador de 8—. Se elige esa y no
+    // otra porque es la unica del rango que se ve exactamente igual que una arma
+    // de vanilla: si algo sale mal, no se sabe si fallo el modelo o fallo el arma.
+    //
+    // El numero no esta en el catalogo a proposito. El catalogo de armas del mod
+    // —familias, accesorios, variantes— es un paso siguiente, y esta fila esta
+    // escrita en el .dat desde antes: repetirla aca seria la segunda copia de un
+    // dato, que es la clase de bug que produjo el tambor de 75 recortado a 30.
+    ARMA_PRUEBA_TIPO: 63
 };
 
-// Idioma por defecto (sin switch en runtime): "es" | "en"
+// Martillo seco (disparo con el arma vacia) — modules/gsis_FireButton.js
+//
+// SEGUNDO INTENTO: AHORA ES UN STREAM 2D (0x0AAC LOAD_AUDIO_STREAM) y no un 3D.
+//
+// El 3D (0x0AC1) no se descarta por la API sino por lo que hay que hacerle: un
+// stream 3D necesita su POSICION (SET_PLAY_3D_AUDIO_STREAM_AT_CHAR) y despues se
+// atenua con la distancia. Para un martillo seco eso son dos pasos que no
+// aportan nada: el 2D suena igual desde donde lo dispares.
+//
+// LA RUTA ES UN RUTA REAL. ModLoader instala lo que tiene handler (.asi, .txt,
+// .fxt, .dff, .txd, .cs) y de .wav NO tiene, asi que en modloader.log dice
+// "No handler or callme" y el archivo no se copia a la raiz. El opcode 0x0AAC no
+// pasa por ModLoader: abre el archivo del disco, relativo a la raiz del juego.
+// Por eso el mod "Mantener armas sin balas" trae su .wav junto al script.
+export var AUDIO = {
+    DRYFIRE_PATH: "modloader/IronSyndicate/sounds/dryfire.wav",
+    DRYFIRE_VOLUME: 0.8               // factor sobre el volumen general del juego
+};
+
+// Idioma por defecto (sin switch in runtime): "es" | "en"
 export var LANG = {
     DEFAULT: "es"
 };

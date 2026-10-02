@@ -33,26 +33,11 @@ import "./IronSyndicate/modules/gsis_WeaponSeller.js";
 // asi que va despues de los modulos que los calculan (Trunk / WeaponDealer /
 // DealerPickup / WeaponSeller) y antes de FireButton, que depende de Items.
 import "./IronSyndicate/modules/ui/index.js";
-
-// NO hay modulo de armas. Modules/weapons/ se borro entero, con el registro de
-// equipping, las variantes con weaponType propio, los cargadores instanciados y el
-// reconciliador que los comparaba con el save del juego. Y en su lugar no hay un
-// import, porque un import a un archivo que no existe es un modulo que no arranca.
-//
-// El hueco que deja, y que es lo unico que hay que saber:
-//
-//   FUE        equipar, desequipar, montar y sacar accesorios, cambiar el cargador
-//              con la R, la animacion de recarga y el reconciliador por frame
-//   DEJO       los comandos inv:equip / inv:unequip / inv:mount / inv:unmount /
-//              inv:belt:off, la franjita de ARMAS y CARGADORES equipados en el
-//              inventario, el cinturon de cargadores, y las cuatro filas de la
-//              tabla de armas con sus categorias y sus precios
-//   SIGUE      el boton de disparo de gsis_FireButton.js, que es del juego y no
-//              del mod: GTA sigue dando sus propias armas por su cuenta
-//
-// Y lo que NO se borro, porque no era del sistema de armas: el dealer y el vendedor
-// siguen siendo modulos, con su esfera, su menu y su carrito, y no tienen mercaderia.
-// Ver los headers de gsis_WeaponDealer.js y gsis_WeaponSeller.js.
+// Va antes de FireButton por una sola razon: FireButton decide si el boton de
+// disparo esta activo mirando el clip y el total del arma en la mano, y los dos
+// los escribe este modulo. Ver modules/weapons/gsis_Weapons.js, que es donde esta
+// escrito que hace y que no hace todavia.
+import "./IronSyndicate/modules/weapons/gsis_Weapons.js";
 import "./IronSyndicate/modules/gsis_FireButton.js";
 
 log("========Grove Street Iron Syndicate=========");

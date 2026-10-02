@@ -46,6 +46,7 @@
 // modulo no valida, su respuesta seria la de hace un snapshot. Este archivo
 // traduce, no decide.
 import { removeItem } from "../inventory/index.js";
+import { equipar, desequipar, recargar } from "../weapons/gsis_Weapons.js";
 import { putInTrunk, takeFromTrunk } from "../gsis_Trunk.js";
 import { addToCart, removeFromCart, resetCart, checkout } from "../gsis_WeaponDealer.js";
 import { doOffer, moveOffer } from "../gsis_WeaponSeller.js";
@@ -138,23 +139,49 @@ export function handleCommand(cmd, ui) {
 
             // --- INVENTARIO ---
             //
-            // Los cinco comandos de armas que hubo aca se fueron con el sistema:
+            // Los cinco comandos de armas que hubo aca se fueron con el sistema y
+            // tres vuelven ahora, con el mismo contrato y un nombre menos:
             //
-            //   inv:equip      equipar un arma del inventario a un slot de GTA
-            //   inv:unequip    sacarla de vuelta al inventario
-            //   inv:mount      montar un accesorio sobre el arma equipada
-            //   inv:unmount    sacarlo
-            //   inv:belt:off   devolver un cargador del cinturon a la mochila
+            //   inv:equip      sacar un arma del inventario y ponerla en la mano
+            //   inv:unequip    sacarla de la mano y devolverla
+            //   inv:reload     meterle un cargador del inventario
             //
-            // Sus dos mitades quedaron sin contraparte: no hay slot de arma al que
-            // equipar (era GameState.Ballistic, que solo escribia el modulo de
-            // armas) ni cinturon de cargadores. Un `case` que responde false es
-            // peor que no tenerlo: el boton de la pagina sigue ahi, el comando
-            // viaja y el click no hace nada sin que nada diga por que.
+            // EL CONTRATO: la pagina manda un ID DE ITEM, nunca un weaponType ni un
+            // estado. `inv:unequip` manda el slot porque la fila equipada sabe el
+            // suyo y la pagina lo ve en `r.slot`; las otras dos solo necesitan el
+            // id. Quien sabe el estado —el weaponType, la capacidad— es el modulo de
+            // armas, que lo lee del motor.
             //
-            // Por eso se BORRAN y no se dejan rechazando: los que quedan abajo son
-            // los que el inventario sigue entendiendo, y la pagina deja de
-            // ofrecer los otros porque su `actionFor()` ya no los construye.
+            // Y ningun `case` loguea a ciegas: mira el retorno antes de decir que
+            // lo hizo. Un log que afirma una accion que no ocurrio manda a
+            // investigar el archivo equivocado, y esa fue la clase de bug mas cara
+            // de la sesion del armado.
+            case "inv:equip":
+                if (!id) return false;
+                if (!equipar(id)) {
+                    log("[UI] equipar fallo: " + id);
+                    return false;
+                }
+                log("[UI] equipar: " + id);
+                return true;
+
+            case "inv:unequip":
+                if (cmd.slot === undefined || cmd.slot === null) return false;
+                if (!desequipar(parseInt(cmd.slot, 10))) {
+                    log("[UI] desequipar fallo: slot " + cmd.slot);
+                    return false;
+                }
+                log("[UI] desequipar: slot " + cmd.slot);
+                return true;
+
+            case "inv:reload":
+                // No lleva id: recargar no es una accion sobre una fila, es una
+                // accion sobre el arma de la mano. El modulo ve que cargador le
+                // sirve y lo saca del inventario.
+                if (!recargar()) return false;
+                log("[UI] recargar");
+                return true;
+
             case "inv:drop":
                 if (!id) return false;
                 // qty viene del boton "tirar": 1 por defecto, o lo que pida la

@@ -65,6 +65,21 @@ export var STRINGS = {
         en: "~g~+1 9mm, +5 scrap, +1 magazine"
     },
 
+    // --- Armas ---
+    //
+    // "Un cargador con balas", y no "un cargador": la diferencia es que el jugador
+    // puede tener el cargador delante y ver que esta vacio. Un aviso que dice "no
+    // tenes cargador" con uno de cero en la mochila es un aviso que el jugador
+    // busca y no encuentra, y por eso el texto dice lo que falta.
+    WPN_NOMAG: {
+        es: "~r~No tenes un cargador con balas",
+        en: "~r~You have no magazine with bullets"
+    },
+    WPN_LLENO: {
+        es: "~y~El cargador ya esta lleno",
+        en: "~y~The magazine is already full"
+    },
+
     // --- Maletero ---
     TRK_FUL: {
         es: "~r~Maletero lleno (libre {free} kg, necesitas {need} kg)",

@@ -67,6 +67,7 @@ import { getModuleData, setModuleData } from "../../core/gsis_SaveManager.js";
 import { MISC } from "../../core/gsis_Config.js";
 import { t } from "../../core/gsis_L10n.js";
 import { ITEMS, SALUD_MAX, clampSalud, isInstanced } from "../../data/gsis_item_data.js";
+import { municionDeFabrica } from "../../data/gsis_weapons.js";
 import {
     SAVE_KEY, getItems, getTotalWeight, ensureTrunks, getTrunkMaxCapacity
 } from "./state.js";
@@ -97,9 +98,19 @@ export function addItem(id, qty, opts) {
     if (!data.items) data.items = [];
 
     // Instancias (una fila por unidad, sin stack)
+    //
+    // `ammo` se escribe SIEMPRE, tambien en cero. Es lo que distingue una fila de
+    // arma desnuda de una fila de cargador vacio, y sin el campo el cargador
+    // partiria indistinguible de uno nuevo. Lo decide data/gsis_weapons.js: un arma
+    // nace con 0 y un cargador con las balas que trae de fabrica.
     if (isInstanced(id)) {
         for (var m = 0; m < qty; m++) {
-            data.items.push({ id: id, qty: 1, salud: SALUD_MAX });
+            data.items.push({
+                id: id,
+                qty: 1,
+                salud: SALUD_MAX,
+                ammo: municionDeFabrica(id)
+            });
         }
         setModuleData(SAVE_KEY, data);
         return true;

@@ -872,10 +872,29 @@ export function rawKeyDown(vk) {
 // por un fallback mal hecho, y despues un edit borro la funcion sin borrar la
 // llamada, dejando keyJustPressed() tiranto 'readJustPressed is not defined' en
 // todos los hotkeys del mod.
+//
+// EL CATCH AVISA UNA VEZ, Y DICE ALCANCE
+// ---------------------------------------------------------------------------
+// Un catch que devuelve false sin decir nada convierte "este runtime no tiene el
+// metodo" en "el jugador no aprieto la tecla". Los dos sintomas son el mismo —no
+// pasa nada— y el segundo hace perder una sesion entera buscando el hotkey
+// equivocado. Ya paso: la G del modulo de armas no hacia nada, sin un error en
+// ningun log.
+//
+// Y el aviso nombra a TODOS los hotkeys, no a la tecla que lo provoco, porque es
+// lo que es: readJustPressed() es comun. Si este runtime no responde, no
+// funciona la I, ni la L, ni la barra, ni la R del paso que viene.
+var _justPressedFalla = false;
 function readJustPressed(vk) {
     try {
         return Pad.IsKeyJustPressed(vk) === true;
     } catch (e) {
+        if (!_justPressedFalla) {
+            _justPressedFalla = true;
+            log("[Input] WARN: Pad.IsKeyJustPressed no respondio (VK " + vk + "): " +
+                (e && e.message ? e.message : e) +
+                ". ES COMPARTIDO: ningun hotkey del mod puede funcionar hasta que se arregle.");
+        }
         return false;
     }
 }

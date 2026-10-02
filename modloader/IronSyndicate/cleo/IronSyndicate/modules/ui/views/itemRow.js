@@ -51,6 +51,7 @@
 import {
     getItemName, getItemWeight, getItemType, clampSalud, isInstanced
 } from "../../../data/gsis_item_data.js";
+import { capacidadDeclarada } from "../../../data/gsis_weapons.js";
 
 // --------------------------------------------------------------------------- //
 // LA MUNICION Y EL VALOR
@@ -59,35 +60,37 @@ import {
 // armas, y que hoy tienen una respuesta sola.
 //
 // --------------------------------------------------------------------------- //
-// LA MUNICION: POR QUE NO HAY DENOMINADOR
+// LA MUNICION: "N" EN UN ARMA Y "N/CAP" EN UN CARGADOR
 // --------------------------------------------------------------------------- //
-// La celda de municion era "N/cap", y el denominador salia de DOS fuentes:
+// El denominador sale del CARGADOR y no del arma, y no es una decision de la fila:
+// es donde esta el dato. `clipSize` es del cargador (un cargador de 5 para un arma
+// de 8 trae 5), mientras que la capacidad de un arma la escribe el .asi y el mod
+// la LEE con Engine.clipCapacityOf. Copiarla aca seria la segunda copia que produjo
+// el cargador de 15 que terminaba en 8.
 //
-//   la fila trae family + attachments   -> resolveWeaponType() -> perfil
-//   la fila no trae nada                 -> getClipSizeByItemId(it.id)
+// En un arma la celda queda en "N" a secas. El tope exacto esta en el HUD del
+// juego y en la fila del arma equipada, que si la arma y si la muestra.
 //
-// Hacian falta dos porque un arma con silenciador y cargador de 15 es el MISMO item
-// de inventario que una pelada: la capacidad no estaba en el id, estaba en la
-// configuracion. Y equivocarse en la segunda era un bug de la UI, no de la tabla:
-// un arma de 15 balas con un id que dice 8 muestra "8/8" cuando esta llena.
-//
-// Sin armas no hay de donde sacar ninguna de las dos, y la respuesta NO es 0: un 0
-// es "el cargador tiene capacidad cero", que es un numero. Lo que hay es "este item
-// no tiene municion", y eso es un null que la pagina pinta con guion.
-
-export function ammoCell(it, esVivo) {
+// Y null para lo que no es de armas: un material no tiene municion, y null es un
+// guion en la pagina. Un 0 seria "tiene cero balas", que es otra cosa.
+export function ammoCell(it) {
+    var n = it.ammo || 0;
+    var cap = capacidadDeclarada(it.id);
+    if (cap > 0) return n + "/" + cap;
+    if (isInstanced(it.id)) return String(n);
     return null;
 }
 
 // --------------------------------------------------------------------------- //
 // EL VALOR: POR QUE NO HAY PRECIO
 // --------------------------------------------------------------------------- //
-// Era getMagValue() para un cargador —que valia mas lleno que vacio— y
-// getSellPrice() para el resto, y los dos salian de la tabla de armas. Sin precios
-// de mercado no hay valor que mostrar.
+// La tabla nueva trae un precio BASE (ARMAS.precio, CARGADORES.precio), que es lo
+// que usan el dealer y el vendedor. Lo que no hay es un VALOR DE MERCADO: el
+// precio de reventa dependia de la calidad del cargador, y esa regla no existe.
 //
-// Y null en vez de 0 a proposito: un 0 en la columna Valor se lee como "gratis", y
-// no saber el valor de mercado es otra cosa.
+// Y null en vez de un numero a proposito: una columna Valor que no se sabe quien la
+// pone se llena de numeros inventados. El precio de compra va en el carrito del
+// dealer, que es donde el jugador lo ve.
 export function valueCell(it) {
     return null;
 }
@@ -101,23 +104,26 @@ export function valueCell(it) {
 // celda lo pinta igual, asi que la fila nunca queda con un hueco que el jugador
 // lea como "esto no tiene salud" cuando en realidad esta nuevo.
 //
-// esVivo, family, attachments y hasMag: los cuatro campos que con el sistema de
-// armas describian la CONFIGURACION de un arma equipada. Se conservan tal cual
-// viaja la fila —solo si el dato viene— porque son parte del contrato entre el
+// `ammo` sale de la fila cruda. La fila del arma EQUIPADA la arma
+// equipadasSnap() en views/inventory.js, que le pasa la capacidad del motor y por
+// eso puede pintar "8/8" donde esta fila pinta "3".
+//
+// family, attachments y hasMag: los tres campos que con el sistema de armas
+// describian la CONFIGURACION de un arma equipada. Se conservan tal cual viaja la
+// fila —solo si el dato viene— porque son parte del contrato entre el
 // serializador y la pagina, y porque un campo que se documenta y no se entrega es
 // peor que uno que no se menciona: el que lo usa se entera cuando lo usa.
 //
-// Con el catalogo sin armas, ninguna fila los trae: `family` queda sin poner, y
-// `attachments`/`hasMag` tambien. No es que la pagina pueda recibirlos, es que no
-// hay quien los mande.
-export function itemRow(it, esVivo) {
+// Hoy nadie los manda: el catalogo no tiene accesorios y una configuracion es solo
+// un cargador. No es que la pagina no pueda recibirlos, es que no hay quien los mande.
+export function itemRow(it) {
     var w = getItemWeight(it.id) * (it.qty || 1);
     var row = {
         id: it.id,
         cat: getItemType(it.id),
         name: getItemName(it.id),
         qty: it.qty || 1,
-        ammo: ammoCell(it, esVivo),
+        ammo: ammoCell(it),
         salud: clampSalud(it.salud),
         weight: Math.round(w * 100) / 100,
         value: valueCell(it),
@@ -152,11 +158,11 @@ export function tipFor(it) {
         parts.push(it.qty + " unidades");
     }
     parts.push(getItemWeight(it.id) + " kg c/u");
-    // ammoCell() devuelve null hoy, asi que la linea de las balas no sale. No se
-    // borra: es la que dice "N balas" en cuanto vuelva a haber un item que las
-    // tenga, y quitarla seria reescribirla cuando vuelva.
+    // La linea de las balas sale sola si hay municion que medir. Un "-" de la
+    // pagina es "no aplica" y un "0" es "cero balas": no es lo mismo un arma
+    // desnuda en la mochila que un cargador vacio, y el tip lo distingue.
     var a = ammoCell(it);
-    if (a) {
+    if (a !== null) {
         parts.push(a + " balas");
     }
     parts.push("salud " + clampSalud(it.salud) + "%");

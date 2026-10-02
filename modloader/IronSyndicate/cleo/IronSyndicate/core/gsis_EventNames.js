@@ -51,36 +51,35 @@
 // ser un contrato y pasa a ser un tablero.
 //
 // ============================================================================
-// POR QUE ESTE ARCHIVO ESTA VACIO
+// POR QUE ESTE ARCHIVO VOLVIO A TENER NOMBRES
 // ============================================================================
-// Los siete nombres que declaraba eran TODOS del sistema de armas:
+// Los siete nombres que declaraba eran TODOS del sistema de armas, y con el
+// borrado no quedaba ninguno con dos firmas. Vuelven tres, y son tres porque el
+// modulo de armas y el de inventario se tienen que hablar de tres operaciones:
 //
-//   items:takeWeapon         sacar un arma del inventario para equiparla
-//   items:storeWeapon        devolverla, con su cargador montado aparte
-//   items:swapMagazine       cambiar el cargador del cinturon por el del arma
-//   items:extractMagazine    sacar el cargador montado del arma
-//   items:takeAttachment     sacar un accesorio suelto para montarlo
-//   items:storeAttachment    devolverlo si el motor rechaza la configuracion
-//   weapons:capacityOfItem   la capacidad DECLARADA de un item
+//   items:takeWeapon     sacar UN arma del inventario, para equiparla
+//   items:storeWeapon    devolverla, con la municion que tenia en la mano
+//   items:takeMagazine   sacar UN cargador, para meterlo en el arma
 //
-// Los seis primeros los emitia modules/weapons/ y los atendia
-// modules/inventory/events.js. El septimo es al reves: lo emitia el modulo de
-// armas y lo preguntaba inventory/state.js, y era la unica pregunta que se hacia
-// por el bus en todo el mod.
+// Los tres los emite modules/weapons/ y los atiende
+// modules/inventory/events.js. Ninguno de los dos modulos importa al otro: se
+// hablan por el bus, y estos nombres son el contrato.
 //
-// Con el sistema de armas borrado, no queda ningun nombre con dos firmas. Los
-// eventos que quedan son de una sola via y viven en el archivo de su dueno:
-// `inventory:changed` en modules/inventory/events.js, `dealer:orderReady` y
-// `characters:say` donde los emite su modulo.
+// NO hay un `items:peekMagazine` ni un `items:countOf` porque no hacen falta. El
+// modulo de armas necesita UN cargador, no saber cuantos hay: se lo pide el
+// primero y el inventario responde, o responde null. Preguntar el contenido del
+// inventario para despues pedirlo es una ventana en la que el estado cambio, y en
+// un inventario que seVacía con una R y con un click a la vez no hay ventana que
+// sobre.
 //
 // QUE NO SE HIZO
 // -------------
-// No se borro el archivo. Es la tercera via de la regla que esta en su header, y
-// la va a necesitar el proximo subsistema que tenga que hablarle a un modulo que
-// no sea el suyo: sin el, ese par vuelve a inventar nombres, y los nombres
-// inventados son los que no se ejecutan nunca.
-//
-// Un archivo que declara cero nombres es raro, y raro es correcto cuando la regla
-// que todavia no tiene caso de uso esta escrita en el sitio donde va a volver a
-// hacer falta.
+// El archivo no se borro cuando se vacio. Es la tercera via de la regla que esta
+// en su header, y la va a necesitar el proximo subsistema que tenga que hablarle
+// a un modulo que no sea el suyo.
 // ============================================================================
+
+// weapons -> inventory
+export var ITEMS_TAKE_WEAPON = "items:takeWeapon";
+export var ITEMS_STORE_WEAPON = "items:storeWeapon";
+export var ITEMS_TAKE_MAGAZINE = "items:takeMagazine";

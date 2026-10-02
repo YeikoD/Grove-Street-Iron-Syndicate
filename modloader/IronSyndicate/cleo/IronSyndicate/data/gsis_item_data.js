@@ -35,23 +35,32 @@ export function clampSalud(v) {
 export var ITEMS = {
     // Materias primas
     //
+    // Un item apilable se guarda como UNA fila con `qty`. Un item instanciado se
+    // guarda como UNA fila por unidad, y por eso necesita saber el tipo de cada
+    // unidad: su municion y su salud. Ver isInstanced(), que es la pregunta.
+    //
+    // LAS DOS ARMAS DEL PASO 2, con los numeros que tenian en el sistema viejo
+    // (peso del archivo de armas, nombre del catalogo):
+    "colt45":        { name: "Colt .45",           weight: 1.5, type: "weapon" },
+    "mag_colt45":    { name: "Cargador Colt .45",  weight: 0.2, type: "magazine" },
+
+    // Chatarra
+    //
     // ESTE CATALOGO ESTA VACIO DE ARMAS A PROPOSITO.
     //
     // El mod tuvo un sistema de armas completo —familias, accesorios, cargadores
     // instanciados, variantes con weaponType propio— y se borro entero. Con el se
     // fueron 17 armas, 19 cargadores, el silenciador y los ocho materiales de
-    // armeria, y lo que queda es esta unica fila.
+    // armeria, y lo que queda de eso es la Colt .45 y su cargador de 8.
     //
-    // Los materiales de armeria se fueron con las armas porque no se usaban para
-    // nada solo: eran la entrada de un ensamblaje que no llego a existir, y sin
-    // armas no hay que ensamblar. Un catalogo de piezas sueltas sin ninguna que
-    // las consuma es contenido muerto que el jugador ve en la mochila y no puede
-    // usar.
+    // Los materiales de armeria se fueron porque eran la entrada de un ensamblaje
+    // que no llego a existir: sin armas que los consuman, un catalogo de piezas
+    // sueltas es contenido muerto que el jugador ve en la mochila y no puede usar.
     //
-    // Que quede UNA fila y no cero es lo que mantiene vivos el inventario, el baul,
-    // la UI y la economia: los cuatro necesitan al menos un item que mover, y con
-    // el catalogo vacio addItem() devuelve false siempre y ninguna pantalla tiene
-    // filas que dibujar. Ver "POR QUE QUEDA UNA FILA" en el pie de este archivo.
+    // Que quede chatarra es lo que mantiene vivos el inventario, el baul, la UI y
+    // la economia: los cuatro necesitan al menos un item APILABLE que mover, y con
+    // un catalogo de solo instanciados no hay stack que ejercite esa rama. Ver
+    // "POR QUE QUEDA UNA FILA" en el pie de este archivo.
     "scrap_metal":   { name: "Chatarra",        weight: 0.5, type: "material" }
 };
 
@@ -75,44 +84,31 @@ export function getItemType(id) {
 }
 
 // isInstanced — true si el item NO se apila: cada unidad es una fila con su
-// propio estado.
+// propio estado (su municion, su salud).
 //
-// CON EL SISTEMA DE ARMAS BORRADO, NADA ES INSTANCIADO: el unico item del
-// catalogo es chatarra, que se apila.
+// LA RESPUESTA SALE DEL TIPO, y no de una fila por item:
 //
-// El predicado queda, y la respuesta es siempre false, porque hay tres
-// consumidores reales que lo preguntan y ninguno de los tres puede dejar de
-// hacerlo sin reescribirse:
+//   weapon    un arma es una unidad con su municion y su desgaste
+//   magazine  un cargador es una unidad con SUS balas, no un numero de unidades
+//   material  se apila
 //
-//   inventory/state.js   _splitStacks, al cargar una partida vieja
-//   inventory/logic.js   addItem y removeItem, al agregar y al sacar
-//   gsis_Trunk.js        _cuentaDe, al medir un baul
-//   gsis_WeaponSeller.js idem
+// La version anterior de esta pregunta consultaba la tabla de armas por el id, y
+// el arma era instanciada si la tabla tenia un weaponId para ese id. Con la tabla
+// nueva el arma tiene SIEMPRE un weaponId, asi que la pregunta se respondio sola:
+// es instanciada por ser un arma.
 //
-// Los cuatro hacen `isInstanced(id) ? 1 : qty`, y con la respuesta en false toman
-// la rama de apilable, que es la unica que existe. Borrar la funcion obligaria a
-// cambiar los cuatro en el mismo commit, y el valor de ese cambio es cero: se
-// reemplaza una pregunta con la constante que ya contestaba.
+// Y la fila puede marcar `instanced: true` para un tipo que todavia no exista, que
+// es la puerta de salida para un item instanciado de otra familia.
 //
-// Que quede la FUNCION y no un false escrito en los cuatro sitios es lo que
-// permite que el catalogo vuelva a tener items instanciados sin tener que
-// acordarse de los cuatro: se cambia esta linea y los cuatro vuelven a funcionar.
-//
-// Vive en la capa de datos y no en gsis_Items.js porque NO es una regla de
-// guardado: es una pregunta del catalogo —"¿esta entrada se cuenta de a uno?"—
-// y la responden tanto el modulo (que guarda una fila por unidad) como la fila
-// de la tabla (que tiene que decir "instanciado" y no "1 unidad" para un arma,
-// y al reves para una sola chatarra). gsis_Items.js la re-exporta para los que
-// ya la importaban de ahi; los dos caminos son el mismo codigo.
-//
-// El que la consulta tiene que ser el mismo en todas partes porque de eso
-// depende que las cosas se multipliquen o no: el baul la usa para saber si "3"
-// son tres filas o tres unidades de un apilado, y el modulo para saber si una
-// fila con qty > 1 hay que partirla.
+// Que el predicado viva en la capa de datos y no en el modulo de inventario es lo
+// que hace que los cinco que lo preguntan (los dos del modulo de inventario, el
+// baul, el vendedor y el retiro) compartan la misma respuesta. Si cada uno
+// preguntara distinto, "instanciado" seria una palabra con cinco significados.
 export function isInstanced(id) {
     var def = ITEMS[id];
     if (!def) return false;  // id fuera de catalogo: no hay nada que contar
-    return def.type === "magazine" || def.instanced === true;
+    if (def.type === "weapon" || def.type === "magazine") return true;
+    return def.instanced === true;
 }
 
 // ============================================================================

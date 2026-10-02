@@ -18,45 +18,65 @@
 
 import { MISC } from "../../../core/gsis_Config.js";
 import { getItems, getTotalWeight } from "../../inventory/index.js";
+import { getEquipadas, capacidadDeItem } from "../../weapons/gsis_Weapons.js";
 import { itemRow } from "./itemRow.js";
 
 var MAX_WEIGHT = MISC.MAX_INVENTORY_WEIGHT;
 
 // ============================================================================
-// INVENTARIO
+// LO QUE SE FUE CON EL SISTEMA DE ARMAS Y LO QUE VOLVIO
 // ============================================================================
-//
-// Lo estatico del catalogo (iconos, bandas, peso maximo) se fue a
-// views/catalog.js, que es su propio archivo porque viaja con una frecuencia
-// distinta: se manda UNA vez al abrir el menu, y el inventario cada 400ms. Un
-// archivo con las dos cosas obliga a que quien manda uno pense en el throttle del
-// otro.
-//
-// ---------------------------------------------------------------------------
-// LO QUE SE FUE CON EL SISTEMA DE ARMAS
-// ---------------------------------------------------------------------------
 // Antes este snapshot armaba DOS listas mas y las concatenaba adelante de las
 // filas del inventario:
 //
-//   equipadasSnap()   las armas equipadas, desde GameState.Ballistic.equipped
-//                     via getEquippedForUI(), con la municion leida del ped en
-//                     vivo via getEquippedAmmo()
-//   el cinturon        los cargadores equipados, con getBelt()
+//   equipadasSnap()   las armas equipadas, con la municion leida del ped EN VIVO
+//   el cinturon        los cargadores equipados
 //
-// Las dos existen por una razon que ya no aplica. El mod saca lo equipado de
-// items[] al equiparlo —`equipMagToBelt` hacia splice, `equipWeapon` pedia
-// `items:takeWeapon`— y por eso no pesaba y por eso desaparecia de la lista. Las
-// dos listas lo arman al frente para que el jugador no lo leyera como perder el
-// item.
+// La primera VOLVIO con el sistema nuevo, y por la misma razon: el mod saca el arma
+// de items[] al equiparla, asi que sin esta fila el inventario pierde un item por
+// el camino y el jugador lo lee como que el arma desaparecio.
 //
-// Sin equipping, nada sale de items[], asi que las dos listas serian siempre
-// vacias: `rows` ya es exactamente lo que hay. Y no se dejan como dos `[]` porque
-// una lista vacia que se concatena al frente es ruido con forma de codigo.
+// La segunda no: no hay cinturon. El cargador se carga directo del inventario con
+// la R, y un cinturon seria una pantalla mas que rellenar para no cambiar nada.
 //
-// Que el snapshot siga siendo `{ weight, rows }` y no un objeto con dos listas
-// mas es lo que hace que la pagina siga dibujando sin cambiar de forma: `rows` es
-// la clave que ya leia.
-// ============================================================================
+// POR QUE VAN PRIMERO Y NO AL FINAL
+// ---------------------------------------------------------------------------
+// Porque `ordenarPorBanda` de la pagina (UI/app.js) agrupa por categoria y, dentro
+// de la banda, respeta el ORDEN EN QUE LLEGO. Mandandolas primero, el arma
+// equipada encabeza la banda "Armas" sin que la pagina tenga que saber que existe
+// una lista de equipadas.
+//
+// LO QUE LE ANADE LA PAGINA A ESTAS FILAS
+// ---------------------------------------------------------------------------
+// Tres campos, y los tres los usa snapRow(): `equipado` (pinta la etiqueta
+// "(Equipado)"), `ranura` (distingue arma de cinturon) y `slot`. El `weaponType` no
+// viaja, ni disfrazado: es la representacion que ejecuta el motor y la pagina no
+// tiene por que conocerla.
+
+// Las filas del arma equipada, con lo que hay que mostrarle.
+//
+// La municion es "N/cap" y el denominador sale del MOTOR, que es la unica diferencia
+// con una fila de la mochila: ahi el denominador es el declarado por el item, y aca
+// es el que le escribio el .asi. Se lee de dos lugares distintos a proposito.
+function equipadasSnap() {
+    var equipadas = getEquipadas();
+    var rows = [];
+    for (var i = 0; i < equipadas.length; i++) {
+        var e = equipadas[i];
+        var row = itemRow({
+            id: e.id,
+            qty: 1,
+            salud: e.salud,
+            ammo: e.ammo
+        });
+        row.ammo = e.ammo + "/" + (e.cap || capacidadDeItem(e.id));
+        row.equipado = true;
+        row.ranura = "arma";
+        row.slot = e.slot;
+        rows.push(row);
+    }
+    return rows;
+}
 
 // ---------------------------------------------------------------------------
 // EL SNAPSHOT DEL INVENTARIO
@@ -73,7 +93,7 @@ var MAX_WEIGHT = MISC.MAX_INVENTORY_WEIGHT;
 // valor" o "el retiro dibuja la salud de otra forma".
 export function snapInventory() {
     var items = getItems();
-    var rows = [];
+    var rows = equipadasSnap();
     for (var i = 0; i < items.length; i++) {
         rows.push(itemRow(items[i]));
     }
