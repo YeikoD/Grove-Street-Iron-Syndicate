@@ -13,23 +13,71 @@
 // Regenera solo al cumplir interes (budget bajo o N ventas del interes)
 // La oferta la orquesta doOffer() mas abajo, en este archivo: offerWeapon()
 // sola evalua, y el que saca el item, paga y hace hablar al NPC es el modulo.
-// Depende de: ModuleRegistry, Input, weapon_data, character_data, SpotRuntime,
-//             Items, L10n, Notice
+// Depende de: ModuleRegistry, Input, character_data, SpotRuntime, Items, L10n,
+//             Notice
+//
 // ============================================================================
-
+// ESTE MODULO QUEDA SIN CATALOGO, Y SE SABE POR QUE
+// ============================================================================
+// El vendedor era el consumidor mas atado a la tabla de armas, y por tres vias
+// distintas:
+//
+//   getSellPrice(itemId)   el precio base del trueque, en 6 lugares
+//   WEAPON_DATA            las categorias, de donde salen los intereses del NPC
+//   type "weapon" en ITEMS el filtro de que es vendible
+//
+// Las tres se fueron con el sistema de armas entero. Lo que quedo:
+//
+//   la esfera aparece y la cooldown funciona      sigue
+//   ESPACIO abre y cierra el menu                sigue
+//   el NPC genera intereses y presupuesto        sigue, vacio
+//   el jugador mueve una oferta por fila         sigue, sin filas
+//   QUE HAY PARA VENDER                          nada
+//
+// O sea: el modulo sigue siendo la maquina del trueque y no tiene mercaderia. Las
+// dos funciones de abajo son las que contestaban, y contestan 0 y lista vacia.
+//
+// QUE HACE FALTA PARA QUE VUELVA A COMPRAR
+// ----------------------------------------
+// Un precio por item. Hoy el unico lugar donde puede declararse es
+// `ch.seller.sellPrices[itemId]` en data/gsis_character_data.js: es un numero
+// absoluto por NPC, asi que alcanza para tener un vendedor funcionando sin tocar
+// este archivo. Ver getSellPrice() y _allCategories().
 import { register } from "../core/gsis_ModuleRegistry.js";
 import { registerMenuSource } from "../core/gsis_Input.js";
 import { t, money } from "../core/gsis_L10n.js";
 import { setNotice } from "../core/gsis_Notice.js";
 import { emit } from "../core/gsis_EventBus.js";
-import { getSellPrice, WEAPON_DATA } from "../data/gsis_weapon_data.js";
 import { getCharacter } from "../data/gsis_character_data.js";
-import { getItemType } from "../data/gsis_item_data.js";
 import { getItems, removeItem, isInstanced } from "./inventory/index.js";
 import {
     createSpotGate, updateSpotSpheres, closeSpotFlow, spotCanOpen,
     spotHas, beginSpotCooldown
 } from "../core/gsis_SpotRuntime.js";
+
+// ============================================================================
+// LO QUE REEMPLAZA A LA TABLA DE ARMAS
+// ============================================================================
+// getSellPrice era `getSellPrice(id) = precioDeTabla * 0.6`, y devolvia 0 para lo
+// que no estaba. El 0 no es un caso raro: es lo que hace que offerWeapon()
+// rechace con SEL_NOB y lo que hacia que la pagina no dibujara la fila. Es el
+// mismo contrato, con la fuente cambiada.
+//
+// Y 0 es lo que la hace segura de usar en las seis llamadas: `getSellPrice(k)`
+// que suma un presupuesto, `getSellPrice(x)` que multiplica un techo y
+// `if (!getSellPrice(id))` que rechaza, se comportan con 0 igual que antes con un
+// item fuera de catalogo.
+
+// El precio base del trueque de un item para el NPC activo, o 0 si no lo compra.
+export function getSellPrice(itemId) {
+    var ch = getCharacter(_activeCharId || DEFAULT_CHAR);
+    if (!ch || !ch.seller || !ch.seller.sellPrices) return 0;
+    var p = ch.seller.sellPrices[itemId];
+    if (typeof p !== "number" || p <= 0) return 0;
+    // El precio de trueque es multiplo de 10: el techo del NPC se sortea en
+    // decenas y una base con centavos produce techos que no lo son.
+    return Math.round(p / 10) * 10;
+}
 
 var DEFAULT_CHAR = "seller_local";
 
@@ -215,14 +263,16 @@ function offerWeapon(itemId, qty, unitPrice, commit) {
 
     var st = _activeState();
 
-    // Categoria del arma (primer match en WEAPON_DATA)
+    // Categoria del item. Antes salia de WEAPON_DATA (primer match por itemId) y
+    // servia para decidir si el item era un INTERES del NPC, que cambia el rango
+    // del techo. Sin tabla de armas no hay categorias, asi que `cat` queda vacio
+    // y `st.interests` —que sale de _allCategories()— tambien esta vacio: la
+    // comparacion de abajo da false siempre y toda oferta usa el rango base.
+    //
+    // Es el mismo resultado que un item fuera de las categorias del NPC, que es un
+    // caso que ya tenia su propio techo. No es un atajo: sin catalogo no hay
+    // categoria que mirar.
     var cat = "";
-    for (var i = 0; i < WEAPON_DATA.length; i++) {
-        if (WEAPON_DATA[i].itemId === itemId) {
-            cat = WEAPON_DATA[i].category;
-            break;
-        }
-    }
     var isInterest = st.interests.indexOf(cat) !== -1;
 
     // Techo aleatorio por oferta (rango del personaje)
@@ -388,45 +438,36 @@ function _ownedQty(itemId) {
 // INTERNAS
 // ============================================================================
 
-// El NPC solo compra ARMAS. El filtro es el type de ITEMS, no un flag por item.
+// ============================================================================
+// EL CATALOGO QUE NO ESTA
+// ============================================================================
+// Estas tres funciones caminaban `WEAPON_DATA`, la tabla de armas, para saber que
+// vendible hay y en que categorias. La tabla se borro, asi que no hay nada que
+// recorrer: `_allCategories()` devuelve la lista vacia y el NPC no genera
+// intereses.
 //
-// Hace falta porque WEAPON_DATAGrowing contiene tambien los CARGADORES (tienen
-// precio, y el precio es lo que los hace comprables en el dealer y valiosos en
-// la columna Valor), y con el filtro de antes —precio + categoría— un NPC podia
-// pedir cargadores. No es solo un detalle: el cargador de la Colt .45 se revalua a 234
-// lleno contra una base de trueque de 130, y un NPC con presupuesto alto
-// pagaria la municion de un jugador.
+// Y el filtro de "solo armas" ya no hace falta. Antes era `getItemType(id) ===
+// "weapon"` sobre las filas de la tabla, y su razon estaba escrita: la tabla
+// contenia tambien los CARGADORES —que tienen precio, y por lo tanto eran
+// comprables—, y sin el filtro un NPC podia pedirte municion. Hoy ITEMS no tiene
+// ninguna fila `type: "weapon"` ni ninguna `type: "magazine"`, asi que la pregunta
+// "es un arma?" tiene una sola respuesta y es que no hay armas.
 //
-// La regla es la que ya vale: el trueque es de armas, y un cargador no es un
-// arma (type "magazine" en ITEMS, weaponId null aca). Asi que se pregunta el
-// type en vez de agregar un `noTrade: true` que cada item nuevo tendria que
-// acordarse de poner.
-function _esArmaVendible(w) {
-    if (!w.price || !w.category) return false;
-    return getItemType(w.itemId) === "weapon";
-}
+// La rama de `cats.length === 0` en _generateState() ya existia y ya sabia que
+// un NPC sin categorias tiene que dejar presupuesto e intereses en cero. No hizo
+// falta escribir un caso nuevo: el que habia es exactamente este.
 
+// Las categorias entre las que el NPC puede tener interés. Vacia: no hay
+// catalogo de armas al que preguntarle.
 function _allCategories() {
-    var seen = {};
-    var cats = [];
-    for (var i = 0; i < WEAPON_DATA.length; i++) {
-        var w = WEAPON_DATA[i];
-        if (!_esArmaVendible(w)) continue;
-        if (!seen[w.category]) {
-            seen[w.category] = true;
-            cats.push(w.category);
-        }
-    }
-    return cats;
+    return [];
 }
 
+// Los items de una categoria. Vacio, por lo mismo que arriba. Se conserva porque
+// _generateState() la usa para el presupuesto por formula, y borrarla seria
+// reescribir esa rama para un caso que ya no puede pasar.
 function _weaponsInCategory(cat) {
-    var list = [];
-    for (var i = 0; i < WEAPON_DATA.length; i++) {
-        var w = WEAPON_DATA[i];
-        if (w.category === cat && _esArmaVendible(w)) list.push(w);
-    }
-    return list;
+    return [];
 }
 
 function _randRange(range, fallbackMin, fallbackMax) {

@@ -218,6 +218,57 @@ function saveGame(slot) {
     return true;
 }
 
+// ============================================================================
+// MODULOS_BORRADOS
+// ============================================================================
+// Las claves de GameState que ningun modulo escribe ya, y que por eso se borran al
+// cargar en vez de copiarse.
+//
+// CUANDO SE BORRA UN MODULO, SU CLAVE NO SE QUEDA COLGADA
+// ------------------------------------------------------
+// GameState es un objeto plano donde cada modulo mete lo suyo por su nombre. Si un
+// modulo se borra y su clave se deja pasar, el save conserva datos muertos: el
+// archivo sigue ocupando lo que ocupaba, `saveGame()` los vuelve a escribir, y no
+// hay forma de que el log diga por que el save pesa 4 KB mas que la suma de sus
+// datos. Con el tiempo es la clase de basura que hace que un save de 300 KB pese
+// 600.
+//
+// Y no hay forma de que GameState las ignore sola: el bucle de abajo copia
+// cualquier clave que no sea version/ts/player. La lista tiene que ser explicita.
+//
+// POR QUE ESTA EN SaveManager Y NO EN SaveMigration
+// --------------------------------------------------
+// Porque NO es una migracion y no es un renombre.
+//
+// Una migracion traduce datos viejos a una forma nueva: el item viejo se
+// renombra, el weaponType guardado se convierte en una lista de accesorios. Eso es
+// lo que hace SaveMigration.js, y sus pasos son versionados e idempotentes.
+//
+// Esto es otra cosa: la clave no se traduce, se tira. `GameState.Ballistic` era
+// { equipped: { "2": { id, family, attachments, salud } } }, y de ese objeto no
+// sale un item de inventario —las armas equipadas vivian FUERA de items[], que es
+// justo por lo que el modulo de armas las sacaba del inventario al equiparlas—.
+// No hay destino al que migrar, y por eso no hay paso de migracion que lo haga.
+//
+// O sea: la tabla de renombres y la lista de borrados son las dos caras de la
+// misma pregunta sobre un save viejo, y por eso viven en archivos distintos. Una
+// pregunta "que hago con esto" y la otra "esto no lo quiero".
+//
+// AGREGAR UN NOMBRE ACA CUANDO SE BORRA UN MODULO
+// ------------------------------------------------
+// Y borrar su entrada de ITEM_RENAMES en SaveMigration.js, si tenia. Las dos cosas
+// o ninguna: la renombra sola deja filas con ids que el catalogo no conoce, que es
+// justo lo que la tabla vacia evita.
+var MODULOS_BORRADOS = [
+    // El registro de armas equipadas. Lo escribia modules/weapons/state.js con
+    // registerModule("Ballistic", { equipped: {} }) y no lo escribe nadie mas.
+    //
+    // El nombre no es "Weapons" y esa es la parte que confunde: la clave del save
+    // fue "Ballistic" desde el primer dia y el nombre del modulo siempre fue
+    // "Weapons". Renombrar la clave habria sido un rename de save entero.
+    "Ballistic"
+];
+
 function loadGame(slot) {
     if (!_initialized) { _log("Error: no inicializado"); return false; }
     if (slot < 1 || slot > _totalSlots) { _log("Error: slot invalido"); return false; }
@@ -309,6 +360,24 @@ function loadGame(slot) {
         GameState.version = versionDe(parsed.version);
         GameState.ts = parsed.ts || 0;
         GameState.player = parsed.player || GameState.player;
+
+        // Las claves de los modulos que ya no existen se SACAN del save, no se
+        // copian. Sin esto un save de antes del borrado se cargaria con su
+        // GameState.Ballistic intacto, se guardaria de vuelta con el, y el archivo
+        // seguiria creciendo con datos que ningun modulo lee.
+        //
+        // Y borrar es la respuesta correcta y no una perdida: el contenido de
+        // estas claves no tiene a donde migrar. Un arma equipada no se puede
+        // guardar como item, y sus cargadores no saltan al cinturon. Ver
+        // MODULOS_BORRADOS.
+        for (var mb = 0; mb < MODULOS_BORRADOS.length; mb++) {
+            var claveMuerta = MODULOS_BORRADOS[mb];
+            if (!parsed[claveMuerta]) continue;
+            _log("Migracion: se descarta GameState." + claveMuerta +
+                " (modulo borrado del mod).");
+            delete parsed[claveMuerta];
+            delete GameState[claveMuerta];
+        }
 
         for (var key in parsed) {
             if (key !== "version" && key !== "ts" && key !== "player") {

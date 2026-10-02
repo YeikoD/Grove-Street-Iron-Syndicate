@@ -5,48 +5,40 @@
 // ============================================================================
 // QUE RESUELVE ESTE ARCHIVO
 // ============================================================================
-// Los CONTENEDORES y como se leen: el inventario del jugador, los baules de los
-// vehiculos y el cinturon de cargadores. Y las fabricas de instancias, que son
-// la forma en que un item entra al mundo.
+// Los CONTENEDORES y como se leen: el inventario del jugador y los baules de los
+// vehiculos. Y la normalizacion de filas al cargar una partida.
 //
 // Que sea "state" y no "logic" es una distincion que importa: aca no se DECIDE
 // nada. No se chequea peso, no se avisa que el inventario esta lleno, no se
-// cambia de contenedor. Eso es logic.js. Aca solo se pregunta "que hay" y se
-// construyen filas.
-//
-// La regla de por que el corte esta aca y no en otro lado: todo lo que se
-// necesita para CONSTRUIR una fila (la capacidad, la salud, el default de ammo)
-// vive en state, y logic la usa. Al reves, logic/state se importarian entre si
-// para siempre, y un ciclo de imports es un undefined en runtime en el modulo
-// que se importa primero.
+// cambia de contenedor. Eso es logic.js. Aca solo se pregunta "que hay".
 //
 // ============================================================================
-// LA CAPACIDAD DE UN CARGADOR, Y POR QUE SE PREGUNTA
+// LO QUE SE FUE CON EL SISTEMA DE ARMAS
 // ============================================================================
-// `capacityOfItem()` NO importa la tabla de armas. Pregunta por el bus.
+// Este archivo tenia tres cosas que hoy no tienen a quien preguntar:
 //
-// La capacidad de un cargador es una propiedad de la COMBINACION de arma y
-// cargador, y la unica tabla que lo sabe es la de variantes
-// (data/gsis_weapons.js). Importarla desde aca era el ultimo import directo que
-// quedaba entre este modulo y el de armas, y significaba dos caminos a la misma
-// verdad: uno por la tabla y otro por el bus. Con dos caminos, cambiar la tabla
-// puede cambiar un cargador y no el otro, y el sintoma es un cargador que nace
-// con las balas de otro.
+//   capacityOfItem()   la capacidad de un cargador. Preguntaba por el bus a
+//                      `weapons:capacityOfItem`, y el que contestaba era el
+//                      modulo de armas. Sin ese modulo, la pregunta no tiene a
+//                      quien contestarle y devolvia 0 con un WARN en el log.
 //
-// Asi que: el modulo de armas REGISTRA `weapons:capacityOfItem` y se pregunta.
+//   isMagazine()       y las fabricas makeMagazineInstance() /
+//                      makeWeaponInstance() / makeInstance(). Existian para
+//                      armar filas de cargador y de arma, que son instanciadas:
+//                      una fila por unidad, con su propia municion y su propia
+//                      salud. El unico item del catalogo es chatarra, que se
+//                      apila, asi que una fila es { id, qty, salud }.
 //
-// Cuando no contesta, la respuesta es 0, y hay que saber que significa. 0 no es
-// "el cargador no tiene capacidad": es "no se pudo preguntar". Un cargador nuevo
-// nace vacio, que se ve (el jugador lo carga) y no rompe el inventario. Un
-// numero inventado, en cambio, no se ve hasta que el motor no puede recargar y
-// el arma se traba. Se avisa UNA vez, en el log, con el item que no pudo
-// preguntar.
+//   ensureBelt()       el cinturon de cargadores equipados. Eran 3 casillas
+//   getBelt()          fijas donde vivian los cargadores que el jugador llevaba
+//                      puestos, y su unico consumidor era el ciclo de recarga
+//                      de la tecla R. Sin armas no hay cargadores que llevar.
+//
+// Que se hayan ido los tres es lo que hace que addItem() sea, hoy, una linea:
+// apila, pesa, avisa si no cabe. Ver logic.js.
 // ============================================================================
 
 import { registerModule, getModuleData, setModuleData } from "../../core/gsis_SaveManager.js";
-import { MISC } from "../../core/gsis_Config.js";
-import { query } from "../../core/gsis_EventBus.js";
-import { WEAPONS_CAPACITY } from "../../core/gsis_EventNames.js";
 import { getVehicleTrunkCapacity } from "../../data/gsis_vehicle_data.js";
 import { ITEMS, SALUD_MAX, clampSalud, isInstanced } from "../../data/gsis_item_data.js";
 
@@ -54,72 +46,6 @@ import { ITEMS, SALUD_MAX, clampSalud, isInstanced } from "../../data/gsis_item_
 // mundo tienen escrita, y un rename de save sin su migracion deja a todos con el
 // inventario vacio. Ver SaveMigration.js.
 export var SAVE_KEY = "ItemManager";
-
-// ---------------------------------------------------------------------------
-// LA PREGUNTA
-// ---------------------------------------------------------------------------
-// Un aviso por item, no por llamada: la de no-contestar es una falla de
-// arranque, y si aparece 3000 veces en el log lo que se lee es ruido en vez de
-// la causa.
-var _sinCapacidad = {};
-
-export function capacityOfItem(itemId) {
-    var cap = query(WEAPONS_CAPACITY, { itemId: itemId });
-    if (typeof cap === "number" && cap > 0) return cap;
-    if (!_sinCapacidad[itemId]) {
-        _sinCapacidad[itemId] = true;
-        log("[Inventory] WARN: el modulo de armas no respondio la capacidad de \"" +
-            itemId + "\". Se usa 0, asi que el item nace vacio. El modulo de armas " +
-            "se importa antes que este en cleo/../gsis_index.js; si no esta, el fallo " +
-            "esta ahi y no en la capacidad.");
-    }
-    return 0;
-}
-
-// ---------------------------------------------------------------------------
-// PREDICADOS DEL CATALOGO
-// ---------------------------------------------------------------------------
-// true si el item es cargador (type magazine) — no se apila
-export function isMagazine(id) {
-    var def = ITEMS[id];
-    return !!(def && def.type === "magazine");
-}
-
-// ---------------------------------------------------------------------------
-// FABRICAS DE INSTANCIAS
-// ---------------------------------------------------------------------------
-// Instancia de cargador: qty=1, ammo=capacidad, salud=100 (no stack)
-export function makeMagazineInstance(id, ammo, salud) {
-    var cap = capacityOfItem(id);
-    return {
-        id: id,
-        qty: 1,
-        ammo: (ammo === undefined || ammo === null) ? (cap || 0) : ammo,
-        salud: clampSalud(salud)
-    };
-}
-
-// Instancia de arma: qty=1, cargador montado por defecto (hasMag=true, ammo=cap)
-export function makeWeaponInstance(id, hasMag, ammo, salud) {
-    var cap = capacityOfItem(id) || 0;
-    var mounted = (hasMag === undefined || hasMag === null) ? true : !!hasMag;
-    return {
-        id: id,
-        qty: 1,
-        hasMag: mounted,
-        ammo: (ammo === undefined || ammo === null) ? (mounted ? cap : 0) : ammo,
-        salud: clampSalud(salud)
-    };
-}
-
-// Instancia generica (cargador o arma) con opts { ammo, salud, hasMag }
-export function makeInstance(id, opts) {
-    if (isMagazine(id)) {
-        return makeMagazineInstance(id, opts ? opts.ammo : undefined, opts ? opts.salud : undefined);
-    }
-    return makeWeaponInstance(id, opts ? opts.hasMag : undefined, opts ? opts.ammo : undefined,
-        opts ? opts.salud : undefined);
-}
 
 // ---------------------------------------------------------------------------
 // LECTURAS
@@ -132,8 +58,8 @@ export function getItems() {
     return data.items || [];
 }
 
-// Peso total del inventario (solo items[]: lo equipado sale de la lista,
-// tanto armas como cargadores del cinturon, y por tanto no pesa)
+// Peso total del inventario (solo items[]: lo que esta en un baul no pesa aca,
+// porque pesa en el baul)
 export function getTotalWeight() {
     var items = getItems();
     var total = 0;
@@ -147,22 +73,14 @@ export function getTotalWeight() {
 // ---------------------------------------------------------------------------
 // NORMALIZACION DE LOS CONTENEDORES
 // ---------------------------------------------------------------------------
-// Estos dos son internos pero se exportan para que logic.js pueda garantizar
-// que un contenedor existe antes de escribir en el. Es el mismo criterio que
-// "state no decide": la forma es trabajo de state, mutar el contenido es de
-// logic.
+// Este es interno pero se exporta para que logic.js pueda garantizar que un
+// contenedor existe antes de escribir en el. Es el mismo criterio que "state no
+// decide": la forma es trabajo de state, mutar el contenido es de logic.
 export function ensureTrunks(data) {
     if (!data) data = { items: [], trunks: {} };
     if (!data.items) data.items = [];
     if (!data.trunks) data.trunks = {};
     return data;
-}
-
-// Normaliza data.belt a al menos MAG_BELT_SLOTS casillas (null = libre)
-export function ensureBelt(data) {
-    if (!data.belt || typeof data.belt.length !== "number") data.belt = [];
-    while (data.belt.length < MISC.MAG_BELT_SLOTS) data.belt.push(null);
-    return data.belt;
 }
 
 // Obtener items del baul de un vehiculo
@@ -195,18 +113,17 @@ export function getTrunkMaxCapacity(vehicleId) {
     return 150;
 }
 
-// getBelt — casillas del cinturon: [instanciaCargador | null, ...]
-export function getBelt() {
-    var data = getModuleData(SAVE_KEY);
-    if (!data) return [];
-    return ensureBelt(ensureTrunks(data));
-}
-
 // ---------------------------------------------------------------------------
 // MIGRACIONES DE CARGA
 // ---------------------------------------------------------------------------
-// Saves viejos: { id, qty > 1 } de un item instanciado → una entrada por unidad
-// con estado por defecto (cargador montado lleno). Devuelve true si cambio algo.
+// Saves viejos: { id, qty > 1 } de un item instanciado -> una entrada por unidad.
+// Devuelve true si cambio algo.
+//
+// Con el catalogo sin items instanciados esto no parte nada nunca: la primera
+// linea mira `isInstanced(it.id)` y para chatarra da false. Se conserva porque es
+// una MIGRACION de saves, y un save viejo puede traer una fila de `qty > 1` de un
+// arma —de las que el catalogo ya no conoce— y esa fila tiene que quedar como una
+// sola entrada y no como un stack que no se puede gastar bien.
 function _splitStacks(list) {
     if (!list) return false;
     var out = [];
@@ -216,7 +133,7 @@ function _splitStacks(list) {
         var qty = it.qty || 1;
         if (qty > 1 && isInstanced(it.id)) {
             changed = true;
-            for (var q = 0; q < qty; q++) out.push(makeInstance(it.id, it));
+            for (var q = 0; q < qty; q++) out.push({ id: it.id, qty: 1, salud: SALUD_MAX });
         } else {
             out.push(it);
         }
@@ -232,15 +149,12 @@ function _splitStacks(list) {
 // El campo viejo era `quality`: entero 1..N, mostrado como "Cal: N" pegado al
 // nombre. Se unifica en `salud` (0..100, columna propia) y `quality` desaparece.
 //
-// La conversion es exacta: `quality` solo valia 1 — makeMagazineInstance hacia
+// La conversion es exacta: `quality` solo valia 1 — la fabrica de instancias hacia
 // `quality || 1` y NADIE pasaba opts.quality, asi que nunca se escribio otro
 // valor — y 1 era "como nuevo", que es SALUD_MAX. Asi que toda fila vieja vale
 // SALUD_MAX y no se pierde estado que valiera la pena.
 //
-// Se aplica a items[], a TODOS los baules y tambien a belt[]: el cinturon es un
-// contenedor de ItemManager mas y sus cargadores son filas como las otras. Antes
-// la migracion no lo miraba, y un cinturon de un save viejo se quedaba sin
-// salud — la pagina la dibujaba al 100% por el fallback, sin que nadie lo supiera.
+// Se aplica a items[] y a TODOS los baules.
 function _migrateSalud(list) {
     if (!list) return false;
     var changed = false;
@@ -260,18 +174,12 @@ function _migrateSalud(list) {
     return changed;
 }
 
-// Normaliza items[], trunks y belt al cargar partida.
-//
-// El orden importa. _splitStacks va PRIMERO porque crea filas nuevas con
-// makeInstance, que ya escribe salud; si _migrateSalud corriera antes, todavia
-// no existirian. Al reves es un gasto inutil, no un error: _migrateSalud es
-// idempotente.
+// Normaliza items[] y trunks al cargar partida.
 export function normalizeInstances(data) {
     if (!data) return false;
     var changed = false;
     if (_splitStacks(data.items)) changed = true;
     if (_migrateSalud(data.items)) changed = true;
-    if (data.belt && _migrateSalud(data.belt)) changed = true;
     if (data.trunks) {
         for (var key in data.trunks) {
             if (Object.prototype.hasOwnProperty.call(data.trunks, key)) {
@@ -289,9 +197,13 @@ export function normalizeInstances(data) {
 // Sin export de la funcion: la llama el register() de index.js, y registrar por
 // el modulo y no por nombre es lo que hace que este archivo no dependa de
 // ModuleRegistry.
+//
+// NO se declara `belt` en el contenedor nuevo. Los saves viejos lo tienen —3
+// casillas de cargador de un sistema que ya no existe— y no se borra: es memoria
+// del save que ningun modulo lee, y vaciarla seria una migracion de escritura
+// para datos que no le importan a nadie. Ver SaveMigration.js.
 export function initState() {
-    // belt: cinturon de cargadores equipados (MISC.MAG_BELT_SLOTS casillas)
-    registerModule(SAVE_KEY, { items: [], trunks: {}, belt: [] });
+    registerModule(SAVE_KEY, { items: [], trunks: {} });
     var data = getModuleData(SAVE_KEY);
     if (data && normalizeInstances(data)) setModuleData(SAVE_KEY, data);
     log("[Inventory] ItemManager inicializado");

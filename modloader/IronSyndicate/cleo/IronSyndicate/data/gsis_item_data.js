@@ -2,7 +2,10 @@
 // Copyright (C) 2026  YeikoD
 // License: GNU GPL v3 or later (full text in LICENSE).
 
-import { getWeaponByItemId } from "./gsis_weapon_data.js";
+// No importa NADA. Antes importaba `getWeaponByItemId` de data/gsis_weapon_data.js
+// para que isInstanced() supiera si un arma era instanciada, y ese archivo se borro
+// con el sistema de armas entero. Hoy el catalogo es una tabla plana y todas las
+// preguntas se responden mirando ITEMS: ver isInstanced().
 
 // GSIS Item Data - Catalogo de items (pesos en kg/unidad)
 // Fuente: docs/gsis_INVENTORY.md
@@ -15,9 +18,9 @@ import { getWeaponByItemId } from "./gsis_weapon_data.js";
 // gastada mientras el resto del stack esta nueva.
 //
 // SALUD_MAX vive aca y no en Config porque no es un ajuste del juego: es la
-// escala del dato. Config es para lo que se tunea (MISC.MAX_INVENTORY_WEIGHT,
-// MISC.MAG_BELT_SLOTS). El clamp tambien va aca, junto a la escala que
-// define: los dos son la misma regla y basta una fuente.
+// escala del dato. Config es para lo que se tunea (MISC.MAX_INVENTORY_WEIGHT).
+// El clamp tambien va aca, junto a la escala que define: los dos son la misma
+// regla y basta una fuente.
 export var SALUD_MAX = 100;
 
 export function clampSalud(v) {
@@ -31,95 +34,25 @@ export function clampSalud(v) {
 
 export var ITEMS = {
     // Materias primas
-    "scrap_metal":   { name: "Chatarra",        weight: 0.5, type: "material" },
-    "gunpowder":     { name: "Polvora",         weight: 0.2, type: "material" },
-    "spring":        { name: "Muelle",          weight: 0.1, type: "material" },
-    "barrel_small":  { name: "Canon corto",     weight: 0.8, type: "material" },
-    "scope":         { name: "Mira",            weight: 0.3, type: "material" },
-    "armor_plate":   { name: "Placa blindada",  weight: 1.5, type: "material" },
-
-    // Componentes
-    "pistol_frame":  { name: "Chasis pistola",  weight: 0.6, type: "material" },
-    "pistol_barrel": { name: "Canon pistola",   weight: 0.4, type: "material" },
-    "rifle_receiver":{ name: "Culata rifle",    weight: 1.2, type: "material" },
-    "rifle_barrel":  { name: "Canon rifle",     weight: 1.0, type: "material" },
-
-    // Armas de fuego (nombres = HUD GTA SA ES; IDs estables p/ saves)
     //
-    // FAMILIA. Esta fila es la IDENTIDAD del armamento, y por lo tanto el item
-    // de inventario. No hay una fila por accesorio montado: la Colt .45 con
-    // silenciador y la Colt .45 sin silenciador son el MISMO item de inventario,
-    // y lo que las diferencia es el estado de sus accesorios. Ver
-    // gsis_weapon_variants.js.
+    // ESTE CATALOGO ESTA VACIO DE ARMAS A PROPOSITO.
     //
-    // El nombre viejo era "9mm", que mentia: la pistola de tipo 22 dispara
-    // calibre .45 y su cargador de vanilla son 8 balas, no 17. El item de
-    // ARMAMENTO no se llama por la MUNICION que le cabe. Los cargadores si, y
-    // por eso se llaman mag_colt45_*.
-    "colt45":        { name: "Colt .45",       weight: 1.5, type: "weapon" },
-    "desert_eagle":  { name: "Desert Eagle",    weight: 1.8, type: "weapon" },
-    "shotgun":       { name: "Escopeta",        weight: 3.0, type: "weapon" },
-    "sawed_off":     { name: "Escopeta recortada", weight: 1.0, type: "weapon" },
-    "combat_shotgun":{ name: "SPAS 12",         weight: 3.5, type: "weapon" },
-    "micro_uzi":     { name: "Micro Uzi",       weight: 1.5, type: "weapon" },
-    "mp5":           { name: "MP5",             weight: 2.5, type: "weapon" },
-    "tec9":          { name: "Tec9",            weight: 1.4, type: "weapon" },
-    "ak47":          { name: "AK-47",           weight: 3.5, type: "weapon" },
-    "m4_assembled":  { name: "M4",              weight: 3.5, type: "weapon" },
-    "country_rifle":  { name: "Rifle",           weight: 2.5, type: "weapon" },
-    "sniper_rifle":  { name: "Rifle de francotirador", weight: 4.0, type: "weapon" },
-    "rpg":           { name: "Lanzacohetes",    weight: 7.0, type: "weapon" },
-    "heat_seeker":   { name: "Lanzacohetes con atraccion al calor", weight: 6.0, type: "weapon" },
-    "flamethrower":  { name: "Lanzallamas",     weight: 5.0, type: "weapon" },
-    "minigun":       { name: "Minigun",         weight: 10.0, type: "weapon" },
-    "body_armor":    { name: "Chaleco antibalas", weight: 2.0, type: "weapon" },
-
-    // Cargadores (type magazine; capacidad = WEAPON_DATA.clipSize via getClipSizeByItemId)
-    // Instancia { id, qty:1, ammo, salud } — no se apilan
+    // El mod tuvo un sistema de armas completo —familias, accesorios, cargadores
+    // instanciados, variantes con weaponType propio— y se borro entero. Con el se
+    // fueron 17 armas, 19 cargadores, el silenciador y los ocho materiales de
+    // armeria, y lo que queda es esta unica fila.
     //
-    // Un cargador es un ACCESORIO, no un arma: no se equipa solo y no tiene
-    // weaponType. Va suelto en el inventario y se monta sobre una familia. El id
-    // es el MISMO que declara WEAPON_ATTACHMENTS (data/gsis_weapons.js) — el
-    // cargador de 15 de la Colt se llama `mag_colt45_15` en las tres capas, y los
-    // saves que tienen el nombre viejo lo resuelven ITEM_RENAMES. Su capacidad
-    // vive en WEAPON_ATTACHMENTS (`clipSize`) y NO se deriva del arma: un cargador
-    // de 15 SIEMPRE tiene 15.
-    "mag_colt45":     { name: "Cargador Colt .45",     weight: 0.2, type: "magazine" },
-    "mag_colt45_15":  { name: "Cargador Colt .45 extendido", weight: 0.2, type: "magazine" },
-    "mag_ak47_drum": { name: "Cargador AK tambor", weight: 0.8, type: "magazine" },
-    "mag_m4_lancer": { name: "Cargador M4 Lancer", weight: 0.4, type: "magazine" },
-    "mag_m4_drum": { name: "Cargador M4 D-60", weight: 0.9, type: "magazine" },
-    "mag_desert_eagle":  { name: "Cargador Desert Eagle",    weight: 0.2, type: "magazine" },
-    "mag_shotgun":       { name: "Cartucho escopeta",        weight: 0.2, type: "magazine" },
-    "mag_sawed_off":     { name: "Cartucho recortada",       weight: 0.2, type: "magazine" },
-    "mag_combat_shotgun":{ name: "Cartucho SPAS 12",         weight: 0.2, type: "magazine" },
-    "mag_micro_uzi":     { name: "Cargador Micro Uzi",       weight: 0.2, type: "magazine" },
-    "mag_mp5":           { name: "Cargador MP5",             weight: 0.2, type: "magazine" },
-    "mag_tec9":          { name: "Cargador Tec9",            weight: 0.2, type: "magazine" },
-    "mag_ak47":          { name: "Cargador AK-47",           weight: 0.2, type: "magazine" },
-    "mag_m4_assembled":  { name: "Cargador M4",              weight: 0.2, type: "magazine" },
-    "mag_country_rifle": { name: "Cartucho rifle",           weight: 0.2, type: "magazine" },
-    "mag_sniper_rifle":  { name: "Cartucho francotirador",   weight: 0.2, type: "magazine" },
-    "mag_rpg":           { name: "Cohete RPG",               weight: 0.5, type: "magazine" },
-    "mag_heat_seeker":   { name: "Cohete heat seeker",       weight: 0.5, type: "magazine" },
-    "mag_flamethrower":  { name: "Deposito flamethrower",    weight: 0.5, type: "magazine" },
-    "mag_minigun":       { name: "Municion minigun",         weight: 0.5, type: "magazine" },
-
-    // =========================================================================
-    // ACCESORIOS DE ARMA
-    // =========================================================================
-    // Un accesorio NO es un arma. No se equipa solo, no tiene weaponType y no
-    // tiene slot: se MONTA sobre una familia compatible, y ahi si decide como
-    // se ejecuta el arma.
+    // Los materiales de armeria se fueron con las armas porque no se usaban para
+    // nada solo: eran la entrada de un ensamblaje que no llego a existir, y sin
+    // armas no hay que ensamblar. Un catalogo de piezas sueltas sin ninguna que
+    // las consuma es contenido muerto que el jugador ve en la mochila y no puede
+    // usar.
     //
-    // El tipo "weapon_attachment" es lo que lo distingue de un "magazine". Los
-    // dos son accesorios y los dos se montan igual; lo unico que los separa es
-    // que un cargador trae `capacity` y el silenciador no.
-    //
-    // La lista de familias compatibles NO es decorativa: es lo que decide si el
-    // accesorio se puede montar. Vive en WEAPON_ATTACHMENTS, en
-    // gsis_weapon_variants.js, y se lee desde aca por id. Ver isAttachmentCompatible.
-    "suppressor": { name: "Silenciador", weight: 0.3, type: "weapon_attachment" }
+    // Que quede UNA fila y no cero es lo que mantiene vivos el inventario, el baul,
+    // la UI y la economia: los cuatro necesitan al menos un item que mover, y con
+    // el catalogo vacio addItem() devuelve false siempre y ninguna pantalla tiene
+    // filas que dibujar. Ver "POR QUE QUEDA UNA FILA" en el pie de este archivo.
+    "scrap_metal":   { name: "Chatarra",        weight: 0.5, type: "material" }
 };
 
 export function getItemDef(id) {
@@ -142,10 +75,30 @@ export function getItemType(id) {
 }
 
 // isInstanced — true si el item NO se apila: cada unidad es una fila con su
-// propio estado. Un cargador (type magazine) siempre, y un arma solo si tiene
-// weaponId, o sea una de las de catalogo equipables.
+// propio estado.
 //
-// Vive en la capa de datos, no en gsis_Items.js, porque NO es una regla de
+// CON EL SISTEMA DE ARMAS BORRADO, NADA ES INSTANCIADO: el unico item del
+// catalogo es chatarra, que se apila.
+//
+// El predicado queda, y la respuesta es siempre false, porque hay tres
+// consumidores reales que lo preguntan y ninguno de los tres puede dejar de
+// hacerlo sin reescribirse:
+//
+//   inventory/state.js   _splitStacks, al cargar una partida vieja
+//   inventory/logic.js   addItem y removeItem, al agregar y al sacar
+//   gsis_Trunk.js        _cuentaDe, al medir un baul
+//   gsis_WeaponSeller.js idem
+//
+// Los cuatro hacen `isInstanced(id) ? 1 : qty`, y con la respuesta en false toman
+// la rama de apilable, que es la unica que existe. Borrar la funcion obligaria a
+// cambiar los cuatro en el mismo commit, y el valor de ese cambio es cero: se
+// reemplaza una pregunta con la constante que ya contestaba.
+//
+// Que quede la FUNCION y no un false escrito en los cuatro sitios es lo que
+// permite que el catalogo vuelva a tener items instanciados sin tener que
+// acordarse de los cuatro: se cambia esta linea y los cuatro vuelven a funcionar.
+//
+// Vive en la capa de datos y no en gsis_Items.js porque NO es una regla de
 // guardado: es una pregunta del catalogo —"¿esta entrada se cuenta de a uno?"—
 // y la responden tanto el modulo (que guarda una fila por unidad) como la fila
 // de la tabla (que tiene que decir "instanciado" y no "1 unidad" para un arma,
@@ -159,11 +112,29 @@ export function getItemType(id) {
 export function isInstanced(id) {
     var def = ITEMS[id];
     if (!def) return false;  // id fuera de catalogo: no hay nada que contar
-    if (def.type === "magazine") return true;
-    if (def.type !== "weapon") return false;  // material: se apila
-    var wd = getWeaponByItemId(id);
-    return !!(wd && wd.weaponId !== null && wd.weaponId !== undefined);
+    return def.type === "magazine" || def.instanced === true;
 }
+
+// ============================================================================
+// POR QUE QUEDA UNA FILA Y NO CERO
+// ============================================================================
+// La respuesta corta: porque el inventario, el baul, la UI y la economia existen,
+// y los cuatro necesitan al menos un item que mover.
+//
+// Con ITEMS vacio, `addItem(id, qty)` devuelve false en su primera linea —
+// `if (!ITEMS[id]) return false` — y no hay forma de que el jugador obtenga nada
+// por el camino normal. Encima de eso, sin filas el snapshot del inventario
+// devuelve `rows: []`, la pagina dibuja una tabla vacia, el baul rechaza todo lo
+// que se le quiera meter y el peso total nunca pasa de cero.
+//
+// Chatarra cumple las dos funciones: es apilable, asi que ejercita el camino de
+// los stacks, y es lo unico que se puede tener, asi que el inventario tiene algo
+// que mostrar y algo que pesar.
+//
+// Y es honesta: si manana vuelve el sistema de armas, la fila que falta es
+// `scrap_metal` mas lo que venga, y el resto del mod no cambia. Lo que cambio con
+// el borrado fue el CATALOGO, no el inventario.
+// ============================================================================
 
 // No hay getMagazineDisplayName. Antes el nombre del cargador llevaba el estado
 // pegado ("Cargador 9mm - Cal: 1"): la salud vive en su propia columna

@@ -1,265 +1,146 @@
 // GSIS - Engine
 // Copyright (C) 2026  YeikoD
 // License: GNU GPL v3 or later (full text in LICENSE).
-//
+
 // ============================================================================
 // QUE RESUELVE ESTE ARCHIVO
 // ============================================================================
-// El UNICO lugar del mod que habla con el motor de armas de GTA.
+// Lo que le queda de hablar con el motor de armas de GTA, y es una capa fina:
+// los offsets del ped y de su CWeapon, y los natives que leen su estado.
 //
-// Todo native de arma, todo offset de CWeapon y de CWeaponInfo, y toda
-// direccion cruda vive aca. Ningun modulo mas los toca. Ballistic y FireButton
-// importan de este archivo; este archivo no importa de nadie.
+// Antes este archivo eran 677 lineas y la razon de todas: el UNICO lugar del mod
+// que hablaba con el motor de armas. Todo native de arma, todo offset de CWeapon
+// y de CWeaponInfo, y toda direccion cruda vivian aca —dar armas, quitar armas,
+// leer la municion de un slot, escribir el reloj de la recarga, cargar los .dff
+// propios—.
 //
-// ============================================================================
-// POR QUE ESTA SEPARADO
-// ============================================================================
-// Antes, Ballistic.js tenia 30 llamadas a native() y a Memory.*, con los offsets
-// de CWeapon declarados arriba. FireButton.js tenia SUS PROPIAS copias de cinco
-// de esos offsets (0x5A0, 0x718, 28, 0x8, 0xC), y el truco de convertir un
-// handle de CWeaponInfo en una direccion entera estaba escrito por TRES: dos en
-// Ballistic y uno en FireButton. Dos copias de un numero magico divergen sin
-// avisar, y el sintoma de que diverge es un arma que no dispara o un click seco
-// que no suena.
+// Se borro esa mitad con el sistema de armas. Lo que sobrevive es lo que
+// gsis_FireButton.js necesita para manejar el boton de disparo del JUEGO:
 //
-// ============================================================================
-// LA REGLA DE ESTE ARCHIVO
-// ============================================================================
-// Expone INTENCION, no estructura. Nadie fuera de aca escribe
-// `Memory.WriteI32(addr + 0x8, ...)`; se pide "escribi el clip de este arma".
+//   el ped del jugador y su puntero      playerChar, pedPointer
+//   sus tres guards                     isCharDead, isCharInAnyCar,
+//                                        isPlayerControlOn
+//   el slot de arma                      selectedSlot, slotAddress
+//   la ficha del arma en la mano         currentWeaponInfoAddress, infoFireType
+//   su municion                          slotClip, slotTotal
 //
-// La unica excepcion, marcada abajo, es la escritura de m_nAmmoClip: existe
-// porque el modulo de armas todavia la usa, y esa escritura es exactamente lo
-// que el modelo de 3 capas va a eliminar. Se borra en la fase 3, y por eso esta
-// sola en una funcion con su nombre diciendo que es temporal.
+// Que es lo que FireButton ya usaba antes de que existiera el sistema de armas.
+// El mod no le da armas; le deja disparar las que el jugador ya tiene.
 //
 // ============================================================================
-// QUE NO SABE ESTE ARCHIVO
+// POR QUE SE CONSERVA ESTE ARCHIVO Y NO SE MUEVE EL CODIGO A FIREBUTTON
 // ============================================================================
-// No sabe que es una familia, un accesorio o una variante. No sabe de inventario,
-// ni de save, ni de precios. No decide nada: solo traduce "dame el arma" en el
-// native que hace falta, y "decime la capacidad" en la lectura que la da.
+// Por la regla que FireButton ya seguia: los offsets del juego no se escriben
+// dos veces. FireButton leeria un +0x8 de CWeapon y este archivo leeria el mismo
+// +0x8, y dos copias de un numero magico divergen sin avisar.
+//
+// Y el riesgo no es teorico: el layout de CWeapon lo define WeaponLimits.h y no
+// cambia solo. Pero la regla no es "riesgo grande": es "el offset vive en un
+// lugar y ese lugar se llama".
+//
 // ============================================================================
+// LO QUE HABIA ACA Y YA NO ESTA
+// ============================================================================
+// Para que el que vuelva a necesitarlo sepa que existed y de donde salia, y no
+// tenga que buscarlo en un commit:
+//
+//   dar y sacar armas       giveWeapon() y su fallback por native, que existia
+//                           porque el API de objeto de CLEO tira con los tipos
+//                           que registro un .asi: el arma entra en el slot y la
+//                           validacion que viene despues revienta
+//   la recarga              reloadSpec(), con sus TRES guardas —la lista de tipos
+//                           sin anim, WEAPON_RELOAD (0x1000) en m_nFlags, y
+//                           m_nAmmo > 1— y el plazo de GetWeaponReloadTime en
+//                           0x743D70, verificado contra gta_sa.exe
+//   escribir el CWeapon     setSlotClip, setSlotTotal, setSlotState,
+//                           setSlotNextShotTime, unloadSlot
+//   leer el tipo de un slot slotType, addressOfType
+//   la ficha por (tipo, skill)  weaponInfoAddress(), y con ella clipCapacityOf
+//   los modelos propios      requestModel, loadModelsNow, loadSpecialModel,
+//                            hasModelLoaded, isModelAvailableByName,
+//                            writeModelId. El rango 15025..15099 que los
+//                            alimentaba estaba en el Config y se borro con esto
+//
+// Los offsets salen de WeaponLimits.h y de una sonda contra el binario, no de un
+// SDK. Cada uno decia de donde venia, y esa es la parte que no se tira.
+// ---------------------------------------------------------------------------
 
 // ============================================================================
 // ESTRUCTURAS DE GTA
 // ============================================================================
-// Los offsets salen de la cabecera de FLA (WeaponLimits.h) y de la sonda, no de
-// un SDK. Cada uno dice de donde, porque un numero sin procedencia es un numero
-// que no se puede revisar cuando algo no funciona.
-//
-// ESTOS SE EXPORTAN, aunque ningun modulo los use todavia, y esa es la idea: son
-// la tabla del layout del juego, y una tabla que no se puede leer desde afuera no
-// es una tabla centralizada, es un detalle escondido. Lo que se centralizo no es
-// "el codigo que usa el offset", es el numero. El codigo que lo usa son las
-// funciones de abajo, que no lo exponen.
+// Los offsets salen de la cabecera de FLA (WeaponLimits.h) y de una sonda contra
+// gta_sa.exe, no de un SDK. Cada uno dice de donde, porque un numero sin
+// procedencia es un numero que no se puede revisar cuando algo no funciona.
 
-export var PED_WEAPONS_OFF = 0x5A0;        // CPed::m_aWeapons, CWeapon[13]
+// CPed::m_aWeapons: el array de 13 CWeapon, uno por slot.
+export var PED_WEAPONS_OFF = 0x5A0;
 export var PED_SELECTED_SLOT_OFF = 0x718;  // CPed::m_nSelectedWepSlot (uint8)
 export var WEAPON_SLOT_COUNT = 13;         // sizeof(m_aWeapons) / sizeof(CWeapon)
 export var WEAPON_SIZE = 28;               // sizeof(CWeapon)
 
-// CWeapon. El +0 es el tipo: los 4 bytes de abajo son el weaponId, y se leen
-// directo de memoria en vez de con un native porque el reconciliador recorre los
-// 13 slots en cada frame y 13 natives por frame se notan.
-export var W_TYPE = 0x0;
-export var W_STATE = 0x4;                  // CWeapon::m_nState (2 = RELOADING)
-export var W_CLIP = 0x8;                   // CWeapon::m_nAmmoInClip
-export var W_AMMO = 0xC;                   // CWeapon::m_nAmmoTotal
-export var W_TIME = 0x10;                  // CWeapon::m_nTimeForNextShot
+// El layout de CWeapon. 28 bytes, en este orden.
+export var W_TYPE = 0x0;                  // m_nWeaponType: la IDENTIDAD de la entrada
+export var W_CLIP = 0x8;                  // m_nAmmoInClip: los tiros en el cargador
+export var W_AMMO = 0xC;                  // m_nAmmoTotal: el total, clip incluido
 
-// CWeaponInfo. Los offsets salen de WeaponLimits.h y el layout esta verificado
-// contra el binario: 0x0C = m_modelId, 0x18 = m_nFlags, 0x1C = m_animGroup.
+// El offset de m_eWeaponFire dentro de CWeaponInfo.
 //
-// De los cinco que hay, el mod lee DOS: m_nFlags (para el flag WEAPON_RELOAD) y
-// m_nAmmo (para saber si el arma tiene cargador). Los otros tres estan
-// documentados en WeaponLimits.h y en el .asi, que los usa, y no se re-declaran
-// aca: un offset exportado que nadie lee es una copia que puede divergir de la
-// fuente sin que nada lo note.
-export var INFO_MODEL = 0x0C;              // m_modelId (WeaponLimits.h:365)
-export var INFO_FLAGS = 0x18;              // m_nFlags
-export var INFO_AMMO = 0x20;               // m_nAmmo, int16: el cargador de vanilla
+// MEDIDO: WeaponLimits.h y verificado leyendo la ficha de un arma de vanilla.
+// eWeaponFire: 1 = disparo directo, 2 = Throw, 3 = los demas.
+var INFO_FIRE_TYPE = 0x1C;
 
-// El flag WEAPON_RELOAD de m_nFlags. Es la unica forma de saber si el motor tiene
-// anim de recarga para este arma: el grupo de animacion puede existir y no tener
-// el anim de recarga, y ahi la escritura de m_nState = 2 deja el arma muda.
-export var WEAPON_FLAG_RELOAD = 0x1000;
-
-// Globales sueltas.
-export var TIMER_ADDR = 0xB7CB84;          // CTimer::m_snTimeInMilliseconds
-// CWeaponInfo::GetWeaponReloadTime (thiscall, uint32) -> 0x743D70
+// Toda lectura de memoria cruda pasa por un try/catch.
 //
-// VERIFICADO contra gta_sa.exe, y no por el comentario de una guia: los bytes en
-// 0x743D70 son `mov eax,[ecx+18h]` (lee m_nFlags) y decide segun el bit
-// 0x1000, o sea que devuelve una DURACION en ms segun si el arma recarga rapido o
-// lento. La misma direccion es la que usa "Reload Mod" (call 7617904 = 0x743D70),
-// que es un mod de recarga que funciona.
-//
-// Antes de escribir esto verifique la direccion contra el binario porque el
-// comentario de la version anterior de este archivo la describia mal. No estaba
-// mal la direccion: estaba mal la explicacion.
-var RELOAD_TIME_FN = 0x743D70;
-
-// Estados de CWeapon.
-export var WEAPONSTATE_READY = 0;
-export var WEAPONSTATE_RELOADING = 2;
-// OUT_OF_AMMO (3) tambien bloquea CWeapon::Fire, que hace return false. Aparece
-// solo cuando el motor deja al arma sin balas; el watchdog de la recarga lo
-// limpia porque si no el arma tiene balas y no dispara.
-export var WEAPONSTATE_OUT_OF_AMMO = 3;
-
-// Armas sin anim de recarga, por weaponType de vanilla.
-//
-// VERIFICADO contra el enum eWeaponType de WeaponLimits.h:
-//   37 WEAPONTYPE_FTHROWER     41 WEAPONTYPE_SPRAYCAN
-//   38 WEAPONTYPE_MINIGUN      42 WEAPONTYPE_EXTINGUISHER
-//                              43 WEAPONTYPE_CAMERA
-//
-// La lista completa es la de "Reload Mod" (L123-129). La version anterior de GSIS
-// tenia solo [37, 38], y no por decision: se escribio cuando el mod todavia no
-// manejava mas que pistola, AK y M4, y esas tres no llegan aqui. La lista se
-// completo cuando la anim volvio, para que un tipo futuro no se quede muda.
-//
-// Igual esta la guarda de verdad es WEAPON_RELOAD: esta lista es una red de
-// seguridad para los casos en que el flag y la lista no coinciden.
-export var NO_RELOAD_ANIM = [37, 38, 41, 42, 43];
-
-// Las 4 skills de un arma. weapon.dat repite la misma fila en las cuatro.
-// SKILL_COUNT si se usa afuera: quien recorre "las cuatro filas de este tipo"
-// tiene que escribir el mismo numero que usa el motor, y si lo escribe por su
-// cuenta el dia que weapon.dat cambie el conteo quedan tres filas o cinco.
-export var SKILL_COUNT = 4;
-var SKILL_STD = 1;                  // la que representa al arma "normal"
-
-// ============================================================================
-// HELPERS DE BAJO NIVEL
-// ============================================================================
-
-// Direccion entera de un CWeaponInfo*.
-//
-// GET_WEAPONINFO y GET_CURRENT_CHAR_WEAPONINFO devuelven un HANDLE, no un
-// puntero, y no todos los caminos lo dan igual: en unos es number, en otros un
-// objeto con .address, en otros algo que solo responde a valueOf(). Por eso
-// estan los tres intentos.
-//
-// Esta funcion estaba copiada tres veces en el codigo (Ballistic:987,
-// Ballistic:1202 y FireButton:54). Las tres eran iguales, y las tres iban a
-  // dejar de estarlo en cuanto una se tocara. Aca esta una sola vez.
-function infoAddress(handle) {
-    if (!handle) return 0;
-    if (typeof handle === "number") return handle;
-    if (typeof handle.address === "number") return handle.address;
-    var n = +handle;
-    if (n) return n;
-    if (typeof handle.valueOf === "function") {
-        var v = handle.valueOf();
-        if (typeof v === "number" && v) return v;
-    }
-    return 0;
+// Un try/catch por llamada escrito en cada consumidor son 30 try/catch identicos
+// que se leen como 30 riesgos distintos; uno solo se lee como lo que es: "la
+// memoria puede no estar".
+function readI32(addr) {
+    try { return Memory.ReadI32(addr, false); } catch (e) { return 0; }
 }
-
-// Toda lectura de memoria cruda pasa por aca. Un try/catch por llamada escrito en
-// cada consumidor son 30 try/catch identicos que se leen como 30 riesgos
-// distintos; uno solo se lee como lo que es: "la memoria puede no estar".
-function readI32(addr) { return Memory.ReadI32(addr, false); }
-function readU8(addr) { return Memory.ReadU8(addr, false); }
-// m_nAmmo y m_nDamage de CWeaponInfo son int16. Leerlos como I32 trae el vecino de
-// arriba pegado y una capacidad de 17 sale como 131089, que no es un numero que
-// uno mire y creya.
-function readI16(addr) { return Memory.ReadI16(addr, false); }
-function writeI32(addr, valor) { Memory.WriteI32(addr, valor, false); }
-
-// Un native que tira no puede tumbar un modulo. Se registra UNA vez por nombre
-// para que el log diga "este native no esta" sin llenar 3000 lineas por frame.
-var _nativeFalla = {};
-function nativeSeguro(nombre, fn, porDefecto) {
-    try {
-        return fn();
-    } catch (e) {
-        if (!_nativeFalla[nombre]) {
-            _nativeFalla[nombre] = true;
-            log("[Engine] el native " + nombre + " no respondio: " + (e && e.message ? e.message : e));
-        }
-        return porDefecto;
-    }
-}
-
-// Para los casos donde el comportamiento correcto es "no hacer nada" y no hace
-// falta que quede registrado: un native opcional que falla es parte del juego.
-function nativeOpcional(nombre, fn, porDefecto) {
-    try {
-        return fn();
-    } catch (e) {
-        return porDefecto;
-    }
-}
-
-// Que natives se pidieron para diagnostico y no respondieron.
-export function failedNatives() {
-    return _nativeFalla;
+function readU8(addr) {
+    try { return Memory.ReadU8(addr, false); } catch (e) { return 0; }
 }
 
 // ============================================================================
 // EL PED
 // ============================================================================
-
-// El char del jugador 0, o null. Todo el mod es de un jugador: no hay un segundo
-// jugador con armas, y las funciones que reciben un char lo reciben de aca.
+// El char del jugador 0, o null. Todo el mod es de un jugador, y las funciones
+// que reciben un char lo reciben de aca.
 export function playerChar() {
-    try {
-        return new Player(0).getChar();
-    } catch (e) {
-        return null;
-    }
+    try { return new Player(0).getChar(); } catch (e) { return null; }
 }
 
-// Puntero del ped (CPed*), o 0. Las operaciones que escriben en CWeapon lo
-// necesitan para calcular direcciones y no reciben un char en todos los caminos.
+// El puntero del ped (CPed*), o 0. Lo necesitan las funciones que leen memoria
+// de su CWeapon, porque la direccion se calcula desde el ped y no desde el char.
 export function pedPointer(char) {
-    var c = (char !== undefined && char !== null) ? char : playerChar();
-    if (c === null || c === undefined) return 0;
-    return nativeSeguro("GET_PED_POINTER", function () { return native("GET_PED_POINTER", c); }, 0) || 0;
+    try { return new Player(0).getPointer(char); } catch (e) { return 0; }
 }
 
+// Los tres guards de FireButton, y los tres son natives sin excepcion: el juego
+// los responde siempre, y un null aca es un fallo de runtime, no un estado.
 export function isCharDead(char) {
-    return !!nativeSeguro("IS_CHAR_DEAD", function () { return native("IS_CHAR_DEAD", char); }, false);
-}
-
-export function isPlayerControlOn() {
-    return !!nativeSeguro("IS_PLAYER_CONTROL_ON", function () {
-        return native("IS_PLAYER_CONTROL_ON", new Player(0));
-    }, false);
+    try { return native("IS_CHAR_DEAD", char) === true; } catch (e) { return false; }
 }
 
 export function isCharInAnyCar(char) {
-    return !!nativeSeguro("IS_CHAR_IN_ANY_CAR", function () { return native("IS_CHAR_IN_ANY_CAR", char); }, false);
+    try { return native("IS_CHAR_IN_ANY_CAR", char) === true; } catch (e) { return false; }
 }
 
-// El reloj del juego, en milisegundos.
-//
-// Lo usa la anim de recarga: el deadline de la recarga es un instante en el reloj
-// del motor, no un contador del mod. Con el reloj equivocado el plazo vence antes
-// o despues y la recarga se corta o se queda colgada.
-export function timerNow() {
-    try {
-        return readI32(TIMER_ADDR);
-    } catch (e) {
-        return 0;
-    }
+export function isPlayerControlOn() {
+    try { return native("IS_PLAYER_CONTROL_ON", char0()) === true; } catch (e) { return false; }
+}
+
+function char0() {
+    var c = playerChar();
+    return c === null ? 0 : c;
 }
 
 // ============================================================================
 // LOS SLOTS DEL PED
 // ============================================================================
-// El motor tiene UN CWeapon por slot (CPed::m_aWeapons[13]) y el tipo es parte de
-// la identidad de esa entrada. Por eso cambiar de configuracion es un REMOVE +
-// GIVE y no un campo que se escriba: no hay un "cambiar el tipo" en el motor.
-
-// La direccion del CWeapon de un slot, o 0 si el puntero no sirve.
-export function slotAddress(ped, slot) {
-    if (!ped || !slot) return 0;
-    return ped + PED_WEAPONS_OFF + slot * WEAPON_SIZE;
-}
+// El motor tiene UN CWeapon por slot (CPed::m_aWeapons[13]). El tipo es parte de
+// la identidad de esa entrada, y por eso cambiar de configuracion era un REMOVE +
+// GIVE y no un campo que se escribiera: en GTA no hay un "cambiar el tipo".
 
 // Que slot esta seleccionado. 0 = sin arma.
 export function selectedSlot(ped) {
@@ -267,280 +148,40 @@ export function selectedSlot(ped) {
     return readU8(ped + PED_SELECTED_SLOT_OFF) || 0;
 }
 
-// El weaponId que hay en un slot, leido de memoria. 0 = slot vacio.
-export function slotType(slotAddr) {
-    if (!slotAddr) return 0;
-    return readI32(slotAddr + W_TYPE);
+// La direccion del CWeapon de un slot, o 0 si el puntero no sirve.
+export function slotAddress(ped, slot) {
+    if (!ped || !slot) return 0;
+    return ped + PED_WEAPONS_OFF + slot * WEAPON_SIZE;
 }
 
-// En que slot esta ESTE weaponType, o 0.
-//
-// Recorre desde el slot 1 porque el 0 es melee y el mod no lo maneja: un arma de
-// melee no es un item de inventario con cargador.
-//
-// No exportada: lo que los llamadores necesitan es la DIRECCION del arma, que es
-// addressOfType. La diferencia entre el slot y la direccion la necesita solo
-// quien lee el slot, y por ahora nadie.
-function findSlotOfType(ped, weaponType) {
-    if (!ped || !weaponType) return 0;
-    for (var i = 1; i < WEAPON_SLOT_COUNT; i++) {
-        if (readI32(slotAddress(ped, i) + W_TYPE) === weaponType) return i;
-    }
-    return 0;
-}
-
-// La direccion del CWeapon que tiene este weaponType, o 0.
-export function addressOfType(ped, weaponType) {
-    var slot = findSlotOfType(ped, weaponType);
-    return slot ? slotAddress(ped, slot) : 0;
-}
-
-// --- campos de un CWeapon en memoria ---
-//
-// `slotState`, `setSlotNextShotTime` y `unloadSlot` vuelven con la anim de recarga.
-// SE QUITAN en un momento en que el codigo creia que cambiar de cargador era
-// escribir un campo encima del arma que ya estaba ahi. No lo es: es un REMOVE +
-// GIVE. Volvieron con la anim, y sobre el tipo NUEVO.
-
+// Los tiros en el cargador, y el total. Son DOS numeros y no uno: el motor
+// reparte el total en el clip cuando recarga, asi que en mitad de una recarga
+// clip y total dicen cosas distintas y un boton que solo mire uno de los dos
+// decide mal.
 export function slotClip(slotAddr) { return slotAddr ? readI32(slotAddr + W_CLIP) : 0; }
 export function slotTotal(slotAddr) { return slotAddr ? readI32(slotAddr + W_AMMO) : 0; }
-export function slotState(slotAddr) { return slotAddr ? readI32(slotAddr + W_STATE) : -1; }
-
-export function setSlotClip(slotAddr, n) { if (slotAddr) writeI32(slotAddr + W_CLIP, n); }
-export function setSlotTotal(slotAddr, n) { if (slotAddr) writeI32(slotAddr + W_AMMO, n); }
-export function setSlotState(slotAddr, n) { if (slotAddr) writeI32(slotAddr + W_STATE, n); }
-export function setSlotNextShotTime(slotAddr, ms) { if (slotAddr) writeI32(slotAddr + W_TIME, ms); }
-
-// Vaciar el arma: ni clip ni total. Es lo que hace el unload, y lo que permite que
-// el motor vea "no hay nada que recargar" y cierre la anim sin rellenar.
-export function unloadSlot(slotAddr) {
-    if (!slotAddr) return;
-    setSlotClip(slotAddr, 0);
-    setSlotTotal(slotAddr, 0);
-}
-
-//
-// La razon de que sea null y no un ms en cero: el llamador escribe
-// `m_nState = 2` para que el motor lance el anim. Si el arma no TIENE anim de
-// recarga, el motor no lanza nada, no cierra el estado, y el arma queda muda con
-// balas. Un "0" como respuesta seria un arma rota.
-//
-// Las tres guardas, en orden de coste:
-//
-//   1. la lista de tipos sin anim. Es un chequeo en memoria, sin llamadas.
-//   2. WEAPON_RELOAD (0x1000) en m_nFlags. Esta es la guarda de verdad: el grupo
-//      de animacion puede existir sin el anim de recarga.
-//   3. m_nAmmo > 1. Un arma de un tiro no tiene cargador que recargar. Este es el
-//      mismo chequeo que hace "Reload Mod" (L136-140).
-export function reloadSpec(weaponType) {
-    if (!weaponType) return null;
-    if (NO_RELOAD_ANIM.indexOf(weaponType) >= 0) return null;
-    try {
-        var info = weaponInfoAddress(weaponType, SKILL_STD);
-        if (!info) return null;
-        var flags = readI32(info + INFO_FLAGS);
-        if (!(flags & WEAPON_FLAG_RELOAD)) return null;
-        if (readI16(info + INFO_AMMO) <= 1) return null;
-        var ms = Memory.CallMethodReturn(RELOAD_TIME_FN, info, 0, 0);
-        if (!ms || ms <= 0) return null;
-        return { info: info, ms: ms, flags: flags };
-    } catch (e) {
-        return null;
-    }
-}
-
-// El arma en la mano del jugador, leida con los natives del juego.
-// Devuelve { char, slot, type, clip, ammo } o null si un native no responde.
-export function readCurrentWeapon() {
-    try {
-        var c = new Player(0).getChar();
-        var weaponInfo = native("GET_CURRENT_CHAR_WEAPONINFO", c);
-        if (!weaponInfo) return null;
-        var slot = native("GET_WEAPONINFO_SLOT", weaponInfo);
-        if (slot === null || slot === undefined) return null;
-        var clip = native("GET_WEAPONINFO_TOTAL_CLIP", weaponInfo);
-        var weaponType = native("GET_CURRENT_CHAR_WEAPON", c);
-        var ammo = native("GET_AMMO_IN_CHAR_WEAPON", c, weaponType);
-        return { char: c, slot: slot, type: weaponType, clip: clip, ammo: ammo };
-    } catch (e) {
-        return null;
-    }
-}
 
 // ============================================================================
-// DAR Y SACAR ARMAS
+// LA CWeaponInfo DEL ARMA QUE EL JUGADOR TIENE EN LA MANO
 // ============================================================================
-
-// Que natives usaba el mod antes de este archivo, y si el API de objeto esta.
-var _givePorNativo = false;
-
-function _darPorNativo(char, weaponType, ammo) {
-    native("GIVE_WEAPON_TO_CHAR", char, weaponType, ammo);
-}
-
-// ---------------------------------------------------------------------------
-// EL ARMA LLEGO O NO, POR MEMORIA
-// ---------------------------------------------------------------------------
-// La unica pregunta que este archivo se hace sobre un fallo: despues de un
-// throw, esta el arma en el ped o no.
+// La ficha del arma. Para un tipo de vanilla esta en la tabla global del juego.
 //
-// Se contesta por MEMORIA y no por el native HAS_CHAR_GOT_WEAPON, y no es una
-// preferencia: la memoria es la fuente que ya se demostro que funciona en este
-// runtime. El reconciliador lee los slots con readI32 y ve el arma.
+// ESTA CONVERSION ESTABA COPIADA TRES VECES EN EL CODIGO —dos en el modulo de
+// armas y una en FireButton— y las tres eran iguales. Ver el header: dos copias de
+// un numero magico divergen sin avisar.
 //
-// Devuelve true si hay un slot con ESE tipo.
-function _llegoElArma(char, weaponType) {
-    var ped = pedPointer(char);
-    if (!ped || !weaponType) return false;
-    return addressOfType(ped, weaponType) !== 0;
-}
-
-// Dar un arma al ped.
-//
-// Se usa el API de objeto, p.giveWeapon(weaponId, ammo), que es el camino que
-//CLEO Redux expone y el que corresponde. Detras hay un native 0x01B2 por si el
-// API de objeto no estuviera: no es una red por si acaso, es que una regresion
-// aqui es un mod que no arma a nadie y no hay forma de que se note sin jugar. Si
-// el camino de objeto falla una vez, se avisa una vez y se usa el native de
-// siempre, que es lo que hacia el codigo antes de este archivo.
-//
-// ---------------------------------------------------------------------------
-// POR QUE UN THROW NO ES "NO LLEGO" — Y POR QUE ESTO ERA UN BUG GRAVE
-// ---------------------------------------------------------------------------
-// p.giveWeapon() DA el arma y DESPUES tira, cuando el weaponType es uno que
-// registro el .asi en la memoria del juego. La capa JS de CLEO no conoce esos
-// tipos: el .asi los metio en la tabla del juego, no en la del script. Asi que la
-// llamada se ejecuta, el arma entra al slot, y la validacion que hace despues no
-// encuentra el id y tira.
-//
-// Y aca estaba el bug entero. Del log de una sesion real:
-//
-//   06:24:27  el slot 2 tiene el tipo 22
-//   06:24:48  p.giveWeapon() tira  ->  este catch
-//   06:24:50  el slot 2 tiene el tipo 63     <-- EL ARMA SI LLEGO
-//
-// El mod no lo podia saber. Y `_darPorNativo` tampoco servia: en este runtime el
-// nombre "GIVE_WEAPON_TO_CHAR" no esta registrado, asi que el fallback tambien
-// tiraba y caia en `return false`.
-//
-// El efecto en cadena: equipWeapon tomaba eso por un armado fallido y revirtia
-// con storeWeapon, el registro nunca se escribia, y al cerrar el menu el
-// reconciliador encontraba la Colt en el ped sin entrada y la adoptava
-// (removeWeapon + storeWeapon). Un item mas al inventario, y el ciclo entero
-// repetido en cada intento. El modulo se desarmaba SOLO y duplicaba el arma cada
-// vez que el jugador tocaba equipar.
-//
-// El arreglo es una VERIFICACION, no un cambio de camino: despues del throw se
-// pregunta por memoria si el arma llego, y si llego se devuelve true. La pregunta
-// es la misma que hace el reconciliador, con los mismos offsets, asi que si el
-// reconciliador ve el arma, esta funcion tambien la ve.
-//
-// Y por que la memoria y no un native: porque en este runtime el native miente
-// y la memoria no. No es que la memoria sea mejor en abstracto; es que es la unica
-// de las dos que se demonstro funcionando aca.
-//
-// OJO con el parametro `char`: el API de objeto va sobre el JUGADOR, no sobre el
-// char. Este mod es de un jugador, asi que el char que llega siempre es el del
-// jugador 0. Si algun dia hay un segundo jugador con armas, esta funcion tiene
-// que recibir el Player y no el char, y no el GameObject que seCerro ni se
-// abrio. Esta nota esta aca para que el que lo cambie lo sepa antes de cambiarlo.
-export function giveWeapon(char, weaponType, ammo) {
-    if (_givePorNativo) {
-        try {
-            _darPorNativo(char, weaponType, ammo);
-            return true;
-        } catch (e0) {
-            // El fallback tambien puede tirar, y tambien puede haber dado el arma
-            // antes de tirar. Mismo criterio que el camino de objeto.
-            if (_llegoElArma(char, weaponType)) return true;
-            return false;
-        }
+// GET_CURRENT_CHAR_WEAPONINFO devuelve un HANDLE, no un puntero, y no todos los
+// caminos lo dan igual: en unos es number, en otros un objeto con .address, en
+// otros algo que solo responde a valueOf(). Por eso estan los tres intentos.
+function infoAddress(handle) {
+    if (handle === null || handle === undefined) return 0;
+    if (typeof handle === "number") return handle;
+    if (handle.address) return handle.address;
+    if (typeof handle.valueOf === "function") {
+        var v = handle.valueOf();
+        if (typeof v === "number") return v;
     }
-    try {
-        new Player(0).giveWeapon(weaponType, ammo);
-        return true;
-    } catch (e) {
-        if (!_nativeFalla["giveWeapon-objeto"]) {
-            _nativeFalla["giveWeapon-objeto"] = true;
-            _givePorNativo = true;
-            log("[Engine] WARN: p.giveWeapon() no respondio, uso GIVE_WEAPON_TO_CHAR (0x01B2). " +
-                "Es el mismo camino que usaba el mod antes de Engine.js.");
-        }
-        // PRIMERO se pregunta si el arma llego. Es el caso real, y el que estaba
-        // desarmando el modulo: entrar por aca con `false` a ciegas hace que
-        // equipWeapon revierta un armado que si funciono.
-        if (_llegoElArma(char, weaponType)) {
-            log("[Engine] p.giveWeapon() tiro pero el tipo " + weaponType +
-                " SI quedo en el ped; se toma como dado. Es lo esperable con un " +
-                "tipo de plugin: la capa JS no lo conoce, la llamada se ejecuta " +
-                "igual y lo que falla es la validacion posterior.");
-            return true;
-        }
-        try {
-            _darPorNativo(char, weaponType, ammo);
-            return true;
-        } catch (e2) {
-            return false;
-        }
-    }
-}
-
-// Si el mod esta usando el native en vez del API de objeto. Para diagnostico.
-export function giveUsesNative() { return _givePorNativo; }
-
-export function removeWeapon(char, weaponType) {
-    return nativeSeguro("REMOVE_WEAPON_FROM_CHAR", function () {
-        native("REMOVE_WEAPON_FROM_CHAR", char, weaponType);
-        return true;
-    }, false);
-}
-
-export function hasWeapon(char, weaponType) {
-    return !!nativeSeguro("HAS_CHAR_GOT_WEAPON", function () {
-        return native("HAS_CHAR_GOT_WEAPON", char, weaponType);
-    }, false);
-}
-
-export function setCurrentWeapon(char, weaponType) {
-    return nativeSeguro("SET_CURRENT_CHAR_WEAPON", function () {
-        native("SET_CURRENT_CHAR_WEAPON", char, weaponType);
-        return true;
-    }, false);
-}
-
-// Municion TOTAL del arma de ese tipo. 017B no es el clip: el motor reparte el
-// total en el clip cuando recarga. 041A es la que responde por TIPO, no por la
-// arma en la mano, asi que anda para cualquier slot que el jugador lleve.
-export function getAmmo(char, weaponType) {
-    return nativeSeguro("GET_AMMO_IN_CHAR_WEAPON", function () {
-        return native("GET_AMMO_IN_CHAR_WEAPON", char, weaponType);
-    }, 0) || 0;
-}
-
-export function setAmmo(char, weaponType, ammo) {
-    return nativeSeguro("SET_CHAR_AMMO", function () {
-        native("SET_CHAR_AMMO", char, weaponType, ammo);
-        return true;
-    }, false);
-}
-
-// ============================================================================
-// LA CWeaponInfo
-// ============================================================================
-// La ficha del arma. Para un tipo de vanilla esta en la tabla global del juego; para
-// uno que dio de alta un plugin esta en la memoria del .asi. Eso NO es una
-// distincion que este archivo pueda hacer: el no sabe que tipo es de quien. Lo
-// que si hace es no escribir nunca donde no debe, y para eso esta el unico
-// escritor de abajo, con su nombre diciendo que es temporal.
-
-// La direccion de la CWeaponInfo de un (tipo, skill). null si el native no
-// responde o no devuelve nada.
-function weaponInfoAddress(weaponType, skill) {
-    try {
-        return infoAddress(native("GET_WEAPONINFO", weaponType, skill));
-    } catch (e) {
-        return null;
-    }
+    return 0;
 }
 
 export function currentWeaponInfoAddress(char) {
@@ -552,135 +193,9 @@ export function currentWeaponInfoAddress(char) {
 }
 
 // m_eWeaponFire de una ficha. 1 = disparo directo. Lo usa FireButton para
-// decide si toca el boton con este arma.
+// decidir si toca el boton con este arma: un arma que no dispara directo —un
+// lanzallamas, un spray— no pasa por el boton, y un arma normal si.
 export function infoFireType(infoAddr) {
     if (!infoAddr) return 0;
     return readI32(infoAddr + INFO_FIRE_TYPE);
-}
-
-// -----------------------------------------------------------------------
-// LA CAPACIDAD
-// -----------------------------------------------------------------------
-// SE LEE, NO SE ESCRIBE. Y esta es LA capacidad del sistema.
-//
-// Donde existe una capacidad en el sistema es en la fila del .dat, que escribe el
-// .asi cuando registra el tipo. Aca no hay una segunda: la capacidad se LEE con
-// GET_WEAPONINFO_TOTAL_CLIP y se usa para acotar la municion que se le pasa al
-// give. Nunca se escribe.
-//
-// Y se lee por el native, no por el offset de m_nAmmoClip: la fila de un tipo de
-// plugin la escribio el .asi, no el juego, asi que el layout es el que el plugin
-// uso. GET_WEAPONINFO_TOTAL_CLIP es el unico que responde en los dos casos.
-//
-// ---------------------------------------------------------------------------
-// LO QUE HABIA ACA Y YA NO ESTA
-// ---------------------------------------------------------------------------
-//   TEMPORAL_writeClipCapacity  escribia m_nAmmoClip en las cuatro filas de
-//     skill de la tabla GLOBAL. Eso cambia la capacidad DEL TIPO ENTERO para todos
-//     los que lo usen, NPCs incluidos: llevar el tambor le ponia 75 balas a cada
-//     AK del juego. Con eso, el reconciliador recortaba un tambor a 30 en el
-//     frame siguiente, porque el segundo lugar del que se leia se llenaba con el
-//     valor por defecto de la familia. Son las dos mitetas de un mismo error.
-//
-//   clipCapacityForPed  le preguntaba al PED en que skill tenia el arma, para
-//     leer la capacidad. Y GET_CHAR_WEAPON_SKILL no tiene dato para un tipo que
-//     dio de alta un .asi, porque el engine no lo conoce: contestaba 0 sin decir
-//     nada. Por eso existia tambien la version con la fila STD fija
-//     (clipCapacityForPlugin), y por eso `_capacityByType` decidia entre las dos
-//     con una cadena de `if`. Las dos contestaban lo mismo. Queda una.
-//
-//   infoFlags  y  reloadTimeMs  se fueron con la anim de recarga, y VOLVIERON con
-//     ella. El flag WEAPON_RELOAD (0x1000) es la guarda de "este arma tiene anim
-//     de recarga", y reloadTime es la duracion que el motor usa para saber cuando
-//     termina. Ver reloadSpec.
-//
-// Lo que no vuelve es el resto. `WEAPON_RELOAD` no alcanza como unico filtro: el
-// flag dice que el ARMA tiene anim, y el grupo de animacion de un tipo de plugin
-// lo trae el padre. Un tipo sin padre con anim es un caso que el flag no cubre y
-// por eso reloadSpec tiene tres guardas y no una.
-//
-// ---------------------------------------------------------------------------
-
-// La capacidad de la fila STD de ese tipo. Que sea la STD y no "la del ped" es
-// lo que hace que un tipo de plugin tambien responda: weapon.dat repite el mismo
-// m_nAmmoClip en las cuatro filas de un arma con skills, asi que las cuatro dan el
-// mismo numero, y la capacidad de un cargador es una propiedad del ARMA y no
-// depende de en que punta de la escala este el jugador.
-export function clipCapacityOf(weaponType) {
-    try {
-        var info = native("GET_WEAPONINFO", weaponType, SKILL_STD);
-        if (!info) return 0;
-        return native("GET_WEAPONINFO_TOTAL_CLIP", info) || 0;
-    } catch (e) {
-        return 0;
-    }
-}
-
-// Escribir m_modelId en las cuatro filas de skill. NO es la capacidad: es como el
-// mod dice que un tipo dibuja un modelo propio, y existe solo para el camino de
-// modelos propios, que hoy esta apagado (WEAPON_MODELS_ENABLED = false).
-//
-// m_modelId2 (0x10) NO se toca: en weapon.dat es -1 para la pistola y el juego lo
-// usa para un segundo modelo en armas de melee combinado. Dejarlo como lo clono
-// la tabla es lo que corresponde.
-export function writeModelId(weaponType, modelId) {
-    if (!modelId) return false;
-    var n = 0;
-    for (var skill = 0; skill < SKILL_COUNT; skill++) {
-        var addr = weaponInfoAddress(weaponType, skill);
-        if (!addr) continue;
-        try {
-            writeI32(addr + INFO_MODEL, modelId);
-            n++;
-        } catch (e) { /* sin memoria: el modelo no se escribe */ }
-    }
-    return n > 0;
-}
-
-// ============================================================================
-// MODELOS
-// ============================================================================
-// El modelo de un arma es un puntero, no una etiqueta. Por eso los modelos propios
-// van en un rango de id reservado, separado del de los personajes: un id
-// compartido hace que un arma se dibuje como un ped.
-
-export function requestModel(modelId) {
-    return nativeSeguro("REQUEST_MODEL", function () {
-        native("REQUEST_MODEL", modelId);
-        return true;
-    }, false);
-}
-
-export function loadModelsNow() {
-    return nativeSeguro("LOAD_ALL_MODELS_NOW", function () {
-        native("LOAD_ALL_MODELS_NOW");
-        return true;
-    }, false);
-}
-
-// Si el juego puede resolver este nombre de archivo. Con los .dff de ModLoader
-// hay que probar varios formatos de nombre (ver gsis_WEAPONS.md), asi que esto se
-// consulta por cada candidato.
-export function isModelAvailableByName(nombre) {
-    return !!nativeSeguro("IS_MODEL_AVAILABLE_BY_NAME", function () {
-        return native("IS_MODEL_AVAILABLE_BY_NAME", nombre);
-    }, false);
-}
-
-// Cargar un .dff con su .txd. Devuelve el modelId que le quedo, que lo ASIGNA el
-// juego: no hay forma de escribir ese numero en una tabla estatica.
-export function loadSpecialModel(dff, txd) {
-    try {
-        return native("LOAD_SPECIAL_MODEL", dff, txd) || 0;
-    } catch (e) {
-        return 0;
-    }
-}
-
-// Si un modelo esta en memoria. Para uno que registro un plugin, esta es la
-// UNICA pregunta util: no se pide, se verifica.
-export function hasModelLoaded(modelId) {
-    return !!nativeSeguro("HAS_MODEL_LOADED", function () {
-        return native("HAS_MODEL_LOADED", modelId);
-    }, false);
 }

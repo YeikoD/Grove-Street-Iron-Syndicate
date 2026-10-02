@@ -46,7 +46,7 @@ import { t } from "../../core/gsis_L10n.js";
 import "./events.js";
 
 import { initState } from "./state.js";
-import { addItem, entregaOpts } from "./logic.js";
+import { addItem } from "./logic.js";
 
 // El nombre del modulo en el registro. No cambia: `getModules()` lo loguea y
 // varios logs del juego lo nombran.
@@ -58,28 +58,17 @@ register({
     update: updateItemManager
 });
 
-// Debug: tecla L agrega la Colt .45, chatarra, sus dos cargadores y el
-// silenciador (probar inventario/baul y las 4 configuraciones de la familia).
+// Debug: tecla L agrega chatarra, para probar el inventario y el baul sin
+// pasar por el dealer.
 //
-// entregaOpts en todos, para que el camino de prueba diga lo mismo que el de
-// la entrega real: el arma llega sin cargador y el cargador llega lleno. Si el
-// debug cuelgue del default de addItem, probar el inventario da un arma con
-// municion que en el juego nunca se ve.
-//
-// El silenciador esta porque es el unico accesorio que la R no toca: la R cambia
-// el cargador del cinturon y el silenciador no es un cargador. Sin el, las
-// variantes 60 y 61 no tienen camino de prueba y quedan sin verificar.
+// Antes la tecla L metia la Colt .45, sus dos cargadores y el silenciador, que
+// eran los cuatro objetos con los que se probaba el sistema de variantes sin
+// pasar por el dealer. Con el sistema de armas borrado no hay nada que probar
+// asi, y el camino que queda —el apilable, que es el unico del catalogo— lo
+// ejercita igual.
 function updateItemManager() {
     if (keyJustPressed(KEYS.DEBUG_ITEM)) {  // Detecta tecla L
-        // La familia completa: el arma desnuda, los dos cargadores y el
-        // silenciador, para poder probar el sistema de variantes sin pasar por
-        // el dealer.
-        var okArma = addItem("colt45", 1, entregaOpts("colt45"));      // Arma de prueba, DESNUDA
-        var okScrap = addItem("scrap_metal", 5);  // Agrega material de prueba
-        var okMag = addItem("mag_colt45", 1, entregaOpts("mag_colt45"));  // Cargador nuevo, lleno
-        var okExt = addItem("mag_colt45_15", 1, entregaOpts("mag_colt45_15"));
-        var okSup = addItem("suppressor", 1);
-        if (okArma || okScrap || okMag || okExt || okSup) {
+        if (addItem("scrap_metal", 5)) {
             showTextBox(t("DBG_ITM"));  // Muestra mensaje de exito
         } else {
             showTextBox(t("INV_FUL"));  // Muestra error inventario lleno
@@ -94,12 +83,12 @@ function updateItemManager() {
 // verificacion es la que hace util el reexport: si un dia una de estas lineas no
 // la importa nadie, la linea se borra en el mismo cambio.
 
-// Lo usan gsis_DealerPickup.js, ui/views/inventory.js y ui/views/flow.js
-export { addItem, entregaOpts } from "./logic.js";
-export { removeItem, addToTrunk, removeFromTrunk, equipMagToBelt, unequipBeltMag } from "./logic.js";
+// Lo usan gsis_DealerPickup.js y ui/views/inventory.js
+export { addItem } from "./logic.js";
+export { removeItem, addToTrunk, removeFromTrunk } from "./logic.js";
 
 // Lo usan ui/views/inventory.js, ui/views/flow.js y gsis_WeaponSeller.js
-export { getItems, getTotalWeight, getBelt } from "./state.js";
+export { getItems, getTotalWeight } from "./state.js";
 export {
     getTrunkItems, getTrunkWeight, getTrunkMaxCapacity
 } from "./state.js";

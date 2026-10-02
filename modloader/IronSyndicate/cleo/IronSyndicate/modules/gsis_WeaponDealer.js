@@ -9,13 +9,42 @@
 //   del carrito parado dentro de la esfera. Cerrar el menu apaga la esfera un rato
 //   (core/gsis_SpotRuntime.js).
 // Carrito POR characterId (spot.characterId → CHARACTERS): cada dealer tiene
-// su carrito y sus precios (ch.dealer: markup / prices — opcional).
+//   su carrito y sus precios (ch.dealer: markup / prices — opcional).
 // Pedido: SaveManager "DealerOrders" (persiste guardado) hasta recoger
 // Dinero: nativo de CJ (Player.storeScore / addScore), NO cleanMoney del save
-// Depende de: Config, ModuleRegistry, SaveManager, EventBus, weapon_data,
-//             character_data, SpotRuntime, L10n, Notice, item_data
+// Depende de: Config, ModuleRegistry, SaveManager, EventBus, character_data,
+//             SpotRuntime, L10n, Notice, item_data
+//
 // ============================================================================
-
+// ESTE MODULO QUEDA SIN CATALOGO, Y SE SABE POR QUE
+// ============================================================================
+// El precio base de cada item salia de `getWeaponPrice()`, que leia la tabla de
+// armas (data/gsis_weapons.js). Esa tabla se borro con el sistema de armas entero,
+// asi que hoy no hay de donde sacar un precio.
+//
+// El modulo NO se borro, y sigue haciendo todo lo que hacia menos una cosa:
+//
+//   la esfera aparece y la cooldown funciona      sigue
+//   ESPACIO abre y cierra el menu                sigue
+//   el carrito suma, saca y vacia                 sigue
+//   checkout cobra, guarda el pedido y avisa     sigue
+//   QUE HAY PARA VENDER                          nada
+//
+// La ultima es la que cambia, y no por un bug: sin catalogo, `getDealerPrice()`
+// devuelve 0 para todo, la pantalla de armeria dibuja el catalogo vacio y
+// `addToCart()` rechaza con DLR_IVL. Un dealer sin mercaderia, no un dealer roto.
+//
+// QUE HACE FALTA PARA QUE VUELVA A VENDER
+// ----------------------------------------
+// Un precio. Hoy sale de dos lugares y ninguno esta:
+//
+//   ch.dealer.prices[itemId]   un numero fijo por item, por dealer
+//   ch.dealer.markup           un multiplicador sobre un precio base
+//
+// El segundo no sirve solo: multiplica una base que no existe. El primero si: es
+// un numero absoluto, asi que un `ch.dealer.prices` con los items que venda
+// alcanza para tener un dealer funcionando sin tocar este archivo. Ver
+// getDealerPrice() abajo.
 import { register } from "../core/gsis_ModuleRegistry.js";
 import { registerMenuSource } from "../core/gsis_Input.js";
 import { registerModule, getModuleData, setModuleData } from "../core/gsis_SaveManager.js";
@@ -23,7 +52,6 @@ import { emit } from "../core/gsis_EventBus.js";
 import { t, money } from "../core/gsis_L10n.js";
 import { setNotice } from "../core/gsis_Notice.js";
 import { getItemName } from "../data/gsis_item_data.js";
-import { getWeaponPrice } from "../data/gsis_weapon_data.js";
 import { getCharacter } from "../data/gsis_character_data.js";
 import {
     createSpotGate, updateSpotSpheres, closeSpotFlow, spotCanOpen,
@@ -89,16 +117,36 @@ function _cartRef(charId) {
 // Precio para el personaje activo (o el de characterId si se pasa)
 // ch.dealer.items → 0 si el itemId no esta a la venta (catalogo acotado)
 // ch.dealer.prices[itemId] → fijo | ch.dealer.markup → base * markup | base
+//
+// EL CATALOGO VACIO, Y QUE ES LO QUE CONTESTA
+// ------------------------------------------------
+// Antes la primera linea era `getWeaponPrice(itemId)`, y el resto solo iba a
+// ajustar ese numero. Hoy no hay tabla de precios, asi que el unico precio que
+// existe es el que el NPC declara: `ch.dealer.prices[itemId]`, un numero absoluto.
+//
+// La diferencia con antes, en el caso de un item sin precio declarado:
+//
+//   antes   la tabla daba un precio base, el markup lo multiplicaba   -> vendia
+//   ahora   no hay base, y un markup sobre 0 sigue siendo 0          -> no vende
+//
+// O sea que `markup` solo queda como multiplicador de un precio que el NPC ya
+// declaro. Se conserva porque es el formato que el resto del mod ya espera —los
+// personajes de data/gsis_character_data.js pueden declararlo— y borrarlo seria
+// romper un formato que todavia tiene consumidores.
+//
+// El 0 que devuelve cuando no hay precio es lo que hace que la armeria dibuje el
+// catalogo vacio y que addToCart() rechace con DLR_IVL. No es un fallo a medias:
+// es un dealer sin mercaderia.
 export function getDealerPrice(itemId, characterId) {
-    var base = getWeaponPrice(itemId);
-    if (!base) return 0;
     var cid = (characterId !== undefined && characterId !== null)
         ? characterId : getActiveCharacterId();
     var ch = getCharacter(cid);
-    if (!ch || !ch.dealer) return base;
+    if (!ch || !ch.dealer) return 0;
     var d = ch.dealer;
     if (d.items && d.items.indexOf(itemId) === -1) return 0;
-    if (d.prices && d.prices.hasOwnProperty(itemId)) return d.prices[itemId];
+    if (!d.prices || !d.prices.hasOwnProperty(itemId)) return 0;
+    var base = d.prices[itemId];
+    if (typeof base !== "number" || base <= 0) return 0;
     if (typeof d.markup === "number" && d.markup > 0) {
         return Math.round(base * d.markup);
     }

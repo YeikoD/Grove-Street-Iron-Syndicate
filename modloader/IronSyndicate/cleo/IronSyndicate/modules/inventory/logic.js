@@ -5,13 +5,13 @@
 // ============================================================================
 // QUE RESUELVE ESTE ARCHIVO
 // ============================================================================
-// Mover items: al inventario, al baul, al cinturon, y sacarlos.
+// Mover items: al inventario, al baul, y sacarlos.
 //
 // Y las dos reglas que hacen que una operacion de inventario no trague cosas:
 //
 //   1. NADA PARCIAL. Si no hay `qty` unidades, no se toca nada y se devuelve
 //      false. No se quita "lo que haya" y se dice que salio. Durante un tiempo si
-//      se hacia, y el bug era de las dos formas:
+//      se hacia, y el bug era de las tres formas:
 //
 //        - Pedir 5 con 3 en un stack: `qty - 5` daba negativo, la fila se borraba
 //          entera (3 reales) y la funcion devolvia true. Perdia 3 y reportaba
@@ -19,6 +19,11 @@
 //        - Un id apilable repartido en DOS filas (2 + 1) contaba 3 unidades pero
 //          el bucle solo tocaba la primera: cobrabas 3 y solo se perdia la
 //          primera fila. Ahora se recorren todas.
+//        - Un item INSTANCIADO con 3 filas y qty 5: el bucle sacaba las 3, y el
+//          `if (removed < qty) return false` de despues ya no podia volver
+//          atras. Devolvia false con las 3 filas ya spliceadas de la copia, asi
+//          que perdia 3 y reportaba que no se habia hecho nada. El chequeo va
+//          antes del bucle ahora, como en `addToTrunk`.
 //
 //   2. CONTAR ANTES DE RESTAR. En toda operacion que mueve unidades, el conteo
 //      se hace entero antes de tocar la primera fila. Restar sobre la marcha y
@@ -30,6 +35,32 @@
 // Las dos reglas estan repetidas archivo por archivo a proposito. Son la
 // diferencia entre "el inventario anda" y "el inventario anda casi siempre", y
 // un comentario en el que la regla se escribio no sobrevive al que la rompe.
+//
+// Y las dos se comprueban probandose, no leyendo: .IronSyndicate/tools/inventario.mjs
+// tiene una seccion que rompe el invariante a proposito y ejercita las ramas de
+// instanciado con un item temporal. Ver seccion 6 de ese archivo.
+// ============================================================================
+
+// ============================================================================
+// LO QUE SE FUE CON EL SISTEMA DE ARMAS
+// ============================================================================
+//   entregaOpts()        que estado trae un item QUE SE ENTREGA. Antes era el
+//                        camino unico de "un arma se entrega DESNUDA" y "un
+//                        cargador se entrega NUEVO y lleno", y los tres que lo
+//                        llamaban (DealerPickup, flow.js, el debug del modulo)
+//                        lo llamaban para no depender de una copia de la regla.
+//                        Con el catalogo de una fila no hay ningun estado que
+//                        decidir: `addItem(id, qty)` y listo.
+//
+//   equipMagToBelt()    el cinturon de cargadores: 3 casillas ficticias donde
+//   unequipBeltMag()     vivian los cargadores puestos, alimentadas por la tecla
+//                        R. Sin armas no hay nada que poner ahi.
+//
+// Las dos rutas de apilables de este archivo —addItem/removeItem y
+// addToTrunk/removeFromTrunk— ya tienen su rama de "instanciado" y hoy toman
+// siempre la de "apilable". Se conservan: son la parte de la regla que no depende
+// del catalogo, y volverian a ser la correcta en cuanto haya un item
+// instanciado. Ver isInstanced() en data/gsis_item_data.js.
 // ============================================================================
 
 import { getModuleData, setModuleData } from "../../core/gsis_SaveManager.js";
@@ -37,39 +68,21 @@ import { MISC } from "../../core/gsis_Config.js";
 import { t } from "../../core/gsis_L10n.js";
 import { ITEMS, SALUD_MAX, clampSalud, isInstanced } from "../../data/gsis_item_data.js";
 import {
-    SAVE_KEY, isMagazine, capacityOfItem, makeInstance,
-    getItems, getTotalWeight, ensureTrunks, ensureBelt,
-    getTrunkMaxCapacity
+    SAVE_KEY, getItems, getTotalWeight, ensureTrunks, getTrunkMaxCapacity
 } from "./state.js";
 
-// entregaOpts — que estado trae un item QUE SE ENTREGA (compra, retiro, premio).
-// undefined = usar el default de addItem.
+// entregaOpts — QUE ESTADO TRAE UN ITEM QUE SE ENTREGA.
 //
-// La regla: un arma se entrega DESNUDA, sin cargador montado y con el total en
-// 0 ({ hasMag: false, ammo: 0 }). Antes llegaba con cargador puesto y lleno,
-// porque el addItem sin opts caía en el default de makeWeaponInstance — y eso
-// hacia que el arma unproductive.traiga municion de regalo, y que la
-// municion no tuviera un canal propio.
+// SE BORRO CON EL SISTEMA DE ARMAS. Existia por una regla que ya no tiene objeto:
+// "un arma se entrega DESNUDA, sin cargador y con 0 balas" y "un cargador se
+// entrega NUEVO y lleno". Las dos mitades se fueron con el catalogo, asi que no
+// queda ningun estado que decidir: `addItem(id, qty)` arma la fila entera.
 //
-// Un cargador, en cambio, se entrega NUEVO y lleno: es lo unico que hace un
-// cargador nuevo, y el `salud` no se pasa (nace a SALUD_MAX).
-//
-// Materiales y body_armor caen en undefined: no son instanciados y siguen
-// apilándose con el default.
-//
-// Vive aca y no en el modulo del dealer porque el preview del pedido necesita
-// EXACTAMENTE la misma regla: si el panel dice una cosa y la entrega otra, el
-// jugador cobra por una promesa. Dos copias de "que llega vacio" divergen
-// calladas, que es la falla que la casa ya marca para itemRow.
-export function entregaOpts(id) {
-    if (isMagazine(id)) return { ammo: capacityOfItem(id) || 0 };
-    if (isInstanced(id)) return { hasMag: false, ammo: 0 };
-    return undefined;
-}
+// Y no se reemplazo por un `undefined` en los tres que la llamaban: un reexport
+// que devuelve siempre lo mismo es ruido. El que lo consumia de verdad —el
+// preview del pedido de la armeria— ya no tiene que mostrar municion porque la
+// armeria no vende nada.
 
-// Agregar item al inventario (verifica MISC.MAX_INVENTORY_WEIGHT)
-// opts por instancia: { ammo, salud, hasMag } | opts.force = ignora peso
-// (adopcion de armas del ped: ya iban encima del jugador)
 export function addItem(id, qty, opts) {
     if (!ITEMS[id]) return false;
     qty = qty || 1;
@@ -83,10 +96,10 @@ export function addItem(id, qty, opts) {
     if (!data) data = { items: [], trunks: {} };
     if (!data.items) data.items = [];
 
-    // Instancias (cargadores y armas): una entrada por unidad (sin stack)
+    // Instancias (una fila por unidad, sin stack)
     if (isInstanced(id)) {
         for (var m = 0; m < qty; m++) {
-            data.items.push(makeInstance(id, opts));
+            data.items.push({ id: id, qty: 1, salud: SALUD_MAX });
         }
         setModuleData(SAVE_KEY, data);
         return true;
@@ -119,19 +132,40 @@ export function removeItem(id, qty) {
     if (!data) data = { items: [] };
     if (!data.items) data.items = [];
 
-    // Instancias (cargadores/armas): quitar instancias sueltas
+    // Instancias: una fila por unidad, y se quita de a UNA fila.
+    //
+    // EL CHEQUEO VA ANTES DE TOCAR NADA, y ese es el punto entero: la version
+    // anterior hacia los `splice` en el bucle y recien despues miraba si habia
+    // sobrado o faltado. Con 3 filas y `qty: 5` sacaba 3, devolvia false, y para
+    // entonces ya habia modificado `data.items` de la copia: las tres filas se
+    // perdian igual y el modulo informaba "no se pudo".
+    //
+    // Es el mismo bug que el comentario de `addToTrunk` describe como ya
+    // corregido alla. Esta rama no se toco cuando se corrigio el otro lado, y
+    // llevaba el tiempo muerto: con `ITEMS` sin nada instanciado, la rama no se
+    // ejecutaba nunca y no se podia notar.
+    //
+    // La version buena esta en `addToTrunk`: se cuenta primero, se compara con lo
+    // pedido, y solo entonces se mueve.
     if (isInstanced(id)) {
-        var removed = 0;
-        for (var m = 0; m < data.items.length && removed < qty; ) {
+        var disponible = 0;
+        for (var c0 = 0; c0 < data.items.length; c0++) {
+            if (data.items[c0].id === id) disponible++;
+        }
+        // Menos de las pedidas: no se saca NINGUNA. Un "quedaste sin 2 de 5"
+        // parcial es peor que un "no hay" limpio, porque el jugador no sabe si
+        // perdio algo.
+        if (disponible <= 0) return false;
+        if (disponible < qty) return false;
+        var movidos = 0;
+        for (var m = 0; m < data.items.length && movidos < qty; ) {
             if (data.items[m].id === id) {
                 data.items.splice(m, 1);
-                removed++;
+                movidos++;
             } else {
                 m++;
             }
         }
-        if (removed <= 0) return false;
-        if (removed < qty) return false;  // no habia todas: no se toca nada (arriba dice por que)
         setModuleData(SAVE_KEY, data);
         return true;
     }
@@ -331,51 +365,6 @@ export function removeFromTrunk(vehicleId, id, qty) {
         }
     }
     data.items.push({ id: id, qty: qty, salud: salud });
-    setModuleData(SAVE_KEY, data);
-    return true;
-}
-
-// ============================================================================
-// CINTURON — cargadores equipados (MISC.MAG_BELT_SLOTS casillas ficticias)
-// ============================================================================
-
-// equipMagToBelt — mueve 1 cargador del inventario a la primera casilla libre.
-// El cargador equipado deja de contar peso (sale de items[]).
-export function equipMagToBelt(id) {
-    if (!isMagazine(id)) return false;
-    var data = ensureTrunks(getModuleData(SAVE_KEY));
-    var belt = ensureBelt(data);
-    var free = -1;
-    for (var i = 0; i < belt.length; i++) {
-        if (!belt[i]) { free = i; break; }
-    }
-    if (free < 0) { showTextBox(t("BELTFUL")); return false; }
-    var best = -1;
-    for (var m = 0; m < data.items.length; m++) {
-        var it = data.items[m];
-        if (it.id !== id) continue;
-        if (best < 0 || (it.ammo || 0) > (data.items[best].ammo || 0)) best = m;
-    }
-    if (best < 0) return false; // sin cargador de ese tipo en el inventario
-    belt[free] = data.items[best];
-    data.items.splice(best, 1);
-    setModuleData(SAVE_KEY, data);
-    return true;
-}
-
-// unequipBeltMag — devuelve la casilla al inventario (respeta el peso maximo)
-export function unequipBeltMag(index) {
-    var data = ensureTrunks(getModuleData(SAVE_KEY));
-    var belt = ensureBelt(data);
-    var mag = belt[index];
-    if (!mag) return false;
-    var def = ITEMS[mag.id];
-    if (def && getTotalWeight() + def.weight * (mag.qty || 1) > MISC.MAX_INVENTORY_WEIGHT) {
-        showTextBox(t("INV_FUL"));
-        return false;
-    }
-    belt[index] = null;
-    data.items.push(mag);
     setModuleData(SAVE_KEY, data);
     return true;
 }

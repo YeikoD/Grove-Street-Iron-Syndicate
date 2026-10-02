@@ -570,24 +570,36 @@ function dropMock() {
 
 // -------------------------------------------------- FILTROS DE CATEGORIA --
 //
-// Los botones de arriba ya no son pestañas de tres paneles: son cinco filtros
-// del MISMO listado, el inventario. Las dos pestañas que no eran inventario
-// (Propiedades y Vehiculos) eran placeholders —decían "Este panel todavia no
-// esta implementado"— y se fueron con el cambio.
+// Los botones de arriba ya no son pestañas de tres paneles: son filtros del MISMO
+// listado, el inventario. Las dos pestañas que no eran inventario (Propiedades y
+// Vehiculos) eran placeholders —decían "Este panel todavia no esta implementado"—
+// y se fueron con el cambio.
 //
 //   key    el cat de la fila. null = sin filtro (todos). "otros" no es un cat:
-//          es la negation de los tres conocidos, para que un tipo de item nuevo
-//          caiga en algun lado y no desaparezca.
+//          es la negation de los conocidos, para que un tipo de item nuevo caiga
+//          en algun lado y no desaparezca.
 //   icon   el archivo dentro de assets/iconos/categorias. Los botones son
 //          imagenes, no texto: el nombre de la categoria lo sigue diciendo la
 //          banda de grupo de la tabla, asi que el boton no lo repite.
 //
 // La lista es estatica a proposito: los iconos son archivos fijos. Si el mod
 // agrega un cat, se agrega una linea aca con su icono.
+//
+// NO HAY FILTRO DE ARMAS NI DE CARGADORES, Y NO ES OLVIDO
+// ------------------------------------------------------
+// Los dos botones estaban ahi y los dos quedaron con cero filas para siempre:
+// el catalogo de ITEMS no tiene ninguna fila `type: "weapon"`, ni `magazine`, ni
+// `weapon_attachment`, porque el sistema de armas se borro.
+//
+// Un filtro que nunca muestra nada es peor que no tenerlo: el jugador aprieta
+// "Armas", lee "No tenes armas" sobre un inventario donde no hay armas, y no
+// tiene forma de saber si es un dato o un boton muerto.
+//
+// "otros" se queda porque es el que agarra lo que nosea de una categoria
+// conhecida, y es el que va a recibir al proximo item que se agregue sin tocar
+// esta lista.
 const FILTROS = [
   { key: null, icon: "todos", label: "Todos", empty: "No tenes nada encima." },
-  { key: "weapon", icon: "9mm", label: "Armas", empty: "No tenes armas." },
-  { key: "magazine", icon: "cargador", label: "Cargadores", empty: "No tenes cargadores." },
   { key: "material", icon: "materiales", label: "Materiales", empty: "No tenes materiales." },
   { key: "otros", icon: "otros", label: "Otros", empty: "Nada en otras categorias." }
 ];
@@ -875,71 +887,38 @@ function emitCommand(payload) {
 function actionFor(r, what) {
   if (!r) return null;
 
-  // --- MONTAR UN ACCESORIO -------------------------------------------------
+  // LAS CINCO ACCIONES DE ARMAS SE FUERON CON EL SISTEMA
+  // -------------------------------------------
+  // Antes esta funcion armaba cinco payloads que ya no tienen a quien atenderlos:
   //
-  // Se monta desde la fila del ACCESORIO, no desde la del arma: la pieza es lo que
-  // el jugador tiene en la mochila y elige, y el arma es el destino. Al reves
-  // habria que abrir un submenu de "cual de los que tengo monto", y la accion
-  // naturale queda en la cosa que se toca.
+  //   inv:equip      equipar un arma del inventario
+  //   inv:unequip    sacarla de vuelta
+  //   inv:mount      montar un accesorio sobre el arma equipada
+  //   inv:unmount    sacarlo
+  //   inv:belt       poner un cargador en el cinturon
+  //   inv:belt:off   sacarlo del cinturon
   //
-  // El destino se busca en stateMap, que es la lista vigente de filas (la arma
-  // equipada llega con equipado===true y ranura==="arma", con su slot de GTA). No
-  // se guarda en una variable propia porque stateMap YA es esa lista: duplicarla
-  // es duplicar la verdad.
+  // Los `case` correspondientes se borraron de modules/ui/commands.js. Esta
+  // pagina no los borra de ACCIONES porque un `aplica` que devuelve null ya
+  // hace que la accion NO aparezca: el filtro es la misma cosa que una guarda,
+  // y es lo que evita el peor sintoma —un boton visible que viaja al mod y no
+  // vuelve con nada.
   //
-  // `r.cat === "weapon_attachment"` no lo decide la pagina: viene del catalogo que
-  // manda el mod, que ya sabe que el silenciador es un accesorio y que los
-  // cargadores son otra cosa. La pagina no mira ITEMS ni adivina por el nombre.
-  if (what === "mount" && r.cat === "weapon_attachment") {
-    const arma = stateMap.find((x) => x.equipado && x.ranura === "arma");
-    return arma ? { cmd: "inv:mount", slot: arma.slot, id: r.id } : null;
-  }
+  // Lo que queda es lo que el inventario sigue entendiendo: tirar. Y las tres
+  // ramas que se conservan sin cambio son las de `r.equipado`, que hoy siempre
+  // es false porque el modulo ya no manda filas equipadas —pero el codigo no
+  // depende de eso para ser correcto.
 
-  // Una fila equipada esta FUERA de items[] —el mod la saco al equipar—, asi que
-  // "tirar" no puede funcionar: removeItem la buscaria ahi y no la encontraria,
-  // y el comando se perderia en silencio. "Equipar" tampoco, ya esta equipada.
-  // Lo unico que corresponde es devolverla a donde estaba, y cada ranura tiene su
-  // comando: el arma por su slot de GTA, el cargador por su casilla de cinturon
-  // (por casilla y no por id, porque en el cinturon puede haber dos cargadores
-  // del mismo tipo y la casilla es lo unico que los distingue).
-  if (r.equipado) {
-    if (what === "unequip") {
-      if (r.ranura === "arma") return { cmd: "inv:unequip", slot: r.slot };
-      if (r.ranura === "cinturon") return { cmd: "inv:belt:off", slot: r.slot };
-      return null;
-    }
-    // --- SACAR EL ACCESORIO ---
-    //
-    // Sin `id`: el modulo sabe cual es el accesorio que no es cargador, y la
-    // pagina no. Mandarlo seria obligarla a distinguir un silenciador de un
-    // cargador por el id, y su documentacion dice que no conoce el catalogo.
-    //
-    // La condicion es `otros`, no `attachments`. Un cargador montado NO cuenta: los
-    // cargadores se cambian con la R, y un "Quitar accesorio" que no saca el
-    // cargador seria un boton que no hace lo que dice. `otros` lo manda el mod
-    // justamente para que esta fila no tenga que deducirlo del prefijo "mag_".
-    if (what === "unmount") {
-      if (r.ranura !== "arma") return null;
-      const otros = r.otros || [];
-      return otros.length > 0 ? { cmd: "inv:unmount", slot: r.slot } : null;
-    }
-    return null;
-  }
-
+  // Un apilado se tira entero por su id y por su cantidad. Un item
+  // instanciado —cuando vuelva a haber uno— se tiraria de a uno, y por eso
+  // la cantidad la decide el modulo y no la pagina.
   if ((r.qty || 1) > 1) {
-    // Apilado: no hay una unidad sola que equipar ni que tirar por id.
     return what === "drop" ? { cmd: "inv:drop", id: r.id, qty: r.qty || 1 } : null;
   }
-  if (what === "equip") {
-    if (r.cat === "weapon") return { cmd: "inv:equip", id: r.id };
-    if (r.cat === "magazine") return { cmd: "inv:belt", id: r.id };
-    return null;
-  }
-  if (what === "drop") {
-    return { cmd: "inv:drop", id: r.id, qty: 1 };
-  }
+  if (what === "drop") return { cmd: "inv:drop", id: r.id };
   return null;
 }
+
 
 // ---------------------------------------------------- REGISTRO DE ACCIONES --
 //
@@ -974,40 +953,13 @@ function actionFor(r, what) {
 // modulo tiene que saber leerla del otro lado.
 const ACCIONES = [
   {
-    id: "unmount",
-    label: "Quitar accesorio",
-    // Solo en un arma con un accesorio NO cargador montado. `otros` viene del mod
-    // ya filtrado, asi que esta fila no sabe que es un cargador: solo pregunta si
-    // hay algo que quitar. Con un cargador montado y nada mas, esta accion NO
-    // aparece —para eso esta la R— en vez de aparecer y no hacer nada.
-    aplica: (r) => !!actionFor(r, "unmount")
-  },
-  {
-    id: "mount",
-    label: "Montar en el arma",
-    // Solo en un accesorio suelto, y solo si hay un arma equipada que lo pueda
-    // recibir. El modulo es el que dice si la combinacion existe: que un
-    // silenciador no entre en una M4 se decide alla, no aca.
-    aplica: (r) => !!actionFor(r, "mount")
-  },
-  {
-    id: "unequip",
-    label: (r) => (r.ranura === "cinturon" ? "Quitar del cinturón" : "Quitar"),
-    aplica: (r) => !!actionFor(r, "unequip")
-  },
-  {
     id: "drop",
     label: "Tirar",
     sep: true,
     aplica: (r) => !!actionFor(r, "drop")
-  },
-  {
-    id: "equip",
-    label: (r) => (r.cat === "magazine" ? "Cinturón" : "Equipar"),
-    sep: true,
-    aplica: (r) => !!actionFor(r, "equip")
   }
 ];
+
 
 // Dispara una accion sobre una fila. Devuelve true si llego a mandarse.
 // Las acciones con id propio (las que no pasan por actionFor) se enchufan aca.
@@ -2994,32 +2946,21 @@ function doAction(what) {
   return emitCommand(payload);
 }
 
-// Los dos botones del pie del inventario. Antes eran "equipar" y "tirar con la X
-// mantenida", y cada uno llamaba a doAction() con SU verbo de fila. Con el
-// contrato unificado las dos caps son teclas del contrato general —INTRO y F— y
-// ninguna de las dos es una accion sobre la fila elegida: el INTRO ya esta
-// atendido por el keydown de Enter (que hace la accion principal segun la
-// pantalla) y el F es una de las teclas de cierre.
+// El boton de aceptar. Antes hacia dos cosas segun donde estuviera: en un menu de
+// proximidad corria la accion principal de esa pantalla, y en el inventario
+// equipaba la fila enfocada. La segunda ya no existe.
 //
-// Asi que los dos emiten el MISMO comando que su tecla, por el mismo motivo que
-// el ctxmenu arma su lista desde un registro y no desde codigo: si el boton y la
-// tecla hicieran cosas distintas, el jugador veria que el F no cierra y pensaria
-// que el boton esta roto —o al reves, y el boton cierra algo que la tecla no.
+// Y no se dejo como `else if (actionFor(r, "equip"))`: actionFor() devuelve null
+// para "equip" desde que el sistema de armas se borro, asi que esa rama es
+// codigo que nunca corre. Un `if` que nunca entra es peor que su ausencia: el que
+// lo lea cuenta con que el boton hace algo en el inventario.
 function wireKeycaps() {
   const aceptar = document.querySelector('[data-action="aceptar"]');
   const cerrar = document.querySelector('[data-action="cerrar"]');
   if (aceptar) {
     aceptar.addEventListener("click", () => {
-      // El INTRO del teclado resuelve la fila enfocada; el boton hace lo mismo, y
-      // por eso no va por emitCommand: la accion la tiene que aplicar el mod y la
-      // pagina necesita el id de la fila, que es cosa del render.
-      const r = selectedRow();
       const flow = pantallaActual();
-      if (flow) {
-        correrPrincipal(cfgDe(flow));
-      } else if (r && actionFor(r, "equip")) {
-        doAction("equip");
-      }
+      if (flow) correrPrincipal(cfgDe(flow));
     });
   }
   if (cerrar) {
@@ -3351,13 +3292,10 @@ document.addEventListener("keydown", (e) => {
     if (cfg) {
       if (e.shiftKey) moverTodo(cfg);
       else correrPrincipal(cfg);
-    } else {
-      const r = selectedRow();
-      if (r && actionFor(r, "equip")) {
-        doAction("equip");
-      } else if (r) {
-        _diag("Enter: " + r.name + " no tiene accion de equipar");
-      }
+    // Sin cfg no hay pantalla de proximidad, asi que el INTRO no tiene accion
+    // principal que correr. Antes intentaba equipar la fila enfocada, y esa rama
+    // murio con el sistema de armas: no quedo un `if` a medias, porque un boton
+    // que no hace nada tiene que parecer que no hace nada.
     }
   } else if (!cfg && (e.key.toLowerCase() === "q" || e.key.toLowerCase() === "e")) {
     e.preventDefault();
@@ -3403,15 +3341,14 @@ document.addEventListener("keydown", (e) => {
     _xDownAt = performance.now();
     _xFired = false;
 
-    // Que la X haga algo al apretar depende del item: un cargador va al
-    // cinturon, un arma se equipa, un material no tiene accion. Si no hay
-    // accion al apretar, la X queda reservada para "tirar" al soltar.
-    if (actionFor(r, "equip")) {
-      _xFired = true;
-      doAction("equip");
-    } else {
-      _diag("X: " + r.name + " no tiene accion de equipar");
-    }
+    // La X al apretar ya no hace "equipar": esa accion se fue con el sistema de
+    // armas. Asi que la X se reserva ENTERA para "tirar al soltar", que es lo
+    // que el comentario de arriba decia que pasaba cuando no habia accion al
+    // apretar — y ahora es siempre el caso.
+    //
+    // `_xFired` queda en false al apretar y solo pasa a true si el soltar encuentra
+    // una fila valida. Ver el keyup de mas abajo.
+    _diag("X: armar para tirar " + r.name);
   }
 });
 

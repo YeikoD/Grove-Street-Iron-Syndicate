@@ -16,7 +16,9 @@ export var KEYS = {
     SAVE: 116,          // F5 — guardar partida
     DEBUG_ITEM: 76,     // L — debug: agregar item
     BAG: 80,            // P — toggle bolso visual
-    RELOAD: 82,         // R — swap de cargador (Ballistic)
+    // NO hay tecla RELOAD. La R (82) cambiaba el cargador del cinturon y hacia
+    // falta en el sistema de armas, que se borro. La tecla queda libre: el 82
+    // vuelve a ser una tecla normal del juego.
     ESC: 27,            // ESC — cierra cualquier menu de la UI web (modules/ui/index.js)
 
     // ============================================================================
@@ -117,7 +119,6 @@ export var TIMERS = {
     SAVE_THROTTLE: 2000,          // Guardado minimo entre toggles
     TRUNK_SPHERE: 200,            // Update de sphere del baul
     AUTO_SAVE_FRAMES: 18000,      // Auto-save (~5 min a 60fps)
-    RELOAD_GRACE: 1000,           // Watchdog recarga (Ballistic): margen tras el deadline
     CHUNK_SIZE: 120,              // Tamanio de chunk JSON en INI
 
     // Cuanto queda apagada la esfera de un menu recien cerrado.
@@ -141,7 +142,6 @@ export var TIMERS = {
 // Coords de dealer/seller/retiro NO aqui → data/gsis_spot_data.js (N esferas)
 export var MISC = {
     MAX_INVENTORY_WEIGHT: 12,     // Peso maximo inventario (kg)
-    MAG_BELT_SLOTS: 3,            // Slots ficticios de cinturon (cargadores equipados)
     TOTAL_SAVE_SLOTS: 3,          // Slots de guardado
     DEBUG_ENABLED: true,          // Logs de debug
     PICKUP_X: 2528.0168,          // Posicion pickup de registro (vehiculos)
@@ -218,84 +218,45 @@ export var SPECIAL_MODELS = {
     RANGE_START: 15000,           // Rango de IDs disponibles (recomendado 15000-15024)
     RANGE_END: 15024,             // Fin del rango de IDs disponibles
     FILES: ["fam5"],              // Archivos DFF custom (solo seller)
-    // Rango de IDs de modelo RESERVADO PARA ARMAS.
-    //
-    // Aparte del de personajes a proposito: un ID de modelo es un puntero a un
-    // modelo, no una etiqueta. Si una variante de arma y un ped tomaran el
-    // mismo ID, el segundo que se cargara pisa al primero y el arma aparece con
-    // el cuerpo de un personaje (o al reves). Son rangos separados y no se tocan.
-    //
-    // Lo que vive aca es el CONTRATO con un plugin que registre armas: el plugin
-    // reserva sus modelos en WEAPON_RANGE y el mod los lee de ahi. Por eso el
-    // rango esta en el Config y no en una constante del modulo: es un acuerdo
-    // entre dos cosas, y un numero agreementado en un solo lugar.
-    WEAPON_RANGE: { START: 15025, END: 15099 },
 
-    // Apagada la carga de modelos PROPIOS DE ARMA.
+    // EL RANGO DE MODELOS DE ARMA SE FUE CON EL SISTEMA DE ARMAS.
     //
-    // Esto es WEAPON_MODELS.ENABLED y NO el ENABLED de arriba: ese de la linea
-    // 200 es de los PERSONAJES (los que usan fam5), y apagarlo ahi dejaba a los
-    // dealers sin modelo. Ya paso: se confundo el nivel y el mod crasheo.
+    // Este bloque SON los personajes (Emmet y los NPC): RANGE_START/END y FILES
+    // son suyos y gsis_Actors.js los lee. NO se tocan.
     //
-    // Cargar un .dff con LOAD_SPECIAL_MODEL entra al streamer y CLEO+ da 2
-    // segundos por ejecucion de script. Con la carga en el init el script moria
-    // antes de terminar; repartida por frame el script arranca pero el updateAll
-    // se corta a los 2 segundos, y el sintoma no dice "el modelo": dice que el
-    // inventario no responde y que los actores son esferas, porque el loop muere
-    // y los NPC nunca spawnean.
+    // Lo que habia abajo, dentro de este mismo objeto, eran tres cosas del acuerdo
+    // con gsisWeaponLimiter.asi:
     //
-    // Apagada, el mod funciona entero y la Colt .45 con cargador de 15 sale con
-    // el modelo de vanilla. Prenderla es cambiar esto a true.
-    WEAPON_MODELS_ENABLED: false,
-
-    // Que archivo .dff/.txd hay detras de cada modelo de arma.
+    //   WEAPON_RANGE           el rango 15025..15099 que el .asi reservaba
+    //                          para sus modelos de arma
+    //   WEAPON_MODELS_ENABLED  el flag de la carga de .dff propios, que ya
+    //                          estaba en false desde el 30/09
+    //   WEAPON_MODELS          el mapa nombre -> .dff/.txd de colt45_c15
     //
-    // EL ID NO ESTA ACA, Y ESA ES LA RAZON DE QUE ESTA TABLA NO TENGAS CLAVES.
+    // La confusion entre los dos niveles ya costo un crash una vez —el ENABLED de
+    // los personajes apagado dejaba a los dealers sin modelo—, asi que la
+    // separacion de las dos ramas esta escrita aca y no se fusionan nunca.
     //
-    // La primera version fijaba un ID a mano (15025) dentro de WEAPON_RANGE y
-    // lo pasaba a LOAD_SPECIAL_CHARACTER_FOR_ID. Se podia hacer asi, pero
-    // obligaba a que el .dat, el Config y WEAPON_VARIANTS tuvieran el MISMO
-    // numero en tres lugares que ningun modulo puede cruzar, y una divergencia
-    // ahi se ve como un arma con el modelo de la pistola de siempre.
+    // Y PLUGIN_WEAPON_RANGE, al final del archivo, era el rango de weaponId —no de
+    // modelId— que el .asi daba de alta. Tambien se fue, por lo mismo.
     //
-    // LOAD_SPECIAL_MODEL (0F00) hace las dos cosas de una vez: carga el .dff con
-    // su .txd y DEVUELVE el modelId que el juego le asigno. El ID es del juego
-    // y no se elige, asi que no hay nada que mantener sincronizado: se usa el
-    // que vino.
+    // LO QUE NO SE BORRA, Y POR QUE ESTA EN EL DISCO
+    // ------------------------------------------------
+    // gsis_weapons.dat, gsisWeaponLimiter.asi y models\weapons\ siguen en el disco,
+    // sin tocar y sin usar. No es un olvido: son la otra mitad de un acuerdo con
+    // el .asi, y el .asi los lee en su DllMain antes de que exista un solo script
+    // de CLEO.
     //
-    // La clave de esta tabla es un NOMBRE, y las variantes lo referencian por
-    // nombre. El nombre es estable y esta escrito a mano; el ID cambia solo.
+    // Con el sistema de armas borrado, nada les pide los tipos 60..66, asi que el
+    // .asi los registra igual y quedan 13 slots del rango ocupados por armas que
+    // nadie puede pedir. Es inerte: registrar un tipo no lo hace aparecer, y GTA
+    // usa sus propias armas de vanilla.
     //
-    //   name  como se lo referencia desde WEAPON_VARIANTS
-    //   dff   ruta RELATIVA a la carpeta models\ del mod, con extension
-    //   txd   idem. Los dos hacen falta: el comando los recibe por separado y el
-    //         .dff sin .txd sale sin textura.
+    // Borrarlos es una operacion de un comando y se deja escrita, porque el .dat y
+    // el .asi son lo primero que hay que volver a poner si el armament regresa, y
+    // lo segundo que hay que entender si no: son el mismo commit.
     //
-    // Mayusculas: el juego las baja a minusculas por su cuenta, asi que los
-    // nombres van en minuscula.
-    WEAPON_MODELS: {
-        colt45_c15: {
-            name: "colt45_c15",
-            dff: "weapons/colt45/colt45_c15.dff",
-            txd: "weapons/colt45/colt45_c15.txd"
-        }
-    }
+    //   Remove-Item modloader\IronSyndicate\gsis_weapons.dat
+    //   Remove-Item modloader\IronSyndicate\gsisWeaponLimiter.asi
+    //   Remove-Item -Recurse modloader\IronSyndicate\models\weapons
 };
-
-// Rango de weaponId que reservan los plugins (.asi) para sus armas.
-//
-// Mismo criterio que SPECIAL_MODELS.WEAPON_RANGE: es un acuerdo entre el .asi y
-// el mod, asi que el numero vive aca y no como constante en el modulo.
-// gsisWeaponLimiter.asi da de alta sus tipos DENTRO de este rango y el mod los
-// reconoce por estar aca. Si el .asi y este rango se desincronizan, el arma
-// dispara pero el mod la trata como basura vanilla y la borra del save.
-//
-// Por que un rango y no solo "mayor que WEAPON_ID_NATIVE_MAX (69)": el 69 es
-// "el ultimo que reserva FLA" (WEAPONTYPE_FASTMAN92_LAST), no "el ultimo arma
-// de vanilla". Los tipos 60..69 no los usa GTA pero son justo los que un
-// limitador necesita, porque ahi no cae ningun pseudo-tipo de muerte (49..59).
-//
-// El rango se AGREGA a la regla vieja, no la reemplaza: todo lo que era
-// "> 69" sigue siendolo. Asi ningun plugin que use 80+ queda sin reconocer por
-// haber metido este rango.
-export var PLUGIN_WEAPON_RANGE = { FIRST: 60, LAST: 79 };

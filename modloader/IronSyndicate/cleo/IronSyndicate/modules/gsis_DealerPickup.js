@@ -24,7 +24,7 @@ import { t, money } from "../core/gsis_L10n.js";
 import { setNotice } from "../core/gsis_Notice.js";
 import { getItemName, getItemWeight } from "../data/gsis_item_data.js";
 import { getSpots } from "../data/gsis_spot_data.js";
-import { addItem, getTotalWeight, entregaOpts } from "./inventory/index.js";
+import { addItem, getTotalWeight } from "./inventory/index.js";
 import {
     createSpotGate, updateSpotSpheres, closeSpotFlow, spotCanOpen,
     spotHas, beginSpotCooldown
@@ -218,11 +218,10 @@ export function collectItem(itemId, qty) {
     //   completa y el jugador puede repetir el click para cobrar las mismas
     //   unidades otra vez, sin limite.
     //
-    // entregaOpts: el arma comprada llega SIN cargador (hasMag:false, 0 balas).
-    // No es una cortesia del dealer, es la regla del mod —misma funcion que usa
-    // el preview del pedido, para que el panel y la entrega digan lo mismo.
-    var opts = entregaOpts(itemId);
-    if (!addItem(itemId, qty, opts)) {
+    // Sin `entregaOpts`: la regla que decidia era "el arma comprada llega DESNUDA
+    // y el cargador llega lleno", y las dos mitades se fueron con el catalogo.
+    // Lo que queda es `addItem(id, qty)`, que arma la fila con el default.
+    if (!addItem(itemId, qty)) {
         setNotice(t("PKC_ERR", { name: getItemName(itemId) }));
         return false;
     }
@@ -266,12 +265,10 @@ export function collectAll() {
     // este punto todas las lineas entran: no hay forma de que una falle por
     // peso.(addItem igual valida, y si algo se colara devuelve false sin haber
     // tocado el pedido de esa linea.)
-    // entregaOpts por linea, igual que collectItem: cada id decide su estado.
     for (var j = 0; j < order.items.length; j++) {
         var id = order.items[j].id;
         var qty = order.items[j].qty;
-        var optsLinea = entregaOpts(id);
-        if (!addItem(id, qty, optsLinea)) {
+        if (!addItem(id, qty)) {
             setNotice(t("PKC_ERR", { name: getItemName(id) }));
             return false;
         }

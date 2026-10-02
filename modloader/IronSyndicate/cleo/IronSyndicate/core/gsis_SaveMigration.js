@@ -48,66 +48,40 @@
 //
 // Este renombre NO cambia el comportamiento de juego: 17 -> 8 balas es un cambio
 // de la variante base, y se hace aparte y a proposito.
-export var ITEM_RENAMES = {
-    "9mm":     "colt45",
-    "mag_9mm": "mag_colt45",
+// ESTA TABLA ESTA VACIA, Y POR QUE
+// -------------------------------
+// Antes tenia 14 renombres y los 14 apuntaban a ids de armas: colt45,
+// mag_colt45, mag_colt45_15, los cargadores de cada familia, el silenciador
+// y el par de alias del POC. Todos esos ids se fueron de ITEMS con el
+// sistema de armas, asi que un renombre a ellos no arregla un save viejo: lo
+// convierte en otro id que el catalogo tampoco conoce.
+//
+// Que la tabla este vacia y no baje a los ultimos es la misma decision que
+// en ITEMS: un save viejo con 4 AK-47 encima ya no se puede volver coherente,
+// porque el item que esas filas nombraban no existe en ninguna parte del
+// juego. Renombrarlas a chatarra seria inventar que el jugador tiene chatarra.
+//
+// QUE PASA CON ESOS SAVES, Y POR QUE ESTO NO ES UN BUG
+// ------------------------------------------------
+// Las filas que quedan en items[] con un id desconocido NO se borran. Se las
+// ignora donde no se las puede usar y se las muestra donde el jugador tiene que
+// verlas: el snapshot del inventario las devuelve tal cual, con su id y su
+// cantidad, y la pagina las dibuja con el id como nombre, porque
+// getItemName() devuelve el id cuando el catalogo no lo conoce.
+//
+// O sea: el jugador ve el arma vieja en su mochila, con un nombre que no
+// reconoce, y no la puede usar. Es la unica respuesta honesta, y es la misma
+// que este modulo ya daba con cualquier item desconocido: un item viejo se
+// deja como estaba y se ignora, no se borra en silencio. Ver la nota de
+// cabecera de este archivo.
+//
+// SI MAÑANA VUELVE EL ARMAMENTO
+// ------------------------------
+// Esta tabla se restaura con los mismos 14 renombres, y el orden importa: el
+// destino de cada uno tiene que existir en ITEMS el dia que corre la
+// migracion, y el renombre es de un solo salto, sin encadenar.
+export var ITEM_RENAMES = {};
 
-    // El silenciador dejo de ser un arma. `silenced_9mm` era una SEGUNDA pistola
-    // —con su propio item, su precio y su fila en el dealer— cuando en la
-    // realidad es la misma Colt .45 con un silenciador encima. Pasa a ser el
-    // accesorio, y su cargador tambien.
-    //
-    // OJO con esto: un save con `silenced_9mm` no se vuelve "una colt45 con
-    // silenciador montado". Se vuelve una colt45, y el jugador tiene que
-    // comprar y montar el silenciador aparte. Es una perdida real y es
-    // deliberada: el item viejo VALIA 1.800 y el silenciador 1.200, asi que
-    // dar el arma gratis seria regalar 600. El precio se ajusta abajo.
-    "silenced_9mm":     "colt45",
-    "mag_silenced_9mm": "mag_colt45",
-
-    // Los cargadores de capacidad variante tambien cambian de nombre, porque su
-    // prefijo "mag_9mm" ya no corresponde a ninguna familia. La convencion
-    // "mag_" + <familia> es la que hay que mantener, y mag_9mm_extended colgado
-    // de un item que ya no existe es exactamente el caso que la rompio antes.
-    //
-    // El destino es `mag_colt45_15`, el id unico del cargador de 15 de la Colt, y
-    // no un nombre intermedio. Ver "UN SOLO NOMBRE POR PIEZA" mas abajo.
-    "mag_9mm_replica":  "mag_colt45",
-    "mag_9mm_extended": "mag_colt45_15",
-
-    // Los saves que tienen el cargador con el nombre viejo. `mag_colt45_extended` fue
-    // el id de inventario antes de que el accesorio se llamara por su capacidad, y
-    // el renombre se completo: hoy `mag_colt45_15` es el id en ITEMS, en
-    // WEAPON_ATTACHMENTS y en equipped[slot].attachments.
-    "mag_colt45_extended":  "mag_colt45_15",
-
-    // Los cargadores QUE NO HACIAN NADA, que se quitaron del catalogo el 30/09.
-    // Eran un segundo cargador con la MISMA capacidad que el arma de base, asi que
-    // montarlos no cambiaba el weaponType y no había nada que ganar. Ver
-    // ACCESORIOS_RETIRADOS.
-    //
-    // Cada uno va a su equivalente que sobrevive, y no se borran: un save con el id
-    // viejo tiene el item, y un item con un id que el catalogo no reconoce es un
-    // item que el jugador tiene y no puede usar.
-    "mag_colt45_replica":  "mag_colt45",
-    "mag_mp5_replica":     "mag_mp5",
-    "mag_ak47_polymer":    "mag_ak47",
-    "mag_ak47_bulgarian":  "mag_ak47",
-    "mag_m4_polymer":      "mag_m4_assembled",
-
-    // El alias de crafteo. `pistol_assembled` es el MISMO weaponId 22 que la
-    // 9mm con precio 0, y por eso se va con ella: un alias sin canonico no
-    // resuelve. Ver WEAPON_ALIASES en gsis_weapons.js.
-    "pistol_assembled": "colt45",
-
-    // El item del POC. Cuando el .asi dejo de ser un experimento y las
-    // variantes y el modelo propio, `gsis_pistol` dejo de ser una
-    // pistola mas: era la misma Colt .45 con cargador de 30, que ahora es la
-    // variante con cargador de 15. Los saves con el item viejo lo migran a
-    // colt45 CON cargador, que es lo que el jugador cree que tiene.
-    "gsis_pistol":          "colt45",
-    "mag_gsis_pistol":      "mag_colt45_15"
-};
 
 // ============================================================================
 // UN SOLO NOMBRE POR PIEZA
@@ -163,21 +137,49 @@ export var ITEM_RENAMES = {
 //
 //   1  el esquema de antes de las fases 1-3. Los 12 modulos mas el registro de
 //      armas con 7 campos por slot, incluido `weaponType`.
-//   2  el de hoy. El registro de armas es { id, family, attachments, salud }.
+//   2  el de las fases. El registro de armas es { id, family, attachments, salud }.
+//   3  el de hoy. NO hay registro de armas.
 //
 // NO es "cuantos modulos toco la ultima version". Es "que forma tiene un save
-// legible", y sube cuando un modulo cambia la forma de lo que persiste. Por eso
-// subirlo a 2 sin tocar los otros 12 modulos es correcto: sus datos no cambiaron
-// de forma, y la migracion de la version 1 a la 2 solo recorre Ballistic.
+// legible", y sube cuando un modulo cambia la forma de lo que persiste.
+//
+// POR QUE EL BORRADO DEL SISTEMA DE ARMAS OBLIGA A SUBIRLA
+// ---------------------------------------------------------
+// Un modulo que deja de escribir su estado no es un modulo que no cambio: es uno
+// que cambio la forma de lo que persiste, que es exactamente lo que esta version
+// mide. `GameState.Ballistic` es un objeto con un `equipped` que ya no existe, y
+// un save que lo trae tiene una forma que el codigo de hoy no puede leer.
+//
+// Sin subir el numero, un save de la version 2 se cargaria como si fuera de hoy:
+// `migrateSave()` no tendria nada que hacer porque no hay migradores registrados,
+// pasaria por los dos pasos de los 11 modulos, y dejaria el `Ballistic` viejo
+// dentro de un GameState que se graba de vuelta. El save quedaria "correcto" y con
+// 4 KB de datos que nadie puede usar.
+//
+// QUE HACE LA MIGRACION 2 -> 3
+// ----------------------------
+// NADA, y esa es la respuesta correcta.
+//
+// No hay nada que traducir: los ids de armas se fueron del catalogo y no tienen
+// destino, y el registro `Ballistic` se borra entero en vez de migrarse. Por eso
+// NO hay un `registerSaveMigrator(2, ...)` que lo haga, y por eso el lazo de
+// migradores de mas abajo no va a correr nada en el paso 2 -> 3.
+//
+// La limpieza del `Ballistic` esta en SaveManager, en el borrado de claves de
+// modulos que ya no existen. Ver ahi la lista de MODULOS_BORRADOS.
+//
+// Y por que 3 y no 2 otra vez, si el numero no cambia la forma: porque el numero
+// ES la forma. Un save tiene una sola version, y subirla es lo que dice "esta
+// partida se escribio con un mod que ya no existe".
 //
 // QUE HACE QUE SUBIRLO SEA OBLIGATORIO, Y NO OPCIONAL
 // ----------------------------------------------------
-// Un save viejo y uno nuevo tienen el MISMO `version: 1` mientras no se suba. Sin
-// el numero no hay forma de saber si `equipped[2].magId` hay que traducirlo o si
-// es un campo sobrante, y las dos lecturas dan un resultado distinto. Peor: sin
+// Un save viejo y uno nuevo tienen el MISMO `version` mientras no se suba. Sin
+// el numero no hay forma de saber si lo que trae hay que traducirlo o si es un
+// campo sobrante, y las dos lecturas dan un resultado distinto. Peor: sin
 // version no hay forma de saber si la migracion YA corrio, asi que un save
 // migrado se volveria a migrar en cada carga.
-export var SAVE_FORMAT_VERSION = 2;
+export var SAVE_FORMAT_VERSION = 3;
 
 // La version de un save, como numero comparable.
 //
@@ -316,7 +318,7 @@ export function migrateItemList(lista) {
 // ---------------------------------------------------------------------------
 // La version anterior solo buscaba `id` al recorrer ARRAYS. Eso dejaba sin
 // renombrar los items de los contenedores que son mapas por clave, no listas:
-// `Ballistic.equipped` es { "0": {id,...}, "1": {id,...} }, y ahi un `9mm` se
+// `Ballistic.equipped` era { "0": {id,...}, "1": {id,...} }, y ahi un `9mm` se
 // quedaba viejo sin que nada avisara.
 //
 // Se vio probando contra el save real: despues de migrar quedaban 32 items
@@ -326,6 +328,22 @@ export function migrateItemList(lista) {
 // lado, en la misma partida, no. Dos items con el MISMO id, uno migrado y otro no,
 // que es peor que no migrar ninguno: el arma aparece en el baul y desaparece
 // del cinturon.
+//
+// HOY YA NO HAY QUE MIRAR EL SEGUNDO CASO, PERO EL RECORRIDO SE QUEDA.
+//
+// `Ballistic` era el registro de armas equipadas y no lo escribe ya nadie, asi que
+// el contenedor por clave que motivaba esto desaparecio del save. El recorrido en
+// profundidad no se quita por eso, y esa es la parte que conviene no entender mal:
+//
+//   el save es un ARBOL de datos arbitrarios, y este codigo no sabe que hay
+//   adentro
+//   el dia que un modulo nuevo persista un mapa por clave —y hace tres que lo
+//   hacen, con `trunks` indexado por vehicleId— el mismo bug vuelve a aparecer si
+//   el recorrido solo baja a los arrays
+//
+// `_migrarNodo` sigue bajando por las dos ramas porque el save es de otro y el
+// recorrido no puede dar por hecho nada. Lo que se perdio fue el ejemplo, no la
+// necesidad.
 
 var PROFUNDIDAD_MAX = 8;
 
@@ -359,80 +377,25 @@ function _migrarNodo(nodo, profundidad) {
 }
 
 // ============================================================================
-// ACCESORIOS_RETIRADOS
+// LO QUE SE FUE CON EL SISTEMA DE ARMAS
 // ============================================================================
-// Los ids de ACCESORIO (namespace de INVENTARIO) que se quitaron del catalogo.
+// `_migrarAttachments()` y su tabla ACCESORIOS_RETIRADOS redeminaban los
+// `attachments` de un arma: los ids de ACCESORIO que se habian quitado del
+// catalogo, y que sin redencion dejaban armas permanentemente
+// inequipables.
 //
-// Por que hace falta y por que NO es lo mismo que ITEM_RENAMES:
+// Eran cinco cargadores neutros, y los cinco se fueron con la tabla de
+// armas. El recorrido tambien se va: `attachments` solo existia como campo de
+// `GameState.Ballistic.equipped[slot]`, y ese registro no lo escribe ya nadie.
 //
-//   ITEM_RENAMES  camina el save y renombra todo lo que tiene un `id` de ITEM. Un
-//                 cargador suelto en la mochila es eso, y el jugador recibe el
-//                 cargador que lo reemplaza.
+// Que no quede un recorrido vacio por el arbol entero se nota en el costo: la
+// migracion recoria el save dos veces, y hoy recorre una.
 //
-//   ESTA TABLA    los `attachments` de un arma, que son STRINGS en un array.
-//                 `_migrarNodo` no los toca: solo baja a nodos con `id` propio, y
-//                 un string no lo tiene.
-//
-// Y sin esto, sacar un cargador del catalogo deja armas PERMANENTEMENTE
-// inequipables: el save dice `attachments: ["mag_ak47_polymer"]`, `resolveWeaponType`
-// no encuentra esa combinacion porque la fila no existe, y el arma queda en la
-// mochila sin poder usarse.
-//
-// ---------------------------------------------------------------------------
-// POR QUE SE QUITAN Y NO SE REEMPLAZAN
-// ---------------------------------------------------------------------------
-// Los cinco retirados eran cargadores NEUTRROS: la misma capacidad que el arma de
-// base, asi que montarlos no cambiaba el weaponType. Su equivalente que sobrevive
-// tambien es neutro (mag_colt45, mag_mp5, mag_ak47, mag_m4_assembled).
-//
-// Y un accesorio NEUTRO dentro de `attachments` ROMPE la resolucion en cuanto hay
-// otro que si necesita tipo propio. `resolveWeaponType` tiene tres salidas: la fila
-// exacta, la base si la lista esta vacia, y la base solo si TODOS son neutros. Una
-// lista con un neutro y uno que no lo es no cae en ninguna: devuelve null.
-//
-// MEDIDO el 30/09: un M4 con [mag_m4_polymer, mag_m4_lancer] redimido a
-// [mag_m4_assembled, mag_m4_lancer] deja de resolver, y el Lancer se pierde con el
-// arma. Redimido a [mag_m4_lancer] resuelve a 65 y no se pierde nada.
-//
-// O sea: como el retirado era neutro y su reemplazo tambien, la redencion
-// CORRECTA es quitarlo. El arma vuelve a la base, que es exactamente lo que ese
-// cargador hacia.
-export var ACCESORIOS_RETIRADOS = {
-    "mag_colt45_replica": true,
-    "mag_mp5_replica": true,
-    "mag_ak47_polymer": true,
-    "mag_ak47_bulgarian": true,
-    "mag_m4_polymer": true
-};
+// Y `informe.accesoriosRetirados` desaparece del informe. No se deja en 0
+// porque un campo que siempre vale 0 hace creer que la migracion corrio y no
+// encontro nada, que es distinto de que el campo ya no exista.
+// ============================================================================
 
-// Reescribe los `attachments` de un save. Se recorre el arbol entero porque un arma
-// puede estar en items[], en un baul, en el cinturon o en el registro de equipado, y
-// el lugar donde aparece es el que menos se nota.
-function _migrarAttachments(nodo, profundidad) {
-    if (!nodo || typeof nodo !== "object" || profundidad > PROFUNDIDAD_MAX) return 0;
-    var n = 0;
-    if (Array.isArray(nodo.attachments)) {
-        var out = [];
-        for (var i = 0; i < nodo.attachments.length; i++) {
-            var a = nodo.attachments[i];
-            if (typeof a === "string" && ACCESORIOS_RETIRADOS[a]) { n++; continue; }
-            out.push(a);
-        }
-        nodo.attachments = out;
-    }
-    if (Array.isArray(nodo)) {
-        for (var k = 0; k < nodo.length; k++) {
-            if (nodo[k] && typeof nodo[k] === "object") n += _migrarAttachments(nodo[k], profundidad + 1);
-        }
-        return n;
-    }
-    for (var key in nodo) {
-        if (!Object.prototype.hasOwnProperty.call(nodo, key)) continue;
-        var v = nodo[key];
-        if (v && typeof v === "object") n += _migrarAttachments(v, profundidad + 1);
-    }
-    return n;
-}
 
 // ============================================================================
 // PUNTO DE ENTRADA
@@ -466,7 +429,6 @@ export function migrateSave(parsed) {
         versionAntes: SAVE_FORMAT_VERSION,
         versionDespues: SAVE_FORMAT_VERSION,
         renombrados: 0,
-        accesoriosRetirados: 0,
         pasos: []
     };
     if (!parsed || typeof parsed !== "object") return informe;
@@ -475,9 +437,6 @@ export function migrateSave(parsed) {
     informe.versionAntes = v;
 
     informe.renombrados = _migrarNodo(parsed, 0);
-    // Y los accesorios retirados, que son strings en un array y `_migrarNodo` no
-    // alcanza. Ver ACCESORIOS_RETIRADOS.
-    informe.accesoriosRetirados = _migrarAttachments(parsed, 0);
 
     // De `v` hasta la actual. Un save mas nuevo que el codigo (v >
     // SAVE_FORMAT_VERSION) no se toca: es un save de una version posterior, y

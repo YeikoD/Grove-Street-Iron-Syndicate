@@ -58,12 +58,11 @@ import { MISC } from "../../../core/gsis_Config.js";
 import { t, money } from "../../../core/gsis_L10n.js";
 import { query } from "../../../core/gsis_EventBus.js";
 import { getModuleData } from "../../../core/gsis_SaveManager.js";
-import { getItemType } from "../../../data/gsis_item_data.js";
-import { WEAPON_DATA, getSellPrice } from "../../../data/gsis_weapon_data.js";
+import { getSellPrice } from "../../gsis_WeaponSeller.js";
 import { getVehicleName } from "../../../data/gsis_vehicle_data.js";
 import { itemRow } from "./itemRow.js";
 import {
-    getItems, getTotalWeight, entregaOpts,
+    getItems, getTotalWeight,
     getTrunkItems, getTrunkWeight, getTrunkMaxCapacity
 } from "../../inventory/index.js";import {
     isTrunkMenuVisible, closeTrunkMenu, openTrunkMenu, getTrunkVehicleId
@@ -236,61 +235,34 @@ function _rows(items) {
 
 // ----------------------------------------------------------------- ARMERIA --
 //
-// El catalogo es WEAPON_DATA filtrado por precio, no una tabla propia: lo que no
-// tiene precio no se vende. El precio sale de getDealerPrice, asi que el markup y
-// el catalogo acotado de cada NPC ya estan aplicados.
+// El catalogo era WEAPON_DATA filtrado por precio: lo que no tiene precio no se
+// vende, y el precio salia de getDealerPrice con el markup ya aplicado. Las dos
+// fuentes se fueron con el sistema de armas; ver _snapDealer() abajo.
 //
-// La banda de grupo de cada fila es la CATEGORIA del arma (Pistolas, Escopetas),
-// no el type del item: en la armeria todas las filas son type weapon, y con el
-// type quedaria una sola banda, que es el inventario con otros numeros.
+// La banda de grupo de cada fila era la CATEGORIA del arma (Pistolas, Escopetas),
+// no el type del item. Sin catalogo no hay bandas que agrupar, y la lista sale
+// vacia sin esa columna.
 function _snapDealer() {
     var charId = getActiveCharacterId();
     var cart = getCart();
 
+    // CATALOGO VACIO, Y POR QUE NO ES UN AGUERO
+    //
+    // El catalogo era WEAPON_DATA filtrado por precio: la tabla de armas, con lo
+    // que no tenia precio descartado. La tabla se borro con el sistema de armas
+    // entero, asi que hoy `rows` no se arma y la pantalla dibuja el mensaje de
+    // "vacio" que ya existe para el caso normal de un dealer sin mercaderia.
+    //
+    // Y `_cartVacio(cart)`, el return y los dos panes NO se tocan, y eso es lo que
+    // importa: la pantalla sigue siendo la misma con dos paneles, sus titulos, su
+    // pie con el saldo y el total. Un dealer sin catalogo es un dealer con la
+    // mercaderia cerrada, no un menu roto.
+    //
+    // Que el loop que armaba cada fila con itemRow() se haya ido con la tabla es
+    // lo unico que habria que reescribir si vuelve el catalogo. Todo lo demas —el
+    // carrito, el checkout, los avisos— ya existe y ya funciona.
     var rows = [];
     var cartRows = [];
-    for (var i = 0; i < WEAPON_DATA.length; i++) {
-        var w = WEAPON_DATA[i];
-        if (!w.itemId) continue;
-        var p = getDealerPrice(w.itemId, charId);
-        if (!p) continue; // este NPC no lo vende
-        // La fila del catalogo. Sin estado de municion, como toda cosa que todavia no
-// es del jugador. _filaDeItem le pasa lo que dicta entregaOpts, que para un arma
-// es hasMag:false — y asi la celda de municion sale con guion en vez de "17/17":
-// lo que se vende llega sin cargador, asi que un "17/17" en el catalogo seria
-// prometer municion que no viene. body_armor no es instanciado, asi que no le
-// llega hasMag y su tooltip no dice "sin cargador".
-var fila = itemRow(_filaDeItem(w.itemId, 1));
-        fila.cat = w.category || w.itemId;
-        fila.precio = p;
-        fila.enCarrito = cart[w.itemId] || 0;
-        rows.push(fila);
-
-        // La segunda lista es el carrito: las mismas filas de arriba (mismas
-        // columnas, mismas bandas — el jugador compara catalogo contra carrito
-        // con los mismos numeros) pero SOLO las elegidas, y con maxQty, el
-        // tope de cuanto se puede sacar.
-        //
-        // Va en una COPIA y no en la misma fila: maxQty es tope de la barra
-        // (la pagina lo lee en r.maxQty), y si viviera en la fila del catalogo
-        // agregar tambien se toparia contra lo que ya esta en el carrito —
-        // "tenes 2, no puedes pedir un tercero", que no es ninguna regla.
-        //
-        // La copia reasigna "fila" a proposito: la del catalogo ya quedo en
-        // rows, y a partir de aca esa variable ES la del carrito (y por eso
-        // la linea de abajo es fila.maxQty, que es como check_pantallas lee
-        // que este snapshot escribe esa clave).
-        if (fila.enCarrito > 0) {
-            var enCarrito = fila.enCarrito;
-            var copia = {};
-            for (var k in fila) {
-                if (fila.hasOwnProperty(k)) copia[k] = fila[k];
-            }
-            fila = copia;
-            fila.maxQty = enCarrito;
-            cartRows.push(fila);
-        }
-    }
 
     return {
         titulo: t("DLR_TTL"),
@@ -355,13 +327,12 @@ function _snapSeller() {
     for (var i = 0; i < items.length; i++) {
         var base = getSellPrice(items[i].id);
         if (!base) continue; // el NPC no compra esto
-        // El trueque es de ARMAS. Los cargadores tienen precio (lo necesitan para
-        // el dealer y la columna Valor) asi que getSellPrice no los descarta, y
-        // sin este filtro el panel ofreceria cargadores: el NPC tiene su propio
-        // filtro por type (gsis_WeaponSeller._esArmaVendible) y rechazaria la
-        // oferta con un error, o peor, la pagaria. La misma regla en los dos
-        // lados: el que ofrece y el que acepta.
-        if (getItemType(items[i].id) !== "weapon") continue;
+        // El filtro por `type === "weapon"` que antes hacia este bucle se fue con
+        // el catalogo: existia porque los CARGADORES tambien tenian precio y el
+        // panel iba a ofrecerlos. Hoy getSellPrice() devuelve 0 para todo lo que
+        // no este en `ch.seller.sellPrices`, asi que el `if (!base) continue` de
+        // arriba ya descarta lo que el NPC no compra, y no hace falta un segundo
+        // filtro con la misma pregunta.
         var fila = itemRow(items[i]);
         fila.base = base;
         // La oferta arranca en el valor base y el jugador la mueve desde la
@@ -402,18 +373,15 @@ function _snapSeller() {
 // mirando tienen que decir lo mismo, o el panel y la entrega divergen y el
 // jugador cobra por una promesa.
 //
-// Solo se copian ammo y hasMag. El resto de la forma de la instancia lo pone
-// makeInstance del lado del mod, y la salud en particular no se copia: una fila
-// pendiente no es una unidad, es un producto o un pedido, y su salud es
-// SALUD_MAX por definicion.
+// Una fila pendiente es SOLO id y qty. Antes copiaba tambien `ammo` y `hasMag`,
+// que era lo que entregaOpts() decidia por id, para que el panel del retiro y la
+// entrega real dijeran lo mismo. Sin entregaOpts no hay esos dos campos que
+// copiar, y la fila los sale con el guion que pone ammoCell().
+//
+// La salud tampoco se copiaba, y por la misma razon: la pone addItem() al
+// entregar. Una fila pendiente no es una unidad, es un pedido.
 function _filaDeItem(id, qty) {
-    var o = { id: id, qty: qty };
-    var e = entregaOpts(id);
-    if (e) {
-        if (e.hasMag !== undefined) o.hasMag = e.hasMag;
-        if (e.ammo !== undefined) o.ammo = e.ammo;
-    }
-    return o;
+    return { id: id, qty: qty };
 }
 
 // ------------------------------------------------------------------ RETIRO --
@@ -422,12 +390,10 @@ function _filaDeItem(id, qty) {
 // mochila. El qty que se ve es el que quedo del pedido, y por eso la fila se arma
 // con esa cantidad y no con la que tendria en la mochila.
 //
-// La fila se arma con entregaOpts —la MISMA regla que usa collectItem al
-// entregar— para que el panel y la entrega digan lo mismo. Sin eso, un AK-47
-// pendiente se veria "30/30" (ammoCell cae al default de un arma) y llegaria a
-// 0/30: el panel promete 30 balas y entrega 0. Se pasan solo ammo/hasMag;
-// `salud` no, porque lo decide addItem en la entrega y una fila pendiente no
-// tiene salud todavia.
+// La fila se arma con _filaDeItem(), que hoy es solo { id, qty }. Antes copiaba
+// `ammo` y `hasMag` para que el panel y la entrega dijeran lo mismo —sin eso un
+// arma pendiente se veia "30/30" y llegaba a 0/30. Sin entregaOpts no hay esos
+// campos que sincronizar, y la celda de municion sale con guion en los dos lados.
 function _snapPickup() {
     var order = getOrder();
     if (!order) return null;

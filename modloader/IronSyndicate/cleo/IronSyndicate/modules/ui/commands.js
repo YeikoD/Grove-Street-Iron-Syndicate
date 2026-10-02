@@ -15,20 +15,27 @@
 // ciclo, y un ciclo entre dos archivos de UI es un undefined en el menu.
 //
 // ============================================================================
-// LA REGLA DE LA FAMILIA, Y POR QUE ESTA EN UN COMENTARIO Y NO EN EL CODIGO
+// LA FAMILIA DE ARMAS, Y POR QUE NO HAY NINGUNA
 // ============================================================================
-// Un comando de arma manda `id` (el itemId, "colt45") y, si quiere una
-// configuracion, `attachments` (los ids de los accesorios montados). NO manda
-// weaponType, y no hay forma de que mande uno: el modulo de armas no lo expone y
-// weapons/logic.js deriva el tipo de la configuracion con resolveWeaponType().
+// Antes este archivo atendia cinco comandos de arma —inv:equip, inv:unequip,
+// inv:mount, inv:unmount, inv:belt:off— y el header explicaba el contrato que
+// los ataba: un comando de arma manda `id` y, si quiere una configuracion,
+// `attachments`; NUNCA un weaponType, porque el weaponType era la representacion
+// que ejecuta el motor y la pagina no tenia por que conocerla.
 //
-// Que la pagina no pueda mandar el tipo no es una convencion: es que el
-// weaponType es la REPRESENTACION que ejecuta el motor, y el registro guarda la
-// CONFIGURACION. Si un comando pudiera aceptar un tipo, la pagina podria
-//Equipar un 62 (que es colt45 + cargador de 15) sin que haya un cargador de 15 en
-// el inventario —el motor lo daria, y el cargador apareceria de la nada en el arma
-//—. O mandaria un 60 y la pagina creeria que puede volver a mandarlo aunque el
-// silenciador este en otro lado. El numero no es una entrada, es una SALIDA.
+// Ese contrato se fue con el sistema de armas entero, y con el se fue la regla que
+// lo justificaba. No queda sustituto que escribir: no hay item cuya accion sea
+// equipar o montar.
+//
+// Lo que si queda es la mitad laica del mismo criterio, y aplica a los comandos que
+// siguen:
+//
+//   la pagina manda un ID DE ITEM y una CANTIDAD, nunca un estado
+//
+// `inv:drop` manda `id` y `qty`. `trunk:put` y `trunk:take` mandan `id` y `qty`.
+// `dealer:add` manda `id` y `qty`. El estado de la fila —su salud, su cantidad
+// real— lo tiene el modulo owner, que es el que lo lee del save y el que decide.
+// La pagina propone una accion sobre un id; el modulo la ejecuta o la rechaza.
 //
 // ============================================================================
 // LO QUE NO SE VALIDA ACA
@@ -37,9 +44,8 @@
 // al lado del baul. Todo eso vive en el modulo owner (addItem, putInTrunk,
 // doOffer). La pagina ve un snapshot que puede tener hasta 400ms, asi que si el
 // modulo no valida, su respuesta seria la de hace un snapshot. Este archivo
-// translates, no decide.
-import { equipWeapon, unequipWeapon, attachAccessory, detachAccessory } from "../weapons/logic.js";
-import { removeItem, equipMagToBelt, unequipBeltMag } from "../inventory/index.js";
+// traduce, no decide.
+import { removeItem } from "../inventory/index.js";
 import { putInTrunk, takeFromTrunk } from "../gsis_Trunk.js";
 import { addToCart, removeFromCart, resetCart, checkout } from "../gsis_WeaponDealer.js";
 import { doOffer, moveOffer } from "../gsis_WeaponSeller.js";
@@ -132,116 +138,23 @@ export function handleCommand(cmd, ui) {
 
             // --- INVENTARIO ---
             //
-            // `inv:equip` manda el itemId. El modulo de armas decide que variante
-            // es, y la pagina no sabe ni le importa el numero. `attachments`, si
-            // viene, es la configuracion que se quiere; si no viene, el arma se
-            // equipa como este, que es lo que hace el boton de primera vez.
+            // Los cinco comandos de armas que hubo aca se fueron con el sistema:
             //
-            // Y se mira el RETORNO antes de loguear. Antes se logueaba "equipo X"
-            // siempre, y con eso el log reportaba una accion que no ocurria: un
-            // armar fallido se leia como un armar exitoso, y durante horas la
-            // busqueda del bug apunto al lado que no era. Un false aqui no es un
-            // error de la pagina —la pagina no ve el motivo— asi que se devuelve
-            // false y el que aviso es el modulo de armas, que si sabe por que.
-            case "inv:equip":
-                if (!id) return false;
-                var eq = equipWeapon(id, cmd.attachments);
-                if (!eq) return false;
-                log("[UI] equipó " + id +
-                    (cmd.attachments && cmd.attachments.length
-                        ? " con " + cmd.attachments.join(" + ") : ""));
-                return true;
-
-            case "inv:unequip":
-                if (cmd.slot === undefined || cmd.slot === null) return false;
-                unequipWeapon(parseInt(cmd.slot, 10));
-                log("[UI] desequipó el slot " + cmd.slot);
-                return true;
-
-            // --- ACCESORIOS ---
+            //   inv:equip      equipar un arma del inventario a un slot de GTA
+            //   inv:unequip    sacarla de vuelta al inventario
+            //   inv:mount      montar un accesorio sobre el arma equipada
+            //   inv:unmount    sacarlo
+            //   inv:belt:off   devolver un cargador del cinturon a la mochila
             //
-            // Montar y sacar un accesorio sobre el arma EQUIPADA. Es el unico
-            // camino que existe para el silenciador: la R solo cambia cargadores,
-            // y sin esto los tipos 60 y 61 serian inalcanzables desde el juego.
+            // Sus dos mitades quedaron sin contraparte: no hay slot de arma al que
+            // equipar (era GameState.Ballistic, que solo escribia el modulo de
+            // armas) ni cinturon de cargadores. Un `case` que responde false es
+            // peor que no tenerlo: el boton de la pagina sigue ahi, el comando
+            // viaja y el click no hace nada sin que nada diga por que.
             //
-            // El payload trae el SLOT del arma, no el id del arma: el accesorio
-            // que se manda es el que esta en la mochila, y donde se monta lo dice
-            // la pagina, que ya sabe que fila esta equipada. El modulo no busca
-            // "el arma equipada" porque puede haber mas de una.
-            //
-            // Y el id va tal cual: hay un solo namespace para un accesorio, asi que
-            // la pagina manda el id que ve en la mochila y el modulo lo monta sin
-            // convertir nada. Ver "UN SOLO NOMBRE POR PIEZA" en
-            // data/gsis_weapons.js.
-            // Y el id NO es obligatorio en los dos.
-            //
-            //   inv:mount    lo necesita: hay que saber QUE pieza se saca de la
-            //                mochila.
-            //   inv:unmount   NO lo necesita, y la pagina no lo manda a proposito
-            //                (app.js:889): el modulo sabe cual es el accesorio que no
-            //                es cargador, y la pagina no deberia tener que distinguir
-            //                un silenciador de un cargador por el id.
-            //
-            // MEDIDO el 30/09: los dos casos exigean `id`, y como la pagina no lo
-            // mandaba, `inv:unmount` salia en la primera guarda y devolvia false SIN
-            // LOG. O sea: el silenciador se podia montar y no se podia quitar, y el
-            // log no decia nada. Un comando que falla en silencio es el peor
-            // resultado posible: el jugador aprieta un boton que no hace nada y no hay
-            // ni un renglon que buscar.
-            case "inv:mount":
-                if (!id) {
-                    log("[UI] inv:mount sin id: no se sabe que pieza montar");
-                    return false;
-                }
-                if (cmd.slot === undefined || cmd.slot === null) {
-                    log("[UI] inv:mount sin slot: no se sabe donde montarla");
-                    return false;
-                }
-                var accM = attachAccessory(null, parseInt(cmd.slot, 10), id);
-                if (!accM.ok) {
-                    log("[UI] inv:mount fallo: " + accM.motivo);
-                    return false;
-                }
-                log("[UI] inv:mount: " + id + " en el slot " + cmd.slot +
-                    " -> tipo " + accM.weaponType);
-                return true;
-
-            case "inv:unmount":
-                if (cmd.slot === undefined || cmd.slot === null) {
-                    log("[UI] inv:unmount sin slot: no se sabe de que arma sacarlo");
-                    return false;
-                }
-                // El id es opcional. Si viene, se usa; si no, el modulo lo deduce.
-                // `saco` es lo que se acabo sacando de verdad, que es el dato que
-                // hace falta para diagnosticar: sin el, el log no dice que paso con
-                // un arma que tiene mas de un accesorio.
-                var accU = detachAccessory(null, parseInt(cmd.slot, 10), id || null);
-                if (!accU.ok) {
-                    log("[UI] inv:unmount fallo (" + (id || "sin id") + "): " + accU.motivo);
-                    return false;
-                }
-                log("[UI] inv:unmount: saco " + (accU.saco || id || "?") +
-                    " del slot " + cmd.slot + " -> tipo " + accU.weaponType);
-                return true;
-
-            case "inv:belt":
-                if (!id) return false;
-                equipMagToBelt(id);
-                log("[UI] cargador al cinturón: " + id);
-                return true;
-
-            // El camino de vuelta del cinturon. No estaba: unequipBeltMag ya
-            // existia pero nadie la llamaba, asi que un cargador equipado no
-            // tenia forma de volver al inventario desde la pagina. La pagina lo
-            // manda con slot = indice de casilla, no con id, porque en el
-            // cinturon puede haber dos cargadores del mismo tipo y la casilla es
-            // lo unico que las distingue.
-            case "inv:belt:off":
-                if (cmd.slot === undefined || cmd.slot === null) return false;
-                unequipBeltMag(parseInt(cmd.slot, 10));
-                log("[UI] cargador fuera del cinturón: casilla " + cmd.slot);
-                return true;
-
+            // Por eso se BORRAN y no se dejan rechazando: los que quedan abajo son
+            // los que el inventario sigue entendiendo, y la pagina deja de
+            // ofrecer los otros porque su `actionFor()` ya no los construye.
             case "inv:drop":
                 if (!id) return false;
                 // qty viene del boton "tirar": 1 por defecto, o lo que pida la
