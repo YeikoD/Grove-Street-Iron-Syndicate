@@ -5,12 +5,17 @@
 // ============================================================================
 // QUE RESUELVE ESTE ARCHIVO
 // ============================================================================
-// Los handlers del bus que el modulo de inventario ATIENDE. Tres, y los tres son
-// de armas:
+// Los handlers del bus que el modulo de inventario ATIENDE. Todos son de armas:
+// sacar, devolver, y tocar la municion de un cargador.
 //
 //   items:takeWeapon     sacar UN arma del inventario. Responde la fila, o null.
-//   items:storeWeapon    devolverla, con la municion que tenia en la mano.
+//   items:storeWeapon    devolverla. El arma vuelve DESNUDA: su municion es la del
+//                        cargador que tiene puesto, y ese se va por otro lado.
 //   items:takeMagazine   sacar UN cargador. Responde la fila, o null.
+//   items:storeMagazine  devolver UN cargador, con las balas que le quedaron.
+//   items:magAmmo        leer la municion de un cargador de la mochila, por indice.
+//   items:setMagAmmo     escribirla, sin sacarlo de la mochila.
+//   items:magSource      la fila de la mochila con mas balas de un id, sin sacarla.
 //
 // Que vuelvan es la razon de ser del archivo: un `events.js` que no atiende nada
 // es un archivo vacio con un import, y este fue el lugar donde el modulo de armas
@@ -36,8 +41,10 @@
 import { on } from "../../core/gsis_EventBus.js";
 import { getModuleData, setModuleData } from "../../core/gsis_SaveManager.js";
 import { SALUD_MAX } from "../../data/gsis_item_data.js";
+import { capacidadDeclarada } from "../../data/gsis_weapons.js";
 import {
-    ITEMS_TAKE_WEAPON, ITEMS_STORE_WEAPON, ITEMS_TAKE_MAGAZINE
+    ITEMS_TAKE_WEAPON, ITEMS_STORE_WEAPON, ITEMS_TAKE_MAGAZINE, ITEMS_STORE_MAGAZINE,
+    ITEMS_MAG_AMMO, ITEMS_SET_MAG_AMMO, ITEMS_MAG_SOURCE
 } from "../../core/gsis_EventNames.js";
 import { SAVE_KEY } from "./state.js";
 
@@ -87,6 +94,30 @@ on(ITEMS_STORE_WEAPON, function (e) {
     e.respond(true);
 });
 
+// Devolver un cargador al inventario. Lo emite el modulo de armas cuando el jugador
+// saca uno de la ranura de equipados.
+//
+// La fila NO lleva `salud`, y esa es la diferencia con el handler de arriba: un
+// cargador no tiene desgaste. `ammo` si viaja, y con lo que le queda: un cargador de
+// 15 usado en un arma de 8 vuelve con 7, no con 15.
+on(ITEMS_STORE_MAGAZINE, function (e) {
+    var d = e.data;
+    if (!d || !d.id) {
+        e.respond(null);
+        return;
+    }
+    var data = getModuleData(SAVE_KEY);
+    if (!data) data = { items: [], trunks: {} };
+    if (!data.items) data.items = [];
+    data.items.push({
+        id: d.id,
+        qty: 1,
+        ammo: d.ammo || 0
+    });
+    setModuleData(SAVE_KEY, data);
+    e.respond(true);
+});
+
 // Saca UNA fila del id pedido y la devuelve. null si no hay.
 //
 // Se elige la fila CON balas cuando el que pide las quiere, y no la primera que
@@ -120,6 +151,88 @@ function _sacarUno(id, conBalas) {
         ammo: fila.ammo || 0
     };
 }
+
+// ---------------------------------------------------------------------------
+// LA MUNICION DE UN CARGADOR, POR INDICE
+// ---------------------------------------------------------------------------
+// Los tres handlers de la accion de RELLENAR. Ver la seccion de EventNames.js.
+//
+// La regla que los atraviesa: NADA se saca ni se agrega. Rellenar solo ESCRIBE la
+// municion de dos filas que ya estan ahi. Si algo se moviera, los indices correrian
+// y el segundo escribiria en la fila equivocada — que es la forma sutil de que un
+// cargador aparezca con las balas de otro.
+
+// Leer la fila de un indice. { id, ammo } o null si el indice no es un cargador.
+//
+// El `indice` se valida contra la lista viva, no contra un cache: por eso el
+// handler lee el modulo otra vez y no confía en lo que le pasaron.
+on(ITEMS_MAG_AMMO, function (e) {
+    var d = e.data || {};
+    var indice = d.indice;
+    var data = getModuleData(SAVE_KEY);
+    if (!data || !data.items) { e.respond(null); return; }
+    if (typeof indice !== "number" || indice < 0 || indice >= data.items.length) {
+        e.respond(null);
+        return;
+    }
+    var fila = data.items[indice];
+    if (!fila || fila.ammo === undefined) { e.respond(null); return; }
+    e.respond({ id: fila.id, ammo: fila.ammo || 0 });
+});
+
+// Escribir la municion de una fila, sin sacarla. true si se escribio.
+//
+// El `ammo` se recorta a la capacidad declarada del item: es el mismo techo que
+// usa la tabla y no uno nuevo, para que "lleno" signifique lo mismo aca que en la
+// fila que ve el jugador.
+on(ITEMS_SET_MAG_AMMO, function (e) {
+    var d = e.data || {};
+    var indice = d.indice;
+    var data = getModuleData(SAVE_KEY);
+    if (!data || !data.items) { e.respond(false); return; }
+    if (typeof indice !== "number" || indice < 0 || indice >= data.items.length) {
+        e.respond(false);
+        return;
+    }
+    var fila = data.items[indice];
+    if (!fila) { e.respond(false); return; }
+
+    var cap = capacidadDeclarada(fila.id);
+    var n = Math.max(0, Math.min(cap > 0 ? cap : d.ammo || 0, d.ammo || 0));
+    fila.ammo = n;
+    setModuleData(SAVE_KEY, data);
+    e.respond(true);
+});
+
+// La fila de la mochila con MAS BALAS de un id. { indice, ammo } o null.
+//
+// No saca la fila: la devuelve con su indice. "Con mas balas" y no "la primera
+// con balas" porque rellenar tiene que vaciarle a la que mejor puede, que es la
+// unica que el jugador va a notar que se movio.
+//
+// `excluir` es el indice del cargador que se esta rellenando, y esta ahi por una
+// razon muy concreta: si el destino tiene balas y es el mas lleno de la mochila,
+// sin esto la "fuente" seria el mismo cargador que se quiere llenar, y el modulo se
+// llenaria a si mismo sin mover un solo proyectil.
+on(ITEMS_MAG_SOURCE, function (e) {
+    var d = e.data || {};
+    var id = d.id;
+    var excluir = typeof d.excluir === "number" ? d.excluir : -1;
+    if (!id) { e.respond(null); return; }
+    var data = getModuleData(SAVE_KEY);
+    if (!data || !data.items) { e.respond(null); return; }
+
+    var elegido = -1;
+    var mejor = 0;
+    for (var i = 0; i < data.items.length; i++) {
+        if (i === excluir) continue;
+        if (data.items[i].id !== id) continue;
+        var n = data.items[i].ammo || 0;
+        if (n > mejor) { mejor = n; elegido = i; }
+    }
+    if (elegido < 0) { e.respond(null); return; }
+    e.respond({ indice: elegido, ammo: mejor });
+});
 
 // El nombre que ESTE modulo emite. Declarado en el archivo del dueno y no en
 // EventNames.js, porque no es un contrato: es un aviso de una sola via, para el

@@ -80,6 +80,23 @@ export var STRINGS = {
         en: "~y~The magazine is already full"
     },
 
+    // Los cargadores van armados antes que el disparo: uno se EQUIPA (sale del
+    // inventario a una de las dos ranuras) y otro se USA (lo agarra la R, que lo
+    // devuelve con las balas que le quedaban). Y hay una accion que le pasa las
+    // balas de un cargador a otro.
+    WPN_NOMAG_EQUIPADO: {
+        es: "~r~No tenes ningun cargador equipado",
+        en: "~r~You have no magazine equipped"
+    },
+    WPN_CARGADORES_LLENOS: {
+        es: "~y~Ya tenes dos cargadores equipados",
+        en: "~y~You already have two magazines equipped"
+    },
+    WPN_MAG_SIN_FUENTE: {
+        es: "~r~No tenes otro cargador con balas para rellenarlo",
+        en: "~r~You have no other magazine with bullets to fill it from"
+    },
+
     // --- Maletero ---
     TRK_FUL: {
         es: "~r~Maletero lleno (libre {free} kg, necesitas {need} kg)",

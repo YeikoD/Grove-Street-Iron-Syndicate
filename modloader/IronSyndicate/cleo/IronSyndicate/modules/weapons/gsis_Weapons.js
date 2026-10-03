@@ -75,14 +75,19 @@ import { keyJustPressed } from "../../core/gsis_Input.js";
 import { t } from "../../core/gsis_L10n.js";
 import { query } from "../../core/gsis_EventBus.js";
 import {
-    ITEMS_TAKE_WEAPON, ITEMS_STORE_WEAPON, ITEMS_TAKE_MAGAZINE
+    ITEMS_TAKE_WEAPON, ITEMS_STORE_WEAPON, ITEMS_TAKE_MAGAZINE, ITEMS_STORE_MAGAZINE,
+    ITEMS_MAG_AMMO, ITEMS_SET_MAG_AMMO, ITEMS_MAG_SOURCE
 } from "../../core/gsis_EventNames.js";
 import {
     defDeArma, defDeCargador, cargadorDe, armaDeTipo, CARGADORES
 } from "../../data/gsis_weapons.js";
 import * as Engine from "../../core/gsis_Engine.js";
 import { normalizarSinReserva } from "./ammo.js";
-import { initState, getEntry, getEntries, setEntry } from "./state.js";
+import {
+    initState, getEntry, getEntries, setEntry,
+    getCargadores, setCargador, ranuraLibre, maxCargadores,
+    getCargadorEnArma, setCargadorEnArma
+} from "./state.js";
 
 var NOMBRE_MODULO = "Weapons";
 
@@ -179,6 +184,115 @@ function _municionEnLaMano(char) {
 }
 
 // ---------------------------------------------------------------------------
+// LOS CARGADORES
+// ---------------------------------------------------------------------------
+// Hay TRES lugares donde puede estar un cargador, y son los tres del juego: el
+// INVENTARIO (la mochila), las dos RANURAS de equipados, y PUESTO EN EL ARMA. Los
+// tres se mueven con la misma regla y ninguno se pierde:
+//
+//   equiparCargador  mochila -> primera ranura libre (con las dos llenas no entra)
+//   guardarCargador  ranura  -> mochila, con las balas que le quedaron
+//   recargar (la R)   ranura  -> arma, y lo que estaba en el arma sale por
+//                               soltarCargador (abajo)
+//   desequipar       arma    -> mochila, DESNUDA, y el cargador sale con ella
+//   rellenar         cargador -> cargador, le pasa las balas de otro
+//
+// QUE PASA CON EL CARGADOR QUE SALE DEL ARMA
+// ---------------------------------------------------------------------------
+// Es la regla de la casa: un cargador que sale del arma va a una ranura si hay lugar
+// Y TIENE BALAS, y si no a la mochila. Vive en un solo lugar (soltarCargador) porque
+// son tres los caminos que lo hacen —el cambio, la descarga y el desequipar— y si
+// cada uno decidiera por su cuenta, uno de ellos tarde o temprano lo perderia.
+//
+// Y un cargador VACIO NUNCA OCUPA RANURA: en una ranura no sirve para nada, porque
+// recargar exige ammo > 0, y dejaria trabado el cambio al jugador. Por eso la
+// mochila no es el segundo destino, sino el unico para el vacio.
+//
+// QUE PASA CON LAS BALAS QUE SOBRAN
+// ---------------------------------------------------------------------------
+// Un cargador de 15 en un arma de 8 deja 8 y las 7 sobrantes SE PIERDEN: la
+// capacidad la dice el motor para ese arma y el cargador no sabe nada. El cargador
+// VUELVE con lo que le quedo (15 - 8 = 7), no con lo que tenia antes.
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// DONDE VA UN CARGADOR QUE SALE DEL ARMA
+// ---------------------------------------------------------------------------
+// El unico lugar del modulo que decide esto, y lo usan los tres caminos que sacan
+// un cargador del arma: el cambio de la recarga, la descarga y el desequipar.
+//
+// A una ranura si hay lugar Y el cargador tiene balas. A la mochila si no hay lugar,
+// o si el cargador esta vacio: un cargador de 0 en una ranura no se puede usar para
+// recargar (la recarga exige ammo > 0) y ocuparia una de las dos ranuras que el
+// jugador tiene para las que si sirven.
+//
+// Devuelve donde fue, para el log y para los avisos.
+export function soltarCargador(itemId, ammo) {
+    var balas = ammo || 0;
+
+    // Con balas y con lugar: ranura.
+    var ranura = balas > 0 ? ranuraLibre() : -1;
+    if (ranura >= 0) {
+        setCargador(ranura, { id: itemId, ammo: balas });
+        log("[Weapons] soltarCargador: " + itemId + " (" + balas + ") -> ranura " + (ranura + 1));
+        return "ranura " + (ranura + 1);
+    }
+
+    // Sin balas, o sin ranura: mochila.
+    query(ITEMS_STORE_MAGAZINE, { id: itemId, ammo: balas });
+    log("[Weapons] soltarCargador: " + itemId + " (" + balas + ") -> el inventario" +
+        (balas > 0 ? " | no habia ranura libre" : " | vacio, y vacio no ocupa ranura"));
+    return "el inventario";
+}
+
+// Sacar un cargador del inventario y ponerlo en una ranura.
+export function equiparCargador(itemId) {
+    var def = defDeCargador(itemId);
+    if (!def) {
+        log("[Weapons] equiparCargador: " + itemId + " no es un cargador del mod");
+        return false;
+    }
+
+    // Primero la ranura, despues el inventario. Al reves se saca una pieza del
+    // inventario para que no haya donde guardarla, y se devuelve a entrar.
+    var ranura = ranuraLibre();
+    if (ranura < 0) {
+        showTextBox(t("WPN_CARGADORES_LLENOS"));
+        log("[Weapons] equiparCargador: las " + maxCargadores() + " ranuras estan llenas");
+        return false;
+    }
+
+    var fila = query(ITEMS_TAKE_MAGAZINE, { id: itemId });
+    if (!fila) {
+        log("[Weapons] equiparCargador: no hay " + itemId + " con balas en el inventario");
+        return false;
+    }
+
+    setCargador(ranura, { id: itemId, ammo: fila.ammo || 0 });
+
+    log("[Weapons] equiparCargador: " + itemId + " -> ranura " + (ranura + 1) +
+        " | " + (fila.ammo || 0) + " balas");
+    return true;
+}
+
+// Sacar un cargador de la ranura y devolverlo al inventario con lo que le queda.
+export function guardarCargador(indice) {
+    var lista = getCargadores();
+    if (indice < 0 || indice >= lista.length) {
+        log("[Weapons] guardarCargador: no hay cargador en la ranura " + indice);
+        return false;
+    }
+    var c = lista[indice];
+
+    query(ITEMS_STORE_MAGAZINE, { id: c.id, ammo: c.ammo || 0 });
+    setCargador(indice, null);
+
+    log("[Weapons] guardarCargador: " + c.id + " <- ranura " + (indice + 1) +
+        " | vuelve al inventario con " + (c.ammo || 0) + " balas");
+    return true;
+}
+
+// ---------------------------------------------------------------------------
 // EQUIPAR
 // ---------------------------------------------------------------------------
 // Sacar el arma del inventario y ponerla en la mano. La fila sale del inventario
@@ -223,13 +337,130 @@ export function equipar(itemId) {
 }
 
 // ---------------------------------------------------------------------------
+// RELLENAR
+// ---------------------------------------------------------------------------
+// Pasarle las balas de un cargador a otro del mismo tipo. Es la accion que le da
+// sentido a un cargador vacio: sin ella, disparar las 8 balas dejaba una pieza en la
+// mochila que no servia para nada.
+//
+// El destino es el cargador que el jugador eligio —el de la fila que toco— y la
+// fuente la elige el modulo: la de la mochila con MAS balas, o si no hay ninguna, la
+// ranura mas llena. Se mira la mochila primero para no vaciar una ranura de un click
+// cuando hay un cargador en la mochila que puede cubrirlo.
+//
+// Y NUNCA se mueve una fila: las dos se escriben donde estan. Sacar una fila corre
+// los indices de las de abajo, y la segunda escritura caeria en el cargador
+// equivocado —que es la forma sutil de que un cargador aparezca con las balas de
+// otro—.
+export function rellenarCargador(equipado, indice) {
+    // ---- EL DESTINO
+    var destId = null;
+    var destAmmo = 0;
+    if (equipado) {
+        var enRanura = getCargadores()[indice];
+        if (!enRanura) {
+            log("[Weapons] rellenarCargador: la ranura " + (indice + 1) + " esta vacia");
+            return false;
+        }
+        destId = enRanura.id;
+        destAmmo = enRanura.ammo || 0;
+    } else {
+        var fila = query(ITEMS_MAG_AMMO, { indice: indice });
+        if (!fila) {
+            log("[Weapons] rellenarCargador: en la mochila no hay un cargador en el indice " + indice);
+            return false;
+        }
+        destId = fila.id;
+        destAmmo = fila.ammo || 0;
+    }
+
+    var cap = capacidadDeItem(destId);
+    var falta = cap - destAmmo;
+    if (falta <= 0) {
+        showTextBox(t("WPN_LLENO"));
+        log("[Weapons] rellenarCargador: " + destId + " ya esta lleno (" + destAmmo + "/" + cap + ")");
+        return false;
+    }
+
+    // ---- LA FUENTE
+    //
+    // `excluir` es el indice del destino solo si esta en la mochila: en las ranuras
+    // no hace falta porque el destino no esta en items[].
+    var fuente = null;
+    var enMochila = query(ITEMS_MAG_SOURCE, {
+        id: destId,
+        excluir: equipado ? -1 : indice
+    });
+    if (enMochila) {
+        fuente = { donde: "mochila", indice: enMochila.indice, ammo: enMochila.ammo || 0 };
+    } else {
+        var equipadas = getCargadores();
+        for (var i = 0; i < equipadas.length; i++) {
+            if (equipado && i === indice) continue;
+            if (equipadas[i].id !== destId) continue;
+            if (!fuente || equipadas[i].ammo > fuente.ammo) {
+                fuente = { donde: "ranura " + (i + 1), indice: i, ammo: equipadas[i].ammo || 0 };
+            }
+        }
+    }
+    if (!fuente || fuente.ammo <= 0) {
+        showTextBox(t("WPN_MAG_SIN_FUENTE"));
+        log("[Weapons] rellenarCargador: no hay otro " + destId + " con balas para rellenar");
+        return false;
+    }
+
+    // ---- MOVER
+    //
+    // Lo que entra es lo que falta en el destino o lo que tiene la fuente, lo que
+    // se acabe primero. Un cargador de 15 llenando uno de 8 pone 8 y deja 7.
+    var movidas = Math.min(falta, fuente.ammo);
+
+    // El destino primero. Es el orden que importa: el indice del destino se leyo
+    // antes de escribir nada, y hasta aca no se movio ninguna fila.
+    if (equipado) {
+        setCargador(indice, { id: destId, ammo: destAmmo + movidas });
+    } else {
+        query(ITEMS_SET_MAG_AMMO, { indice: indice, ammo: destAmmo + movidas });
+    }
+
+    // Y la fuente se queda con lo que sobro. Si era una ranura y no le queda nada,
+    // sale por soltarCargador: una ranura no guarda un cargador vacio.
+    var resto = fuente.ammo - movidas;
+    var detalleFuente;
+    if (fuente.donde === "mochila") {
+        query(ITEMS_SET_MAG_AMMO, { indice: fuente.indice, ammo: resto });
+        detalleFuente = "la mochila (" + fuente.ammo + " -> " + resto + ")";
+    } else if (resto > 0) {
+        setCargador(fuente.indice, { id: destId, ammo: resto });
+        detalleFuente = "la " + fuente.donde + " (" + fuente.ammo + " -> " + resto + ")";
+    } else {
+        setCargador(fuente.indice, null);
+        detalleFuente = "la " + fuente.donde + ", que se vacio -> " + soltarCargador(destId, 0);
+    }
+
+    log("[Weapons] rellenarCargador: " + destId + " " + destAmmo + "/" + cap +
+        " -> " + (destAmmo + movidas) + "/" + cap +
+        " | " + movidas + " balas desde " + detalleFuente);
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// LO QUE HAY PUESTO EN UN ARMA
+// ---------------------------------------------------------------------------
+// `cargador` sale del registro del modulo y las balas salen del MOTOR, en el mismo
+// `getEquipadas`: leerlas por separado seria dos respuestas al motor para un dato que
+// ya se leyo. La fila de la UI necesita los dos —cuantas balas quedan y de donde
+// salieron— y este es el lugar que tiene los dos.
+
+// ---------------------------------------------------------------------------
 // DESEQUIPAR
 // ---------------------------------------------------------------------------
-// Sacar el arma de la mano y devolverla al inventario CON SUS BALAS.
+// Sacar el arma de la mano. Vuelve DESNUDA, y su cargador sale con ella.
 //
-// La municion viaja en la fila: se lee del ped antes de sacar el arma, porque
-// despues el slot ya no la tiene. Un desequipar con 3 balas devuelve un arma con 3,
-// y ese es el unico lugar del sistema donde se copia la municion del juego.
+// Antes el arma volvia CON SUS BALAS y se copiaba la municion al inventario. Ya no:
+// las balas de un arma son las del cargador que tiene puesto, asi que el arma
+// desnuda vuelve con cero y el cargador se va con lo que le queda. Si vuelve un arma
+// con balas y sin cargador, la proxima recarga no tendria nada que sacar de ella.
 export function desequipar(slot) {
     var entry = getEntry(slot);
     if (!entry) {
@@ -248,35 +479,66 @@ export function desequipar(slot) {
 
     var char = Engine.playerChar();
     if (!char) return false;
+
+    // Las dos cosas se leen DEL PED ANTES de sacar el arma, porque despues el slot ya
+    // no las tiene: que cargador tiene puesto, y cuantas balas le quedan.
+    var magId = getCargadorEnArma(slot);
     var ammo = _municionEnLaMano(char);
 
     Engine.removeWeapon(char, def.weaponType);
-    query(ITEMS_STORE_WEAPON, { id: entry.id, salud: entry.salud, ammo: ammo });
+    query(ITEMS_STORE_WEAPON, { id: entry.id, salud: entry.salud, ammo: 0 });
     setEntry(slot, null);
+    setCargadorEnArma(slot, null);
 
-    log("[Weapons] desequipar: slot " + slot + " | " + entry.id +
-        " vuelve al inventario con " + ammo + " balas");
+    var detalle = "vuelve al inventario desnuda";
+    if (magId) {
+        detalle += " | su cargador (" + magId + ", " + ammo + ") -> " +
+            soltarCargador(magId, ammo);
+    } else {
+        detalle += " | sin cargador puesto";
+    }
+
+    log("[Weapons] desequipar: slot " + slot + " | " + entry.id + " | " + detalle);
     return true;
 }
 
 // ---------------------------------------------------------------------------
 // RECARGAR
 // ---------------------------------------------------------------------------
-// Meter un cargador del inventario en el arma de la mano, con animacion.
+// Meter en el arma un cargador que este EQUIPADO, con animacion.
+//
+// ---------------------------------------------------------------------------
+// La R tiene DOS caminos, y cual de los dos es lo decide el jugador:
+//
+//   CAMBIO     hay un cargador EQUIPADO con balas para este arma. El que tiene
+//              PUESTO sale por soltarCargador, con las balas que le quedaban, y el
+//              equipado entra. Con animacion y con el sonido del .asi.
+//   DESCARGA   no hay ninguno equipado, pero hay uno puesto: ese sale por
+//              soltarCargador y el arma queda DESNUDA. Con la MISMA animacion del
+//              cambio y el mismo sonido, porque es la misma animacion del motor sin
+//              las balas.
+//
+// Que no haya un tercer camino —"no pasa nada"— es lo que hace que la R sirva para
+// cambiar de cargador con el arma llena, que es el uso mas comun de la tecla.
+//
+// La animacion se pregunta una sola vez y antes de tocar nada, porque los dos
+// caminos la necesitan: un arma sin anim de recarga no puede cambiar ni descargar,
+// y en ese caso no se mueve ningun cargador.
 //
 // El orden de las comprobaciones es el que hace que un fallo no gaste nada:
 //
 //   1. el arma de la mano es del mod      si no, no es nuestra recarga
 //   2. no esta recargando ya              una recarga, no dos
-//   3. el clip no esta lleno             recargar lleno es una recarga que no
-//                                        hace nada y gasta un cargador
-//   4. el motor tiene anim para este arma  se PREGUNTA ANTES de sacar el cargador:
-//                                        si el arma no recarga, el cargador se
-//                                        queda en el inventario
-//   5. hay un cargador con balas en el inventario
+//   3. el motor tiene capacidad declarada
+//   4. ese arma tiene cargador en el catalogo
+//   5. (solo en el CAMBIO) el motor tiene anim para este arma, y se PREGUNTA ANTES
+//      de gastar el cargador: si el arma no recarga, el cargador se queda equipado
+//      y el que tiene puesto no se toca
 //
-// Y la 5 es la unica que puede fallar por una decision del jugador: sin cargador no
-// se toca nada y se le avisa.
+// Antes habia una comprobacion mas: "el clip no esta lleno". Se saco a proposito:
+// era la que hacia que la R no hiciera nada con el arma llena, y cambiar de cargador
+// es exactamente lo que se le pide a la tecla en ese caso.
+// ---------------------------------------------------------------------------
 export function recargar() {
     var char = Engine.playerChar();
     if (!char) return false;
@@ -286,6 +548,7 @@ export function recargar() {
     var slot = Engine.selectedSlot(ped);
     if (!slot) return false;
     var addr = Engine.slotAddress(ped, slot);
+    if (!addr) return false;
     var tipo = Engine.slotType(addr);
 
     var delMod = armaDeTipo(tipo);
@@ -298,43 +561,112 @@ export function recargar() {
         log("[Weapons] recargar: el tipo " + tipo + " no tiene capacidad declarada");
         return false;
     }
-    if (Engine.slotClip(addr) >= cap) return false;
+    // NO HAY GUARDA DE CLIP LLENO. Antes habia una aqui y se borro: con el arma
+    // llena la R tiene que hacer una de las dos cosas de abajo, y si no hay cargador
+    // equipado eso es la descarga, no "no pasa nada".
 
-    // La 4: el arma tiene anim de recarga. Antes de gastar el cargador, porque un
-    // arma sin anim no recarga nunca y el cargador se quedaria en la fila.
-    var spec = Engine.reloadSpec(tipo);
-    if (!spec) {
-        log("[Weapons] recargar: el tipo " + tipo + " no tiene anim de recarga");
-        return false;
-    }
+    // Que cargador tiene PUESTO este arma, y cuantas balas le quedan.
+    //
+    // Las balas son el clip, que es del juego: se leen, no se copian a ningun lado.
+    // El id sale del registro del modulo porque el motor no distingue "sin cargador"
+    // de "descargado": para el los dos son cero balas, y sin el id no hay manera de
+    // saber que este arma tiene un cargador.
+    var puestoId = getCargadorEnArma(slot);
+    var enClip = Engine.slotClip(addr);
 
+    // La 4: hay un cargador que le corresponde a este arma. Un cargador de otro arma
+    // no se toca: esta en su ranura esperando a su propia arma.
     var magId = cargadorDe(delMod.itemId);
     if (!magId) {
         log("[Weapons] recargar: " + delMod.itemId + " no tiene cargador en el catalogo");
         return false;
     }
 
-    var fila = query(ITEMS_TAKE_MAGAZINE, { id: magId });
-    if (!fila) {
-        showTextBox(t("WPN_NOMAG"));
+    // La 5: la animacion se pregunta ANTES de mover un cargador, y va ACA y no
+    // adentro de un camino porque los DOS la necesitan. Cambiar y descargar son la
+    // misma animacion del motor; lo que cambia son las balas que mete, que en la
+    // descarga son cero.
+    //
+    // Un arma sin anim no recarga nunca, y si movemos los cargadores primero no hay
+    // manera de volver atras: mejor no hacer nada y que el cargador siga donde esta.
+    var spec = Engine.reloadSpec(tipo);
+    if (!spec) {
+        log("[Weapons] recargar: el tipo " + tipo + " no tiene anim de recarga");
         return false;
     }
 
-    // Las balas del cargador, recortadas a lo que le entra. Un cargador de 5 en un
-    // arma de 8 monta 5; uno de 15 en un arma de 8 monta 8 y las 7 sobrantes se
-    // pierden. Ver el header.
-    var n = Math.min(cap, fila.ammo || 0);
+    var equipados = getCargadores();
+    var elegido = -1;
+    for (var i = 0; i < equipados.length; i++) {
+        if (equipados[i].id === magId &&equipados[i].ammo > 0) {
+            elegido = i;
+            break;
+        }
+    }
+    // ---- EL CAMBIO
+    //
+    // Hay cargador equipado con balas: entra este, y el que estaba puesto sale.
+    if (elegido >= 0) {
+        // Las balas del cargador, recortadas a lo que le entra. Un cargador de 5 en
+        // un arma de 8 monta 5; uno de 15 en un arma de 8 monta 8 y las 7 sobrantes
+        // se pierden. Ver el header.
+        var mag = equipados[elegido];
+        var n = Math.min(cap, mag.ammo);
 
-    _empezarRecarga(addr, tipo, n, spec.ms);
+        // EL QUE ESTABA PUESTO SALE PRIMERO, o se pierde. Antes no salia nunca: el
+        // clip viejo se ponia en cero y el cargador no existed en ningun lado del
+        // modulo, asi que se perdia en cada recarga.
+        var salio = "no habia ninguno puesto";
+        if (puestoId) salio = "el " + puestoId + " (" + enClip + ") -> " +
+            soltarCargador(puestoId, enClip);
 
-    // El sonido NO se pide aca. Lo pide el .asi: el motor tiene
-    // CAEWeaponAudioEntity::WeaponReload con la tabla de sonidos por tipo de arma, y
-    // el .asi es el unico de los dos lados que sabe resolver el padre, que es lo que
-    // el motor exige para elegir el sfx. El modulo solo pone RECARGANDO y el .asi ve
-    // el estado y llama al motor.
-    log("[Weapons] recargar: " + magId + " -> tipo " + tipo + " | " + n + "/" + cap +
-        " | quedan " + (fila.ammo - n) + " en el cargador perdido");
-    return true;
+        setCargador(elegido, null);
+        setCargadorEnArma(slot, mag.id);
+        _empezarRecarga(addr, tipo, n, spec.ms);
+
+        // El sonido NO se pide aca. Lo pide el .asi: el motor tiene
+        // CAEWeaponAudioEntity::WeaponReload con la tabla de sonidos por tipo de arma, y
+        // el .asi es el unico de los dos lados que sabe resolver el padre, que es lo que
+        // el motor exige para elegir el sfx. El modulo solo pone RECARGANDO y el .asi ve
+        // el estado y llama al motor.
+        log("[Weapons] recargar: CAMBIO | " + mag.id + " de la ranura " + (elegido + 1) +
+            " -> tipo " + tipo + " | " + n + "/" + cap +
+            " | " + salio +
+            ((mag.ammo - n) > 0 ? " | " + (mag.ammo - n) + " balas sobrantes se pierden" : ""));
+        return true;
+    }
+
+    // ---- LA DESCARGA
+    //
+    // No hay cargador equipado, pero hay uno puesto: ese sale y el arma queda
+    // desnuda.
+    //
+    // CON LA MISMA ANIMACION que el cambio, y por eso con las mismas tres
+    // escrituras: es la misma animacion del motor, solo que sin balas que meter. Se
+    // llama _empezarRecarga con CERO, y el watchdog escribe cero en el clip cuando
+    // vence el plazo: el arma queda 0/0 en READY exactamente igual que antes, pero
+    // despues de sacar el cargador en vez de tele transportarlo.
+    //
+    // Y el sonido tambien va, porque lo pide el .asi con el estado, y el estado es el
+    // mismo. Es lo que hace el juego cuando el jugador saca el cargador a mano, y
+    // ademas es el aviso de que la R hizo algo.
+    if (puestoId) {
+        var donde = soltarCargador(puestoId, enClip);
+        setCargadorEnArma(slot, null);
+        _empezarRecarga(addr, tipo, 0, spec.ms);
+
+        log("[Weapons] recargar: DESCARGA | " + puestoId + " (" + enClip +
+            " balas) -> " + donde + " | el arma queda desnuda, con la anim del cambio");
+        return true;
+    }
+
+    // ---- NO HAY CARGADOR NI EQUIPADO NI PUESTO
+    //
+    // No hay nada que gastar y nada que sacar: avisar y no tocar nada.
+    showTextBox(t(equipados.length ? "WPN_NOMAG" : "WPN_NOMAG_EQUIPADO"));
+    log("[Weapons] recargar: no hay " + magId + " equipado (" +
+        equipados.length + " cargadores equipados) y este arma no tiene ninguno puesto");
+    return false;
 }
 
 // LA RECARGA
@@ -436,7 +768,27 @@ export function getEquipadas() {
             slot: e.slot,
             salud: e.salud,
             ammo: addr ? Engine.slotClip(addr) : 0,
-            cap: Engine.clipCapacityOf(def.weaponType)
+            cap: Engine.clipCapacityOf(def.weaponType),
+            cargador: getCargadorEnArma(e.slot)
+        });
+    }
+    return out;
+}
+
+// Los cargadores equipados, con las balas que tienen guardadas.
+//
+// `ammo` sale del REGISTRO y no del juego: un cargador equipado no esta en el
+// inventario, asi que el modulo es el dueno de su municion. Es al reves del arma,
+// que si esta en el ped.
+export function getCargadoresEquipados() {
+    var lista = getCargadores();
+    var out = [];
+    for (var i = 0; i < lista.length; i++) {
+        out.push({
+            id: lista[i].id,
+            indice: lista[i].indice,
+            ammo: lista[i].ammo || 0,
+            cap: capacidadDeItem(lista[i].id)
         });
     }
     return out;

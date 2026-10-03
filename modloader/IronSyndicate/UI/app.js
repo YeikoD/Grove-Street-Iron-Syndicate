@@ -881,41 +881,48 @@ function emitCommand(payload) {
 // es el que valida: si el item no existe o no se puede equipar, equipar() lo dice
 // por su cuenta y la pagina se entera porque el snapshot vuelve sin el.
 //
-// Un cargador no se equipa: su accion es recargar. Un material no tiene ninguna.
+// Un cargador NO se recarga desde la mochila: se EQUIPA, y recargar con la R usa los
+// que estan en las ranuras. Un material no tiene ninguna accion.
 // Devuelve null cuando la fila no admite la accion pedida, para que el keycap no
 // tenga que inventar un resultado.
 function actionFor(r, what) {
   if (!r) return null;
 
-  // LAS TRES ACCIONES DE ARMAS
+  // LAS CUATRO ACCIONES DE ARMAS
   // -------------------------------------------
-  //   equip     { cmd: "inv:equip", id }        un arma de la mochila
-  //   unequip   { cmd: "inv:unequip", slot }    la fila del arma equipada
-  //   reload    { cmd: "inv:reload" }           un cargador
+  //   equip     { cmd: "inv:equip", id }          un arma de la mochila
+  //   unequip   { cmd: "inv:unequip", slot }      la fila del arma equipada
+  //   equipMag  { cmd: "inv:equipMag", id }       un cargador de la mochila
+  //   unequipMag{ cmd: "inv:unequipMag", indice } una ranura de cargador equipada
   //
   // LAS TRES COSAS QUE NO PUEDE SABER LA PAGINA, Y QUE POR ESO NO PREGUNTA
   // ---------------------------------------------------------------------------
   // 1. Que cargador le sirve a que arma. El modulo lo sabe (cargadorDe) y la pagina
   //    no tiene el catalogo. Por eso recargar no lleva id: el modulo mira el arma
-  //    de la mano y saca el cargador que le corresponde.
+  //    de la mano y busca el cargador que le corresponde ENTRE LOS EQUIPADOS.
   //
   // 2. Si el arma esta llena. `aplica` no puede saberlo y el boton aparece igual:
   //    recargar un arma llena no hace nada y no gasta cargador, porque el modulo
-  //    corta antes de tocar el inventario. Un boton que a veces no hace nada es
-  //    mejor que uno que aparece y desaparece segun un dato que cambia cada frame.
+  //    corta antes de tocar nada. Un boton que a veces no hace nada es mejor que
+  //    uno que aparece y desaparece segun un dato que cambia cada frame.
   //
   // 3. Si el cargador tiene balas. Esta fila muestra su municion en la columna, y
   //    el modulo corta con un aviso si esta en cero. Que la fila se entere sola es
   //    un problema de distribucion que se resuelve con el aviso, no con una
   //    predicado que hay que mantener sincronizada con el modulo.
   //
-  // LO QUE NO VUELVE: montar y sacar accesorios, y el cinturon. No hay accesorios
-  // en el catalogo y el cinturon se decidio no hacerlo: el cargador sale del
-  // inventario directo con la R.
+  // Y LO QUE TAMPOCO PREGUNTA: si quedan ranuras libres para equipar otro cargador.
+  // El maximo son dos y el modulo lo dice con un aviso; un boton que desaparece
+  // segun un dato del registro seria una cuarta predicado mas que sincronizar.
   if (r.equipado) {
     // Una fila equipada no esta en items[], asi que no puede tirar ni volver a
     // equiparse. Y no tiene cargador propio: su cargador esta dentro del arma, y
     // lo que se ve en la celda de municion son las balas que le quedan.
+    if (r.ranura === "cargador") {
+      if (what === "unequip") return { cmd: "inv:unequipMag", indice: r.indice };
+      if (what === "fillMag") return { cmd: "inv:fillMag", equipado: true, indice: r.indice };
+      return null;
+    }
     if (what === "unequip") return { cmd: "inv:unequip", slot: r.slot };
     if (what === "drop") return null;
     return null;
@@ -929,7 +936,12 @@ function actionFor(r, what) {
   }
 
   if (what === "equip" && r.cat === "weapon") return { cmd: "inv:equip", id: r.id };
-  if (what === "reload" && r.cat === "magazine") return { cmd: "inv:reload" };
+  if (what === "equipMag" && r.cat === "magazine") return { cmd: "inv:equipMag", id: r.id };
+  if (what === "fillMag" && r.cat === "magazine" && r.puedeRellenar) {
+    // Por indice y no por id: dos cargadores del mismo tipo en la mochila es el caso
+    // normal —el vacio y el lleno—, y el id no dice cual de los dos leyo el jugador.
+    return { cmd: "inv:fillMag", equipado: false, indice: r.indice };
+  }
   if (what === "drop") return { cmd: "inv:drop", id: r.id };
   return null;
 }
@@ -962,10 +974,13 @@ function actionFor(r, what) {
 // dos menus —la lista no cambia, cambia que comandos tiene— asi que no hace
 // falta un menu distinto para equipped.
 //
-// El comando de cada accion lo decide actionFor(), que ya estaba: la pagina no
-// inventa el payload, arma el que el modulo valida. Agregar una accion que no
-// pase por actionFor es posible —basta un run() propio— pero entonces el
-// modulo tiene que saber leerla del otro lado.
+// Y POR QUE NO HAY UNA ACCION "Recargar"
+//
+// Antes la habia, y la ejecutaba la R con un cargador del inventario. Con los
+// cargadores equipados, recargar es una accion sobre el ARMA DE LA MANO y no
+// sobre una fila: la hace la tecla R sola. Un boton "Recargar" en la mochila
+// seria un segundo camino a lo mismo, y un segundo camino es donde aparecen
+// los estados imposibles.
 const ACCIONES = [
   {
     id: "equip",
@@ -973,10 +988,16 @@ const ACCIONES = [
     aplica: (r) => !!actionFor(r, "equip")
   },
   {
-    id: "reload",
-    label: "Recargar",
+    id: "equipMag",
+    label: "Equipar cargador",
     sep: true,
-    aplica: (r) => !!actionFor(r, "reload")
+    aplica: (r) => !!actionFor(r, "equipMag")
+  },
+  {
+    id: "fillMag",
+    label: "Rellenar cargador",
+    sep: true,
+    aplica: (r) => !!actionFor(r, "fillMag")
   },
   {
     id: "unequip",

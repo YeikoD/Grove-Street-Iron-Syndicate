@@ -212,7 +212,20 @@ export var WEAPONS = {
     // —familias, accesorios, variantes— es un paso siguiente, y esta fila esta
     // escrita en el .dat desde antes: repetirla aca seria la segunda copia de un
     // dato, que es la clase de bug que produjo el tambor de 75 recortado a 30.
-    ARMA_PRUEBA_TIPO: 63
+    ARMA_PRUEBA_TIPO: 63,
+
+    // Cuantos cargadores se pueden llevar equipped a la vez.
+    //
+    // No es un numero de UI: es una REGLA del inventario, y vive con los demas
+    // numeros de armas por la misma razon que el rango de tipos. El masalto es
+    // aca porque el que decide si un cargador entra es state.js, y el que decide
+    // si la UI muestra el "no hay lugar" es el modulo de armas. Los dos leen de
+    // aca.
+    //
+    // Por que dos y no uno: con uno, recargar es un click y el cargador equipado
+    // es solo un segundo inventario con la misma funcion. Con dos, el jugador
+    // puede llevar el de recargados y el nuevo, y la R elige.
+    CARGADORES_EQUIPADOS: 2
 };
 
 // Martillo seco (disparo con el arma vacia) — modules/gsis_FireButton.js

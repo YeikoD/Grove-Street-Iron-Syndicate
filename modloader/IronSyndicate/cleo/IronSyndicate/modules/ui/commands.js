@@ -46,7 +46,7 @@
 // modulo no valida, su respuesta seria la de hace un snapshot. Este archivo
 // traduce, no decide.
 import { removeItem } from "../inventory/index.js";
-import { equipar, desequipar, recargar } from "../weapons/gsis_Weapons.js";
+import { equipar, desequipar, equiparCargador, guardarCargador, rellenarCargador, recargar } from "../weapons/gsis_Weapons.js";
 import { putInTrunk, takeFromTrunk } from "../gsis_Trunk.js";
 import { addToCart, removeFromCart, resetCart, checkout } from "../gsis_WeaponDealer.js";
 import { doOffer, moveOffer } from "../gsis_WeaponSeller.js";
@@ -140,17 +140,22 @@ export function handleCommand(cmd, ui) {
             // --- INVENTARIO ---
             //
             // Los cinco comandos de armas que hubo aca se fueron con el sistema y
-            // tres vuelven ahora, con el mismo contrato y un nombre menos:
+            // cuatro vuelven ahora, con el mismo contrato y un nombre menos:
             //
             //   inv:equip      sacar un arma del inventario y ponerla en la mano
             //   inv:unequip    sacarla de la mano y devolverla
-            //   inv:reload     meterle un cargador del inventario
+            //   inv:equipMag   sacar un cargador del inventario y ponerlo en una
+            //                  de las dos ranuras de equipados
+            //   inv:unequipMag sacar un cargador de su ranura y devolverlo
+            //   inv:fillMag    pasarle las balas de otro cargador a este
+            //   inv:reload     la R del arma de la mano: cambio o descarga
             //
             // EL CONTRATO: la pagina manda un ID DE ITEM, nunca un weaponType ni un
             // estado. `inv:unequip` manda el slot porque la fila equipada sabe el
-            // suyo y la pagina lo ve en `r.slot`; las otras dos solo necesitan el
-            // id. Quien sabe el estado —el weaponType, la capacidad— es el modulo de
-            // armas, que lo lee del motor.
+            // suyo y la pagina lo ve en `r.slot`; `inv:unequipMag` manda el indice
+            // de ranura porque su fila lo ve en `r.indice`. Las otras solo necesitan
+            // el id. Quien sabe el estado —el weaponType, la capacidad— es el modulo
+            // de armas, que lo lee del motor.
             //
             // Y ningun `case` loguea a ciegas: mira el retorno antes de decir que
             // lo hizo. Un log que afirma una accion que no ocurrio manda a
@@ -174,10 +179,44 @@ export function handleCommand(cmd, ui) {
                 log("[UI] desequipar: slot " + cmd.slot);
                 return true;
 
+            case "inv:equipMag":
+                if (!id) return false;
+                if (!equiparCargador(id)) {
+                    log("[UI] equiparCargador fallo: " + id);
+                    return false;
+                }
+                log("[UI] equiparCargador: " + id);
+                return true;
+
+            case "inv:unequipMag":
+                if (cmd.indice === undefined || cmd.indice === null) return false;
+                if (!guardarCargador(parseInt(cmd.indice, 10))) {
+                    log("[UI] guardarCargador fallo: ranura " + cmd.indice);
+                    return false;
+                }
+                log("[UI] guardarCargador: ranura " + cmd.indice);
+                return true;
+
+            case "inv:fillMag":
+                // Rellenar pasa el INDICE, no el id, y el `equipado` que lo acompana
+                // dice si ese indice es una ranura o un lugar de la mochila. No es la
+                // excepcion que parece: con dos cargadores del mismo tipo en la
+                // mochila —el vacio y el lleno— el id no distingue a cual leyo el
+                // jugador, y rellenar el equivocado es un cargador que se llena solo.
+                if (cmd.indice === undefined || cmd.indice === null) return false;
+                var destinoMag = parseInt(cmd.indice, 10);
+                var enRanura = cmd.equipado === true;
+                if (!rellenarCargador(enRanura, destinoMag)) {
+                    log("[UI] rellenarCargador fallo: " + (enRanura ? "ranura " : "mochila ") + destinoMag);
+                    return false;
+                }
+                log("[UI] rellenarCargador: " + (enRanura ? "ranura " : "mochila ") + destinoMag);
+                return true;
+
             case "inv:reload":
                 // No lleva id: recargar no es una accion sobre una fila, es una
                 // accion sobre el arma de la mano. El modulo ve que cargador le
-                // sirve y lo saca del inventario.
+                // sirve, lo saca de los EQUIPADOS y lo gasta.
                 if (!recargar()) return false;
                 log("[UI] recargar");
                 return true;

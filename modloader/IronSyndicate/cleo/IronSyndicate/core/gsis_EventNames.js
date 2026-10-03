@@ -80,6 +80,37 @@
 // ============================================================================
 
 // weapons -> inventory
+//
+// Y POR QUE HAY CUATRO Y NO TRES: `items:storeMagazine` no existia porque un
+// cargador no tenia por que volver nunca al inventario. Con los cargadores
+// equipping, vuelve: el jugador saca uno de la ranura y lo guarda otra vez, con las
+// balas que le quedaron.
+//
+// No se reusa `storeWeapon` para eso. Ese handler mete `salud`, y un cargador no
+// tiene salud: por la misma razon que dos item con distinta forma de vida no
+// comparten el mismo camino de vuelta, no comparten el mismo evento.
 export var ITEMS_TAKE_WEAPON = "items:takeWeapon";
 export var ITEMS_STORE_WEAPON = "items:storeWeapon";
 export var ITEMS_TAKE_MAGAZINE = "items:takeMagazine";
+export var ITEMS_STORE_MAGAZINE = "items:storeMagazine";
+
+// LA MUNICION DE UN CARGADOR DE LA MOCHILA, POR INDICE
+// ---------------------------------------------------------------------------
+// Los tres existen por la accion de RELLENAR, que mueve balas de un cargador a
+// otro. Y los tres son POR INDICE, no por id, que es lo que hace falta:
+//
+//   magAmmo   { indice }            -> { id, ammo } o null
+//   setMagAmmo{ indice, ammo }      -> true o false
+//   magSource { id }                -> { indice, ammo } o null
+//
+// Por indice y no por id porque dos cargadores del mismo tipo pueden estar en la
+// mochila a la vez —el vacio y el lleno, que es justamente el caso de rellenar— y
+// "el primero que encuentre" no es el que el jugador leyo.
+//
+// Y `magSource` NO saca la fila: la devuelve. Si la sacara, las filas de abajo
+// correrian un lugar y el indice del destino dejaria de apuntar a la fila
+// correcta. Por eso rellenar lee, escribe y no mueve nada: mover filas es lo que
+// rompe los indices.
+export var ITEMS_MAG_AMMO = "items:magAmmo";
+export var ITEMS_SET_MAG_AMMO = "items:setMagAmmo";
+export var ITEMS_MAG_SOURCE = "items:magSource";

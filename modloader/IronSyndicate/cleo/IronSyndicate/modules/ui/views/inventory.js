@@ -18,7 +18,9 @@
 
 import { MISC } from "../../../core/gsis_Config.js";
 import { getItems, getTotalWeight } from "../../inventory/index.js";
-import { getEquipadas, capacidadDeItem } from "../../weapons/gsis_Weapons.js";
+import {
+    getEquipadas, getCargadoresEquipados, capacidadDeItem
+} from "../../weapons/gsis_Weapons.js";
 import { itemRow } from "./itemRow.js";
 
 var MAX_WEIGHT = MISC.MAX_INVENTORY_WEIGHT;
@@ -32,12 +34,13 @@ var MAX_WEIGHT = MISC.MAX_INVENTORY_WEIGHT;
 //   equipadasSnap()   las armas equipadas, con la municion leida del ped EN VIVO
 //   el cinturon        los cargadores equipados
 //
-// La primera VOLVIO con el sistema nuevo, y por la misma razon: el mod saca el arma
-// de items[] al equiparla, asi que sin esta fila el inventario pierde un item por
-// el camino y el jugador lo lee como que el arma desaparecio.
+// Las dos VOLVIERON, y por el mismo motivo en las dos: el mod saca del inventario lo
+// que esta equipado, asi que sin estas filas el inventario pierde un item por el
+// camino y el jugador lo lee como que el item desaparecio.
 //
-// La segunda no: no hay cinturon. El cargador se carga directo del inventario con
-// la R, y un cinturon seria una pantalla mas que rellenar para no cambiar nada.
+// El cinturon se habia decidido NO hacerlo (el cargador se cargaba directo del
+// inventario con la R). Volvio con los cargadores equipados: ahora son dos ranuras
+// con un maximo, y el jugador tiene que verlas.
 //
 // POR QUE VAN PRIMERO Y NO AL FINAL
 // ---------------------------------------------------------------------------
@@ -49,15 +52,20 @@ var MAX_WEIGHT = MISC.MAX_INVENTORY_WEIGHT;
 // LO QUE LE ANADE LA PAGINA A ESTAS FILAS
 // ---------------------------------------------------------------------------
 // Tres campos, y los tres los usa snapRow(): `equipado` (pinta la etiqueta
-// "(Equipado)"), `ranura` (distingue arma de cinturon) y `slot`. El `weaponType` no
+// "(Equipado)"), `ranura` (distingue arma de cargador) y `slot`. El `weaponType` no
 // viaja, ni disfrazado: es la representacion que ejecuta el motor y la pagina no
 // tiene por que conocerla.
 
 // Las filas del arma equipada, con lo que hay que mostrarle.
 //
-// La municion es "N/cap" y el denominador sale del MOTOR, que es la unica diferencia
-// con una fila de la mochila: ahi el denominador es el declarado por el item, y aca
-// es el que le escribio el .asi. Se lee de dos lugares distintos a proposito.
+// La municion es "N/cap" y las dos mitades salen del MOTOR: el numerador es el clip
+// que hay ahora, y el denominador la capacidad que leyo el .asi. El modulo no copia
+// la municion del arma a ningun lado —es del juego— asi que getEquipadas() la lee del
+// ped en vivo y la fila muestra el numero real, no uno guardado.
+//
+// Y el cargador PUESTO viaja en `cargador`: sin el, la fila dice cuantos proyectiles
+// quedan pero no de donde salieron, que es la pregunta que se hace el jugador cuando
+// aprieta la R y no pasa nada.
 function equipadasSnap() {
     var equipadas = getEquipadas();
     var rows = [];
@@ -73,6 +81,58 @@ function equipadasSnap() {
         row.equipado = true;
         row.ranura = "arma";
         row.slot = e.slot;
+        if (e.cargador) row.cargador = e.cargador;
+        rows.push(row);
+    }
+    return rows;
+}
+
+// Las filas de los cargadores equipados, una por ranura ocupada.
+//
+// `indice` viaja porque es lo que la pagina devuelve en el comando de quitar: la
+// fila que ve el jugador es la ranura 2, y el modulo tiene que sacar la ranura 2. El
+// numero de la ranura NO es el indice del vector por construccion: la ranura 1 es el
+// indice 0, y el modulo es el que sabe la cuenta.
+//
+// Y el ammunition va con barra propia: el cargador no esta en el ped, asi que su
+// municion sale del registro del modulo y no de memoria del juego.
+//
+// `puedeRellenar` es lo unico que la pagina necesita saber de la accion Rellenar, y
+// es una comparacion entre dos numeros que el modulo ya tiene: la municion de la fila
+// y la capacidad del item. Que la pagina no la calcule es que no pueda equivocarse
+// con el mismo criterio que el modulo.
+function cargadoresSnap() {
+    var cargadores = getCargadoresEquipados();
+    var rows = [];
+    for (var i = 0; i < cargadores.length; i++) {
+        var c = cargadores[i];
+        var cap = c.cap || capacidadDeItem(c.id);
+        var row = itemRow({ id: c.id, qty: 1, ammo: c.ammo });
+        row.ammo = c.ammo + "/" + cap;
+        row.equipado = true;
+        row.ranura = "cargador";
+        row.indice = c.indice;
+        row.ranuraNro = c.indice + 1;
+        row.puedeRellenar = (c.ammo || 0) < cap;
+        rows.push(row);
+    }
+    return rows;
+}
+
+// Las filas de la mochila. Para un cargador se le agregan `indice` y `puedeRellenar`.
+//
+// `indice` es el de items[], y es lo que permite la accion Rellenar: sin el, el
+// modulo tendria que buscar "un cargador" y con dos en la mochila no hay forma de
+// saber cual de los dos leyo el jugador. Las demas filas no lo llevan porque ninguna
+// otra accion lo necesita — Ellas van por id, que es unico para ellas.
+function filasDeItems(items) {
+    var rows = [];
+    for (var i = 0; i < items.length; i++) {
+        var row = itemRow(items[i]);
+        if (row.cat === "magazine") {
+            row.indice = i;
+            row.puedeRellenar = (items[i].ammo || 0) < capacidadDeItem(row.id);
+        }
         rows.push(row);
     }
     return rows;
@@ -81,22 +141,26 @@ function equipadasSnap() {
 // ---------------------------------------------------------------------------
 // EL SNAPSHOT DEL INVENTARIO
 // ---------------------------------------------------------------------------
+// Las filas del inventario son CUATRO listas pegadas en este orden, y el orden es
+// el unico que decide donde aparece cada cosa:
+//
+//   1. las armas equipadas     para que la banda "Armas" empiece con lo que llevas
+//   2. los cargadores equipados idem, en la banda "Cargadores"
+//   3. las filas del inventario
+//
 // El snapshot del inventario son DOS claves: las filas y el peso.
 //
 // El maximo de peso se leia del config y se manda en el mismo snapshot, asi que no
 // hace falta que la pagina lo escriba en ningun lado: lo recibe con los numeros.
 //
-// Las filas se arman con itemRow(), la MISMA fabrica que usan el baul, el retiro y
-// el resto de las pantallas de items. Una fila es { id, cat, name, qty, ammo,
+// Las filas se arman con itemRow(), la MISMA fabrica que usan el baul, el retiro y el
+// resto de las pantallas de items. Una fila es { id, cat, name, qty, ammo,
 // salud, weight, value, tip } y ninguna pantalla arma la suya: dos copias de una
 // fila divergen calladas, y la divergencia se ve como "el baul no muestra el
 // valor" o "el retiro dibuja la salud de otra forma".
 export function snapInventory() {
     var items = getItems();
-    var rows = equipadasSnap();
-    for (var i = 0; i < items.length; i++) {
-        rows.push(itemRow(items[i]));
-    }
+    var rows = equipadasSnap().concat(cargadoresSnap()).concat(filasDeItems(items));
     return {
         weight: Math.round(getTotalWeight() * 100) / 100,
         rows: rows
