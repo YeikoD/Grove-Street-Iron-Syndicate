@@ -229,6 +229,17 @@ export var WEAPONS = {
 // "No handler or callme" y el archivo no se copia a la raiz. El opcode 0x0AAC no
 // pasa por ModLoader: abre el archivo del disco, relativo a la raiz del juego.
 // Por eso el mod "Mantener armas sin balas" trae su .wav junto al script.
+// Por que el martillo trae su .wav y la recarga no.
+//
+// El martillo es un sonido que NO existe en el juego: es un invento del mod, asi
+// que tiene que ser un archivo. La recarga si existe, y la tiene el motor con el
+// banco del juego: va por Engine.playWeaponReload, que llama a
+// CAEWeaponAudioEntity::WeaponReload y deja que el juego elija el sfx del arma. Por
+// eso las rutas de sounds\weapons\reload*.wav ya no estan aca.
+//
+// Y el factor: el volumen general del juego (0xB67A50) se multiplica por este
+// numero. Es el criterio del mod "Mantener armas sin balas", que leia ese global
+// y lo multiplicaba por 0.8.
 export var AUDIO = {
     DRYFIRE_PATH: "modloader/IronSyndicate/sounds/dryfire.wav",
     DRYFIRE_VOLUME: 0.8               // factor sobre el volumen general del juego

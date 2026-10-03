@@ -70,7 +70,7 @@
 // ============================================================================
 
 import { register } from "../../core/gsis_ModuleRegistry.js";
-import { KEYS, WEAPONS } from "../../core/gsis_Config.js";
+import { KEYS, WEAPONS, AUDIO } from "../../core/gsis_Config.js";
 import { keyJustPressed } from "../../core/gsis_Input.js";
 import { t } from "../../core/gsis_L10n.js";
 import { query } from "../../core/gsis_EventBus.js";
@@ -94,13 +94,6 @@ register({
     init: initWeapons,
     update: updateWeapons
 });
-
-// La recarga en curso. No es estado de juego: es el Armed del motor. Se pone al
-// empezar la recarga y lo consume el watchdog del update.
-//
-// Un unico pendiente y no una lista: un ped tiene UN arma en la mano y una sola
-// recarga a la vez.
-var _pendiente = null;
 
 // ---------------------------------------------------------------------------
 // EL CICLO DE VIDA
@@ -131,10 +124,17 @@ function updateWeapons() {
 
     _watchdogRecarga();
 
-    // El guard va SIEMPRE y va al final: las tres operaciones escriben el par
-    // clip/total, y el guard tiene que ver el estado ya terminado.
+    // El guard va SIEMPRE y va al final: la recarga escribe el par clip/total, y
+    // el guard tiene que ver el estado ya terminado.
     normalizarSinReserva(char);
 }
+
+// La recarga en curso. No es estado de juego: es el Armed del motor. Se pone al
+// empezar la recarga y lo consume el watchdog del update.
+//
+// Un unico pendiente y no una lista: un ped tiene UN arma en la mano y una sola
+// recarga a la vez.
+var _pendiente = null;
 
 // ---------------------------------------------------------------------------
 // EL CAMINO AL MOTOR
@@ -327,16 +327,51 @@ export function recargar() {
 
     _empezarRecarga(addr, tipo, n, spec.ms);
 
+    // El sonido NO se pide aca. Lo pide el .asi: el motor tiene
+    // CAEWeaponAudioEntity::WeaponReload con la tabla de sonidos por tipo de arma, y
+    // el .asi es el unico de los dos lados que sabe resolver el padre, que es lo que
+    // el motor exige para elegir el sfx. El modulo solo pone RECARGANDO y el .asi ve
+    // el estado y llama al motor.
     log("[Weapons] recargar: " + magId + " -> tipo " + tipo + " | " + n + "/" + cap +
         " | quedan " + (fila.ammo - n) + " en el cargador perdido");
     return true;
 }
 
-// La animacion. Tres escrituras y un pendiente.
+// LA RECARGA
+// ---------------------------------------------------------------------------
+// Tres escrituras y un pendiente:
 //
-// `clip = 0` y `total = 0` antes de RECARGANDO es lo que hace el arma: se ve vacia
-// mientras carga. El motor no las va a tocar —su recarga no tiene nada que mover,
-// porque total == clip— y el watchdog las escribe cuando el plazo vence.
+//   m_nTimeForNextShot = ahora + GetWeaponReloadTime(del animgroup)
+//   m_nState           = RECARGANDO
+//   clip = total = 0
+//
+// Que es lo mismo que escribe el mod "Reload Mod" (fuente en
+// cleo\Reload Mod Fixed.txt), que a su vez es lo mismo que hace el motor en
+// CWeapon::Fire, 0x73FA20: dispara, y si el cargador quedo vacio y hay reserva,
+// pone RECARGANDO y el plazo del animgroup.
+//
+// LO QUE SE PROBO Y SE DESCARTO
+// ---------------------------------------------------------------------------
+// La variante de "dejar que el motor la termine" —m_nAmmoTotal = las balas y no
+// tocar el clip, esperando que el motor cierre con clip += total— se probo el
+// 02/10/2026 y NO funciona: la animacion arranca (esa parte si la hace el motor) pero
+// el arma no termina de recargar. Por eso el modulo mueve las balas el.
+//
+// Y el sonido, que era el motivo original de esa variante, tampoco sale de ahi. El
+// motor no tiene una operacion "recargar" a la que llamar: la recarga ES parte del
+// disparo (0x73FA20). El sonido de recarga del juego vive en un despachador por
+// tipo (CAEWeaponAudioEntity::WeaponReload, tabla en 0x503838) al que no se llega
+// desde un arma de tipo 60..79 con una recarga escrita a mano. Por eso el sonido lo
+// pone el mod con sus dos archivos, en audio.js.
+//
+// LO QUE NO HACEMOS
+// ---------------------------------------------------------------------------
+// No escribimos m_nAmmoInClip con las balas antes de tiempo: el arma se veria llena
+// durante la animacion. El watchdog las escribe cuando el plazo vence, que es lo que
+// hace el arma gastandose y despues apareciendo.
+//
+// El guard de municion no molesta: saltea el arma mientras el estado sea
+// RECARGANDO (ammo.js), y cuando el watchdog escribe el par ya viene bien.
 function _empezarRecarga(addr, tipo, n, ms) {
     var hasta = Engine.timerNow() + ms;
     Engine.setSlotNextShotTime(addr, hasta);
@@ -351,8 +386,8 @@ function _empezarRecarga(addr, tipo, n, ms) {
 //
 // POR QUE NO ESPERAMOS A QUE EL MOTOR TERMINE
 // ---------------------------------------------------------------------------
-// El motor termina la recarga, pero no pone balas: las mueve del total, y el total
-// esta en cero. O sea que "esperar a que el motor termine" es esperar a que el arma
+// Porque no las pone. El motor cierra la recarga y moves el total al clip, y el
+// total esta en cero: "esperar a que el motor termine" es esperar a que el arma
 // quede vacia. El plazo es lo unico que el motor si cumple, asi que el plazo es lo
 // que se mira.
 //
