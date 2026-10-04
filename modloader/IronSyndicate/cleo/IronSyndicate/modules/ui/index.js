@@ -896,9 +896,18 @@ var _alComando = (function () {
 
 function initUI() {
     log("[UI] Bridge CLEO <-> " + UI_ID + " inicializado");
-    log("[UI] Tecla " + String.fromCharCode(KEYS.INVENTORY) + " abre/cierra, ESC cierra");
-    log("[UI] Tecla " + String.fromCharCode(KEYS.FLOW) +
-        " (espacio) abre y cierra los menus de esfera, parado adentro de la esfera");
+    // El contrato de teclas, tal como lo aplica resolverTecla(). El log de
+    // arranque tiene que decir lo mismo que dice el codigo: antes decia que
+    // ESPACIO "abre y cierra" los menus de esfera, y no es lo que pasa — ESPACIO
+    // solo abre (abrirFlujo() no cierra nunca), y cerrar es F o ESC en los cinco
+    // menus. Un log que promete un segundo sentido para una tecla es lo que hace
+    // que un menu que se abrio solo se busque donde el log dice que no estaba.
+    log("[UI] Tecla " + String.fromCharCode(KEYS.INVENTORY) +
+        " abre/cierra el inventario (ignorado si hay un menu de esfera abierto)");
+    log("[UI] Tecla " + String.fromCharCode(KEYS.FLOW) + " (espacio), INTRO o " +
+        String.fromCharCode(KEYS.F) + " abren un menu de esfera, parado adentro de ella");
+    log("[UI] Tecla " + String.fromCharCode(KEYS.F) + " o " +
+        String.fromCharCode(KEYS.ESC) + " cierran el menu que se este viendo");
     try {
         log("[UI] isOpen('" + UI_ID + "') -> " + isBrowserOpen());
     } catch (e) {

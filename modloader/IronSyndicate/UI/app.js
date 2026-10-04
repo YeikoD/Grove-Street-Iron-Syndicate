@@ -9,7 +9,7 @@
 // igual que el ejemplo. Lo que cambia es el contenido (las 3 pestañas son los
 // paneles del mod) y el final del archivo, donde vive el puente con CLEO.
 //
-// Contrato con modloader\IronSyndicate\cleo\IronSyndicate\modules\gsis_WebInterface.js:
+// Contrato con modloader\IronSyndicate\cleo\IronSyndicate\modules\ui\index.js:
 //
 //   LA PAGINA NO MANDA EVENTOS. En CLEO Redux 1.5.0 los scripts JS no reciben
 //   eventos: asyncWait no reanuda, setTimeout/setInterval no disparan y
@@ -47,7 +47,7 @@
 // ============================================================================
 
 // Canales que el bridge manda de verdad. Si se agrega uno aca, tiene que
-// existir como send() en modules/gsis_WebInterface.js: al reves se declara un
+// existir como send() en modules/ui/index.js: al reves se declara un
 // listener que nunca se dispara.
 //
 // "uistate" reemplaza a los dos que estaban antes ("input" y "panels"). Antes la
@@ -135,7 +135,7 @@ let uiState = {
 // y el precio los sabe el juego, no un snapshot de la pagina.
 //
 // Lo que necesitan las dos pestanas que se fueron, cuando les toque:
-//   Propiedades  snapProperties() en gsis_InventorySerialization.js, con getDirtyMoney() y
+//   Propiedades  snapProperties() en ui/views/inventory.js, con getDirtyMoney() y
 //                listProperties() de gsis_PropertyModule.js
 //   Vehiculos     snapVehicles() con getModuleData("VehicleModule")
 //
@@ -244,7 +244,7 @@ const MOCK_CATALOG = {
 // 256x256 en la misma columna: la caja la fija `--table-icon-w`, no el archivo.
 const ICON_DIR = "assets/";
 
-// Fila CRUDA del mock, con la misma forma que manda el mod (gsis_ItemRow.js):
+// Fila CRUDA del mock, con la misma forma que manda el mod (ui/views/itemRow.js):
 // nombre pelado, sin icono y sin "x5". Lo que se dibuja se agrega despues, en
 // snapRow() y nameCell(), que es el camino por el que pasan las filas reales.
 // Si el mock agregara un campo que el mod no manda, el preview mostraria una
@@ -603,21 +603,33 @@ function dropMock() {
 // La lista es estatica a proposito: los iconos son archivos fijos. Si el mod
 // agrega un cat, se agrega una linea aca con su icono.
 //
-// NO HAY FILTRO DE ARMAS NI DE CARGADORES, Y NO ES OLVIDO
-// ------------------------------------------------------
-// Los dos botones estaban ahi y los dos quedaron con cero filas para siempre:
-// el catalogo de ITEMS no tiene ninguna fila `type: "weapon"`, ni `magazine`, ni
-// `weapon_attachment`, porque el sistema de armas se borro.
+// LOS CINCO, Y POR QUE LOS CINCO
+// -------------------------------
+// Hubo una version de esta lista con TRES entradas, y el comentario que la
+// acompañaba decia —muy convinced— que los botones de Armas y Cargadores no
+// existian a proposito porque el catalogo no tenia filas `type: "weapon"` ni
+// `magazine`, porque el sistema de armas se habia borrado. Ese comentario era
+// falso: data/gsis_item_data.js tiene `colt45` (weapon), `mag_colt45`,
+// `mag_colt45_c15` y `bala_45` (magazine) y `suppressor` (weapon_attachment).
+// Los dos filtros muestran filas.
 //
-// Un filtro que nunca muestra nada es peor que no tenerlo: el jugador aprieta
-// "Armas", lee "No tenes armas" sobre un inventario donde no hay armas, y no
-// tiene forma de saber si es un dato o un boton muerto.
+// El comentario se leia como verdad porque al lado hay una herramienta que lo
+// confirma: .IronSyndicate/tools/inventario.mjs chequea que ITEMS tenga UNA
+// sola fila. Esa herramienta tambien esta desactualizada. La fuente de verdad
+// es data/gsis_item_data.js, y lo que dice es que hay cinco.
 //
-// "otros" se queda porque es el que agarra lo que nosea de una categoria
-// conhecida, y es el que va a recibir al proximo item que se agregue sin tocar
-// esta lista.
+// La regla que si queda, y que es la que.apply el guard de renderFiltro: un
+// filtro sin filas se tolera (muestra el `empty` y el jugador sabe que es un
+// dato), un filtro SIN ENTRADA en esta lista no se tolera, porque el boton
+// dibuja "Todos" sin avisar. Si el catalogo pierde un tipo, se saca el boton
+// del HTML; no se deja el boton sin entrada.
+//
+// "otros" es la negacion de los cats con boton, y es el que va a recibir al
+// proximo item de un tipo nuevo sin tocar esta lista.
 const FILTROS = [
   { key: null, icon: "todos", label: "Todos", empty: "No tenes nada encima." },
+  { key: "weapon", icon: "9mm", label: "Armas", empty: "No tenes armas." },
+  { key: "magazine", icon: "cargador", label: "Cargadores", empty: "No tenes cargadores." },
   { key: "material", icon: "materiales", label: "Materiales", empty: "No tenes materiales." },
   { key: "otros", icon: "otros", label: "Otros", empty: "Nada en otras categorias." }
 ];
@@ -679,7 +691,7 @@ let viewFiltrada = [];
 // -------------------------------------------------- INVENTARIO REAL DEL MOD --
 //
 // El mock de arriba es solo de diseño. Cuando hay puente, las filas son las que
-// manda gsis_InventorySerialization.js con snapInventory(), empujadas por el mod en "inv" y
+// manda ui/views/inventory.js con snapInventory(), empujadas por el mod en "inv" y
 // armadas aca. snapRow() es el normalizador: convierte la fila cruda del mod en
 // la fila que dibuja la tabla (icono, campos opcionales en null, marca de
 // equipado), y lo mismo hace con las de los cuatro menus de proximidad en
@@ -710,7 +722,7 @@ function snapRow(o) {
     tip: o.tip || "",
     // equipado / ranura / slot vienen del mod SOLO en las filas de lo que esta
     // en un slot del ped o en el cinturon. En una fila normal valen false /
-    // null / undefined y no se usan. Ver equipadasSnap() en gsis_InventorySerialization.js.
+    // null / undefined y no se usan. Ver equipadasSnap() en ui/views/inventory.js.
     equipado: o.equipado === true,
     ranura: o.ranura || null,
     slot: o.slot === undefined ? null : o.slot
@@ -742,7 +754,7 @@ function setInventory(inv) {
 // ------------------------------------------------- ARMADO DE TROZOS --
 //
 // El mod no puede mandarme un evento: en CLEO Redux 1.5.0 los scripts JS no
-// reciben eventos (probado el 26/09, ver gsis_WebInterface.js). La unica direccion
+// reciben eventos (probado el 26/09, ver ui/index.js). La unica direccion
 // que funciona es mod -> pagina, asi que el mod empuja el snapshot.
 //
 // Y no lo manda entero: el dataJson de SAWEB_SEND_EVENT viaja como string de
@@ -1204,7 +1216,7 @@ function cell(text) {
 // sea, sus balas siguen siendo el dato mas util de esa fila y el apilado es
 // secundario.
 //
-// El "14/17" sale de ammoCell() en gsis_InventorySerialization.js, que para un cargador usa el
+// El "14/17" sale de ammoCell() en ui/views/inventory.js, que para un cargador usa el
 // cargador del arma equivalente (getClipSizeByItemId saca el prefijo mag_) y
 // para un arma usa su cargador contra el tope del arma. O sea que la columna no
 // arma nada: solo muestra el dato que ya viene.
@@ -1215,7 +1227,7 @@ function celdaCantidad(r) {
 }
 
 // Salud 0..100. La manda el mod en cada fila (`salud` en itemRow,
-// modules/gsis_ItemRow.js) y la celda no inventa nada: sin dato, 100.
+// modules/ui/views/itemRow.js) y la celda no inventa nada: sin dato, 100.
 //
 // El fallback a 100 no es un placeholder, es el default del dato: TODO item
 // nace a SALUD_MAX (data/gsis_item_data.js), y una fila sin `salud` es una fila
@@ -1238,7 +1250,7 @@ function celdaPeso(r) {
 
 // Dinero con el formato del juego: $ y punto de miles, sin decimales — "$1.500".
 // Es la MISMA regla con la que el mod arma el pie (DLR_DIN/DLR_TOT en
-// gsis_FlowSerialization.js), asi que una cifra de la tabla y la del pie se
+// ui/views/flow.js), asi que una cifra de la tabla y la del pie se
 // leen como el mismo numero y no como dos sistemas distintos ($1500 contra
 // $1.440, que era como quedaban antes).
 //
@@ -1589,9 +1601,21 @@ function renderWeight() {
 }
 
 function renderFiltro(filterKey) {
-  filtroActualKey = filtroKeyDe(
-    FILTROS.find((f) => filtroKeyDe(f) === filterKey) || FILTROS[0]
-  );
+  // Una clave que FILTROS no conoce cae en FILTROS[0], y antes ese fallback era
+  // mudo: un boton que dejo de existir en el JS seguia en el DOM, se pulsaba, y
+  // en vez de decir "no hay" dibuja "Todos" como si hubiera filtrado. El jugador
+  // no tiene forma de distinguir las dos cosas.
+  //
+  // Por eso el fallback sigue —la tabla tiene que dibujarse aunque la clave
+  // sea mala— pero AVISA. Un boton y una entrada de FILTROS que noestan de
+  // acuerdo es deriva entre el HTML y el JS, y esto la delata en el momento en
+  // que se aprieta, que es cuando el jugador la va a notar igual.
+  const pedido = FILTROS.find((f) => filtroKeyDe(f) === filterKey);
+  if (!pedido) {
+    _diag('renderFiltro: "' + filterKey + '" no esta en FILTROS; se dibuja "' +
+      filtroKeyDe(FILTROS[0]) + '". Si es un boton del HTML, esta borrado de FILTROS.');
+  }
+  filtroActualKey = filtroKeyDe(pedido || FILTROS[0]);
   const filtro = filtroActual();
 
   rowsBox.innerHTML = "";
@@ -2722,7 +2746,7 @@ function correrAccion(a, r) {
 // accion y que botones pone el pie. El render es el mismo de siempre.
 //
 // Que no esta aca, y por que:
-//   - las filas: las arma el mod (gsis_FlowSerialization.js). La pagina no
+//   - las filas: las arma el mod (ui/views/flow.js). La pagina no
 //     consulta WEAPON_DATA ni el save, no los tiene.
 //   - los precios y los pesos: tambien son del mod, y el precio depende del
 //     markup de cada NPC.
@@ -2743,7 +2767,7 @@ function correrAccion(a, r) {
 //   pieCarrito        estados del pie del carrito (renderPie)
 //
 // Los comandos van con prefijo del menu ("trunk:", "dealer:") y se despachan en
-// handleCommand() de gsis_WebInterface.js. La lista de un lado y del otro se
+// handleCommand() de ui/index.js. La lista de un lado y del otro se
 // chequea con check_pantallas.mjs: es el contrato que mas se rompe en silencio.
 // El paso del stepper de precio del trueque, en $, declarado UNA sola vez: lo
 // lee el teclado (deltaDeOferta, donde Mayus sube de paso) y los cuatro botones
@@ -2893,7 +2917,7 @@ const PANTALLAS = {
   // ahora es de la columna de control.
   //
   // Base sale de getSellPrice(id), que es EXACTAMENTE lo que valueCell() pone
-  // en la columna valor (ver gsis_ItemRow.js): por eso la de valor no esta,
+  // en la columna valor (ver ui/views/itemRow.js): por eso la de valor no esta,
   // seria la misma cifra dos veces.
   //
   // Base y Oferta van con encabezado de texto: los iconos de cabecera ya estan
@@ -3676,7 +3700,7 @@ if (window.SAWeb) {
         setPanelVisible(uiState.menu);
         // flow decide QUE panel se ve, y hay exactamente uno.
         //
-        // REGLA 1 (ver gsis_WebInterface.js): el mod ya garantiza la exclusion, asi
+        // REGLA 1 (ver ui/index.js): el mod ya garantiza la exclusion, asi
         // que aca no hay nada que decidir — con flow llega el id del menu de
         // proximidad y el inventario se apaga; con flow vacio se ve el inventario.
         // Los dos jamas vienen juntos, y por eso la linea se puede leer como una
@@ -3799,7 +3823,7 @@ if (bridgeReady) {
 // El mod NO puede recibir EVENTOS de CLEO, asi que no hay "ready" ni listeners
 // del lado del script. Lo que si hay es el otro extremo del transporte: la
 // pagina escribe en la cola de la ASI con emit("cmd:<algo>") y el mod la lee con
-// SAWeb_PollCommand una vez por frame. Ver "ACCIONES" en gsis_WebInterface.js.
+// SAWeb_PollCommand una vez por frame. Ver "ACCIONES" en ui/index.js.
 //
 // Por ahi van las acciones (equipar, cinturon, tirar) y tambien ui:close y
 // ui:toggle. Los ultimos dos estan ahi por una razon concreta: cuando la pagina

@@ -22,29 +22,35 @@
     </div>
 
     <!-- Filtros de categoría del inventario. Antes eran pestañas de tres
-         paneles (Inventario / Propiedades / Vehículos); ahora son botones que
-         filtran el mismo listado. El nombre de la categoría lo sigue diciendo
-         la banda de grupo de la tabla, así que el botón no lo repite: lleva
-         alt y title para el lector de pantalla y el hover.
+         paneles (Inventario / Propiedades / Vehículos); ahora son cinco
+         botones que filtran el mismo listado. El nombre de la categoría lo
+         sigue diciendo la banda de grupo de la tabla, así que el botón no lo
+         repite: lleva alt y title para el lector de pantalla y el hover.
 
-         TRES botones, y tres entradas en FILTROS (app.js). No son cinco: los de
-         "Armas" y "Cargadores" se fueron con el sistema de armas, que dejó el
-         catálogo sin filas de tipo weapon ni magazine. Se borraron del DOM
-         porque un filtro que nunca muestra nada es peor que no tenerlo —el
-         jugador aprieta "Armas" y no tiene forma de saber si es un dato o un
-         botón muerto—, y porque el handler cae en FILTROS[0] cuando no
-         encuentra la clave: un botón sobrante no dice "no hay", dice "Todos"
-         mintiendo que filtró.
+         CINCO botones, y cinco entradas en FILTROS (app.js). Los dos del medio
+         —armas y cargadores— existían antes de que el catálogo tuviera esas
+         filas y casi se borran por eso; hoy el catálogo sí las tiene
+         (data/gsis_item_data.js: colt45 weapon, mag_colt45 / mag_colt45_c15 /
+         bala_45 magazine, suppressor weapon_attachment), así que los dos
+         filtros muestran filas y se quedan.
 
-         "otros" no es una categoría del mod: es todo lo que no sea un material.
-         Sale vacío mientras no haya otro tipo, pero es el que va a recibir al
-         próximo item que se agregue sin tocar esta lista.
+         "otros" no es una categoría del mod: es todo lo que no sea arma,
+         cargador ni material. Sale vacío mientras no haya un cuarto tipo, pero
+         es el que va a recibir al próximo item que se agregue sin tocar esta
+         lista.
 
-         Si se agrega un filtro, va en los dos lados: el botón acá y su
-         entrada en FILTROS. -->
+         Si se agrega o se saca un filtro, va en los dos lados: el botón acá y
+         su entrada en FILTROS. Un botón sin entrada dibuja "Todos" sin
+         avisar, porque el handler cae en FILTROS[0] (ver renderFiltro). -->
     <div id="tabs" role="tablist" aria-label="Filtros de categoría">
       <button class="btn btn--tab active" data-filter="all" role="tab" aria-selected="true" title="Mostrar todos los items">
         <img class="btn--tab-icon" src="assets/iconos/categorias/todos.png" alt="Todos">
+      </button>
+      <button class="btn btn--tab" data-filter="weapon" role="tab" aria-selected="false" title="Filtrar solo armas">
+        <img class="btn--tab-icon" src="assets/iconos/categorias/9mm.png" alt="Armas">
+      </button>
+      <button class="btn btn--tab" data-filter="magazine" role="tab" aria-selected="false" title="Filtrar solo cargadores">
+        <img class="btn--tab-icon" src="assets/iconos/categorias/cargador.png" alt="Cargadores">
       </button>
       <button class="btn btn--tab" data-filter="material" role="tab" aria-selected="false" title="Filtrar solo materiales">
         <img class="btn--tab-icon" src="assets/iconos/categorias/materiales.png" alt="Materiales">

@@ -46,7 +46,7 @@
 // modulo no valida, su respuesta seria la de hace un snapshot. Este archivo
 // traduce, no decide.
 import { removeItem } from "../inventory/index.js";
-import { equipar, desequipar, equiparCargador, guardarCargador, llenarDesdeCaja, recargar, montarSilenciador, quitarSilenciador } from "../weapons/gsis_Weapons.js";
+import { equipar, desequipar, equiparCargador, guardarCargador, llenarDesdeCaja, montarSilenciador, quitarSilenciador } from "../weapons/gsis_Weapons.js";
 import { putInTrunk, takeFromTrunk } from "../gsis_Trunk.js";
 import { addToCart, removeFromCart, resetCart, checkout } from "../gsis_WeaponDealer.js";
 import { doOffer, moveOffer } from "../gsis_WeaponSeller.js";
@@ -148,7 +148,9 @@ export function handleCommand(cmd, ui) {
             //                  de las dos ranuras de equipados
             //   inv:unequipMag sacar un cargador de su ranura y devolverlo
             //   inv:fillMag    passarle balas de la caja a este cargador
-            //   inv:reload     la R del arma de la mano: cambio o descarga
+            //
+            // Recargar NO esta en la lista: es la tecla R y la lee
+            // gsis_Weapons.js, no la pagina. Ver "RECARGAR (LA R)" mas abajo.
             //
             // EL CONTRATO: la pagina manda un ID DE ITEM, nunca un weaponType ni un
             // estado. `inv:unequip` manda el slot porque la fila equipada sabe el
@@ -219,14 +221,16 @@ export function handleCommand(cmd, ui) {
                 log("[UI] llenarDesdeCaja: " + (enRanura ? "ranura " : "mochila ") + destinoMag);
                 return true;
 
-            case "inv:reload":
-                // No lleva id: recargar no es una accion sobre una fila, es una
-                // accion sobre el arma de la mano. El modulo ve que cargador le
-                // sirve, lo saca de los EQUIPADOS y lo gasta. Y si el cargador
-                // cambia la capacidad, la R cambia la VARIANTE del arma.
-                if (!recargar()) return false;
-                log("[UI] recargar");
-                return true;
+// ---------------------------------------------------------- RECARGAR (LA R) --
+//
+// Recargar NO es un comando de la pagina: es la tecla R, y la lee
+// gsis_Weapons.js en su update (keyJustPressed(KEYS.RELOAD) -> recargar()).
+// Hubo un case "inv:reload" aca y se borro porque la pagina no tiene boton de
+// recarga y no lo mandaba nunca: un case que nadie emite es codigo que no se
+// puede probar, y el contrato de §7 va en los dos sentidos —todo `cmd:` que
+// emite la pagina tiene su case, y todo case tiene un `cmd:` que lo mande— con
+// un comando muerto como falla. Para que la recarga sea una accion del panel,
+// el camino es agregar el boton y el case juntos.
 
             // MONTAR Y DESMONTAR EL SILENCIADOR
             //

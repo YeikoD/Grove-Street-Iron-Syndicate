@@ -76,7 +76,7 @@ Index   = index.html
 | Cursor del panel | `gsis_Input.js` | `setMenuCursor()`, con **cualquier** menú abierto |
 | Freeze + cámara | `gsis_Input.js` | `setMenuGameState()`, con **cualquier** menú abierto: los cinco son de pausa |
 | Qué pantalla está a la vista | `modules/ui/index.js` | `pantallaVisible()` / `currentFlow()`: una sola a la vez |
-| Qué tecla abre/cierra cada menú | `modules/ui/index.js` | `togglePanel()` con `I`, `toggleFlow()` con `ESPACIO`. Un dueño por tecla: si los cuatro módulos leyeran la suya, una pulsación abriría y cerraría menús cruzados |
+| Qué tecla abre/cierra cada menú | `modules/ui/index.js` | Una tabla (`TECLAS`) y un despacho (`resolverTecla()`). `togglePanel()` con `I`, `abrirFlujo()` con `ESPACIO`/`INTRO`/`F`, `cerrarVisible()` con `F`/`ESC`. Un dueño por tecla: si los cuatro módulos leyeran la suya, una pulsación abriría y cerraría menús cruzados |
 | Si un menú de esfera se puede abrir | El módulo dueño | `openXMenu()` → `spotCanOpen()` (radio, esfera prendida, vehículo). Lo llama `openFlow()` |
 | Qué tecla se suprime | `gsis_Input.js` | `keyJustPressed()`; los módulos preguntan |
 | Visibilidad del panel | `modules/ui/index.js` | `_uiState.menuVisible`; la página solo refleja |
@@ -335,8 +335,8 @@ Los comandos salen del **nombre del evento**, no del payload. El prefijo `cmd:`
 es lo que el runtime usa para decidir que encola para el mod.
 
 El `handler` que se le pasa es `_alComando`, armado en `ui/index.js`: un objeto con
-`handleCommand` y las cuatro funciones de visibilidad. Va así porque
-`commands.js` necesita llamar a `togglePanel`/`toggleFlow`/`closeFlow`, que viven
+`handleCommand` y las funciones de visibilidad. Va así porque
+`commands.js` necesita llamar a `togglePanel`/`abrirFlujo`/`cerrarVisible`/`closeFlow`, que viven
 en `index.js`, y un import en las dos direcciones sería un ciclo — y un ciclo
 entre dos archivos de este paquete es un `undefined` en el menú. Lo que **no** va
 por ahí es el transporte: que haya un comando no depende de que el canal ande, y
@@ -344,22 +344,29 @@ meterlo en la misma caja haría que un problema de SAWeb pareciera un problema d
 la UI.
 
 `drainCommands()` se drena **con el menú cerrado también**. No es un detalle:
-`ui:toggle` y `flow:toggle` son justamente los comandos que reabren, así que gatearlos
+`ui:toggle` y `flow:open` son justamente los comandos que reabren, así que gatearlos
 por `menuVisible` los deja muertos por construcción. El costo es un `takeCommand()` por
 frame con el menú cerrado; la página visible está siempre, así que en teoría
 podría mandar algo en cualquier momento y dejarlo acumular sería peor.
 
-### Los veintidos comandos
+### Los veintitrés comandos
 
-| `cmd` | Payload | Que ejecuta | Quien valida |
+> Esta tabla se contrasta con `modules/ui/commands.js`. Los nombres anteriores
+> (`inv:mount`, `inv:unmount`, `inv:belt`, `inv:belt:off`, `flow:toggle`) ya no
+> existen: los de armas toman `inv:attach` / `inv:detach` /
+> `inv:equipMag` / `inv:unequipMag` / `inv:fillMag`, y la apertura de esfera es
+> `flow:open`, que **no** alterna —el cierre es `ui:close`.
+
+| `cmd` | Payload | Qué ejecuta | Quién valida |
 |---|---|---|---|
-| `inv:equip` | `{ id, attachments? }` | `equipWeapon(id, attachments)` | `modules/weapons/logic.js` |
-| `inv:unequip` | `{ slot }` | `unequipWeapon(slot)` | `modules/weapons/logic.js` |
-| `inv:mount` | `{ id, slot }` | `attachAccessory(charId, slot, id)`: consume la pieza de la mochila y monta | `modules/weapons/logic.js` |
-| `inv:unmount` | `{ id, slot }` | `detachAccessory(charId, slot, id)`: lo saca y lo devuelve a la mochila | `modules/weapons/logic.js` |
-| `inv:belt` | `{ id }` | `equipMagToBelt(id)` | `modules/inventory/logic.js` |
-| `inv:belt:off` | `{ slot }` (índice de casilla) | `unequipBeltMag(slot)` | `modules/inventory/logic.js` |
-| `inv:drop` | `{ id, qty }` | `removeItem(id, qty)` | `modules/inventory/logic.js` |
+| `inv:equip` | `{ id }` | `equipar(id)` | `modules/weapons/gsis_Weapons.js` |
+| `inv:unequip` | `{ slot }` | `desequipar(slot)` | `modules/weapons/gsis_Weapons.js` |
+| `inv:equipMag` | `{ id }` | `equiparCargador(id)`: saca el cargador de la mochila y lo pone en una ranura | `modules/weapons/gsis_Weapons.js` |
+| `inv:unequipMag` | `{ indice }` | `guardarCargador(indice)`: lo saca de su ranura y lo devuelve | `modules/weapons/gsis_Weapons.js` |
+| `inv:fillMag` | `{ indice, equipado }` | `llenarDesdeCaja(equipado, indice)`: `equipado` dice si el índice es una ranura o un lugar de la mochila | `modules/weapons/gsis_Weapons.js` |
+| `inv:attach` | `{ id, slot }` | `montarSilenciador(slot, id)`: consume la pieza de la mochila y la monta | `modules/weapons/gsis_Weapons.js` |
+| `inv:detach` | `{ slot }` | `quitarSilenciador(slot)`: lo saca y lo devuelve a la mochila. **Sin `id`**: es el que el arma ya tiene | `modules/weapons/gsis_Weapons.js` |
+| `inv:drop` | `{ id, qty }` | `removeItem(id, qty)` | `modules/inventory/index.js` |
 | `trunk:put` | `{ id, qty }` | `putInTrunk(id, qty)` | `gsis_Trunk.js` |
 | `trunk:take` | `{ id, qty }` | `takeFromTrunk(id, qty)` | `gsis_Trunk.js` |
 | `dealer:add` | `{ id, qty }` | `addToCart(id, qty)` | `gsis_WeaponDealer.js` |
@@ -371,18 +378,24 @@ podría mandar algo en cualquier momento y dejarlo acumular sería peor.
 | `pickup:cancel` | — | `cancelOrder()`: **devuelve el dinero** del pedido pendiente y lo borra | `gsis_DealerPickup.js` |
 | `seller:offer` | `{ id, qty, price }` | `doOffer(id, qty, price)` | `gsis_WeaponSeller.js` |
 | `seller:quote` | `{ id, delta }` | `moveOffer(id, delta)`: las teclas `+`/`-` y los botones del pie. **Sin** `clearNotice()`, porque el aviso que quedó trae el precio seguro, que es justo el dato que se está ajustando | `gsis_WeaponSeller.js` |
-| `ui:close` | — | cierra **lo que se está viendo**: `closeMenu()` si el panel principal está abierto, si no `closeFlow()` | `modules/ui/index.js` |
+| `ui:close` | — | `cerrarVisible()`: cierra **lo que se está viendo** —el panel si está abierto, si no el flujo | `modules/ui/index.js` |
 | `ui:toggle` | — | `togglePanel()`: `closeMenu()` si está abierto, si no `openMenu()`, y **con un flujo abierto no hace nada** | `modules/ui/index.js` |
-| `flow:toggle` | — | `toggleFlow()`: cierra el menú de esfera si hay uno abierto; si no, `openFlow()` (el primero de los cuatro que puede abrir). **Con el inventario abierto no hace nada** | `modules/ui/index.js` |
+| `flow:open` | — | `abrirFlujo()` → `openFlow()`: prueba los cuatro menús de esfera y gana el primero que puede abrir. **Con el inventario abierto no hace nada** | `modules/ui/index.js` → `views/flow.js` |
 | `ui:diag` | `{ dice, flow, menu, hidden }` | **no es una acción**: la página reporta qué recibió y qué clase quedó en el DOM, y el módulo lo loguea. No cambia nada | `modules/ui/index.js` |
+
+**Recargar no es un comando.** La recarga es la tecla `R`, y la lee
+`gsis_Weapons.js` en su update (`keyJustPressed(KEYS.RELOAD) → recargar()`), no
+la página. Hubo un `case "inv:reload"` y se borró porque nadie lo emitía, y un
+`case` que nadie emite es código que no se puede probar (§7, "Un comando muerto
+también es falla"). Para que la recarga sea una acción del panel hay que
+agregar el botón y el `case` juntos.
 
 Tres detalles del contrato que no se deducen de la tabla:
 
-- **`inv:mount` / `inv:unmount` son el único camino al silenciador.** La `R` solo
+- **`inv:attach` / `inv:detach` son el único camino al silenciador.** La `R` solo
   cambia cargadores; sin esto, los tipos 60 y 61 serían inalcanzables desde el
-  juego. El payload trae el **slot**, no el id del arma, porque puede haber más de
-  una equipada, y el id del accesorio puede venir en cualquiera de los dos
-  namespaces (`canonicalAttachmentId` lo resuelve).
+  juego. `inv:attach` lleva el **slot** del arma y no su id, porque puede haber
+  más de una equipada.
 - **`clearNotice()` va al principio de cada comando de flujo.** No es cosmético: un
   comando que vuelve temprano por payload inválido no escribe aviso, y si el
   anterior siguiera pendiente la página repetiría el mensaje viejo como si fuera la
@@ -391,10 +404,10 @@ Tres detalles del contrato que no se deducen de la tabla:
   `try/catch` alrededor del `switch`, y un comando desconocido se loguea **una
   sola vez** por nombre, no en cada frame.
 
-`flow:toggle` existe por lo mismo que `ui:toggle` y `ui:close`: **el bridge es el
+`flow:open` existe por lo mismo que `ui:toggle` y `ui:close`: **el bridge es el
 dueno de la tecla, y no la ve cuando la pagina tiene el teclado**. La
 pagina traduce la `ESPACIO` (con `preventDefault`, que si no hace scroll la caja) y
-el bridge la despacha a la **misma** `toggleFlow()` que usa la tecla. El debounce de
+el bridge la despacha a la **misma** `abrirFlujo()` que usa la tecla. El debounce de
 200 ms es lo que evita que la misma pulsación, que llega por los dos caminos, se
 cancele a sí misma. Ver [INPUT §4.1 y §7](./gsis_INPUT.md).
 
@@ -444,8 +457,8 @@ o un menú de esfera, y es el mod el que decide, con la misma regla que decide
 qué pantalla se ve (`pantallaVisible()`): **cierra lo que el jugador está
 viendo**, no lo que haya abierto.
 
-`ui:toggle` y `flow:toggle` **no tienen su propia lógica**: llaman a `togglePanel()`
-y `toggleFlow()`, que son las mismas funciones que usan las teclas `I` y `ESPACIO` del
+`ui:toggle` y `flow:open` **no tienen su propia lógica**: llaman a `togglePanel()`
+y `abrirFlujo()`, que son las mismas funciones que usan las teclas `I` y `ESPACIO` del
 mod. Es a propósito — la tecla y el comando son la misma acción, y si cada una
 decidiera por su cuenta una de las dos terminaría abriendo algo que la otra prohíbe, que
 es exactamente la interfaz rota que la regla 1 prohíbe (ver `gsis_UIDESIGN.md` §3.1).
@@ -455,7 +468,11 @@ y con el baúl abierto lo que se ve es el baúl. Tampoco lo "cierra" — no hay
 inventario abierto que cerrar. Un cuarto uso de `togglePanel()` significa que
 alguien se la saltó por un camino, y `check_pantallas.mjs` lo falla.
 
-`toggleFlow()` es el espejo: si hay un flujo abierto lo cierra, y si no llama a
+`abrirFlujo()` es el camino **único** de apertura de los cuatro menús de esfera, y lo
+comparten tres teclas (`ESPACIO`, `INTRO` y `F`): tres teclas, una función. No
+alterna —abrir y cerrar en el mismo comando es lo que hacía que la apertura tuviera
+que preguntar primero si había algo abierto—, y no cierra nunca: el cierre es
+`ui:close`, con `F` o `ESC`. `abrirFlujo()` llama a
 `openFlow()` —que prueba los cuatro y gana el primero que puede— **salvo que esté el
 inventario abierto**, en cuyo caso no hace nada. Con las dos funciones así, el estado
 "inventario visible y un menú de esfera abierto del lado del módulo" es inalcanzable: la
@@ -796,8 +813,8 @@ precios —todo eso lo valida el mod y el preview no lo ejecuta.
 
 En juego:
 
-- `cleo_redux.log` tiene que mostrar los **nueve** comandos `SAWEB_*` registrados
-  (nueve, no siete ni ocho) y ningun `unknown command SAWEB`.
+- `cleo_redux.log` tiene que mostrar los **once** comandos `SAWEB_*` registrados
+  y ningun `unknown command SAWEB`. Ver la lista en la línea de abajo.
 - `cleo.log` tiene que mostrar `[UI] canal de acciones activo (SAWeb v2)`.
   Si dice `NO disponible`, el comando no quedo declarado en
   `cleo\.config\sa.json` o la ASI es de otra versión.
@@ -809,17 +826,21 @@ En juego:
   **también con el puntero afuera**: eso no es un bug, es que la región de input de
   la UI es la pantalla completa. `keys=0` con el menú abierto significa que el
   puntero todavía no se movió nunca.
-- `cleo_redux.log` tiene que mostrar `Registering command SAWEB_` **diez** veces y
-  ningún `unknown command SAWEB`. Con nueve, falta el `SAWEB_SET_KEY_PASSTHROUGH`
-  declarado en `cleo\.config\sa.json` — hoy no molesta (el passthrough va apagado),
-  pero es lo que haría falta si un menú volviera a cerrarse caminando.
+- `cleo_redux.log` tiene que mostrar `Registering command SAWEB_` **once** veces y
+  ningún `unknown command SAWEB`. Son los once de la API v5
+  (`SAWebUI\cleo\SAWebUI\SAWeb.js`, `API_VERSION = 5`): `REGISTER_UI`, `OPEN_UI`,
+  `CLOSE_UI`, `TOGGLE_UI`, `IS_UI_OPEN`, `SEND_EVENT`, `SET_CURSOR`,
+  `POLL_COMMAND`, `GET_INPUT_STATE`, `SET_KEY_PASSTHROUGH` y
+  `SET_GAME_MOUSE_BLOCK`. Con menos, falta alguno declarado en
+  `cleo\.config\sa.json`.
 - `I` abre/cierra el inventario, `↑↓` elige fila, `X` equipa, `X` mantenida tira,
   `Enter` equipa, `Escape` cierra.
-- `ESPACIO` abre y cierra los cuatro menús de esfera, parado en la esfera; con el
-  inventario abierto no hace nada. Y `cleo.log` tiene que mostrar
-  `[UI] menu de dealer abierto por tecla ESPACIO` y
-  `menu de dealer cerrado por tecla ESPACIO` (o `comando flow:toggle` si la
-  pulsación llegó por la página, o sea con el puntero sobre el panel).
+- `ESPACIO` (o `INTRO`, o `F`) **abre** los cuatro menús de esfera, parado en la
+  esfera; con el inventario abierto no hace nada. **Ninguna de las tres cierra**: el
+  cierre es `F` o `ESC`. Y `cleo.log` tiene que mostrar
+  `[UI] menu de dealer abierto por tecla ESPACIO`, y para el cierre
+  `la pagina cerro el flujo <id>` si llegó por la página, o
+  `menu de dealer cerrado por tecla <F|ESC>` si llegó por el teclado.
 - El peso aparece con hasta 400 ms de retraso, y al instante después de una acción.
 - En los cuatro menús de esfera: `cleo.log` **no** puede mostrar
   `comando desconocido`. Ese texto es la señal de que la página y el mod no
