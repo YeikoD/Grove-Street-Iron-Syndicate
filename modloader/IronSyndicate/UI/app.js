@@ -888,12 +888,41 @@ function emitCommand(payload) {
 function actionFor(r, what) {
   if (!r) return null;
 
-  // LAS CUATRO ACCIONES DE ARMAS
+  // LAS SEIS ACCIONES DE ARMAS
   // -------------------------------------------
   //   equip     { cmd: "inv:equip", id }          un arma de la mochila
   //   unequip   { cmd: "inv:unequip", slot }      la fila del arma equipada
   //   equipMag  { cmd: "inv:equipMag", id }       un cargador de la mochila
   //   unequipMag{ cmd: "inv:unequipMag", indice } una ranura de cargador equipada
+  //   attach    { cmd: "inv:attach", id, slot }   montar el silenciador de la mochila
+  //   detach    { cmd: "inv:detach", slot }       quitar el silenciador montado
+  //
+  // LAS DOS DEL SILENCIADOR, Y POR QUE NO PIDEN LO MISMO
+  // ---------------------------------------------------------------------------
+  // Montar es una accion sobre la PIEZA: la fila es el silenciador de la mochila y
+  // el comando lleva su id mas el slot del arma a la que se monta.
+  //
+  // Quitar es una accion sobre el ARMA: la fila es el arma equipada y el comando
+  // lleva el slot. El id NO viaja, y esa asimetria es a proposito: el modulo ya sabe
+  // que silenciador tiene montado, y mandarle el id desde la pagina seria mandarle
+  // un dato que puede estar desfasado —el snapshot tiene 400ms de retraso—.
+  //
+  // Que para montar haya que buscar el slot y para quitar no, es porque al montar
+  // hay dos filas implicadas (la pieza y el arma) y al quitar solo una.
+  //
+  // POR QUE EL SLOT SE BUSCA Y NO SE PREGUNTA
+  // ---------------------------------------------------------------------------
+  // La pagina no tiene un selector de "a que arma monto esto", y agregar uno es una
+  // pantalla. Se usa la primera arma equipada que NO tenga silenciador, y con el
+  // catalogo de hoy —una sola familia, un solo slot— no hay a quien elegirle.
+  // Cuando haya mas de una familia, esta funcion es la que tiene que cambiar, y va
+  // a fallar de forma visible: sin(slot) el boton no aparece.
+  function armaParaMontar() {
+    for (const r of stateMap) {
+      if (r.equipado && r.ranura === "arma" && !r.silenciador) return r;
+    }
+    return null;
+  }
   //
   // LAS TRES COSAS QUE NO PUEDE SABER LA PAGINA, Y QUE POR ESO NO PREGUNTA
   // ---------------------------------------------------------------------------
@@ -924,6 +953,10 @@ function actionFor(r, what) {
       return null;
     }
     if (what === "unequip") return { cmd: "inv:unequip", slot: r.slot };
+    // Quitar el silenciador: solo tiene sentido en un arma que lo tiene montado. Y
+    // el flag `silenciador` lo trae el modulo, asi que el boton no aparece si el
+    // arma no lo tiene.
+    if (what === "detach" && r.silenciador) return { cmd: "inv:detach", slot: r.slot };
     if (what === "drop") return null;
     return null;
   }
@@ -937,6 +970,10 @@ function actionFor(r, what) {
 
   if (what === "equip" && r.cat === "weapon") return { cmd: "inv:equip", id: r.id };
   if (what === "equipMag" && r.cat === "magazine") return { cmd: "inv:equipMag", id: r.id };
+  if (what === "attach" && r.cat === "weapon_attachment") {
+    const arma = armaParaMontar();
+    return arma ? { cmd: "inv:attach", id: r.id, slot: arma.slot } : null;
+  }
   if (what === "fillMag" && r.cat === "magazine" && r.puedeRellenar) {
     // Por indice y no por id: dos cargadores del mismo tipo en la mochila es el caso
     // normal —el vacio y el lleno—, y el id no dice cual de los dos leyo el jugador.
@@ -1004,6 +1041,22 @@ const ACCIONES = [
     label: "Quitar",
     sep: true,
     aplica: (r) => !!actionFor(r, "unequip")
+  },
+  {
+    // El orden de las dos es el del gesto: primero se monta la pieza y despues se
+    // quita, y un menu donde "quitar" esta arriba del "montar" invita al click de
+    // mas. Sep entre las dos porque son limites distintos —una es una fila de la
+    // mochila y la otra del arma equipada— y el menu tiene que dejar claro de
+    // donde sale cada una.
+    id: "attach",
+    label: "Montar silenciador",
+    sep: true,
+    aplica: (r) => !!actionFor(r, "attach")
+  },
+  {
+    id: "detach",
+    label: "Quitar silenciador",
+    aplica: (r) => !!actionFor(r, "detach")
   },
   {
     id: "drop",
@@ -1228,6 +1281,43 @@ function nameCell(r) {
   // nomas, y en el baul un "Chatarra" salia sin el x5 de la mochila.
   name.textContent = (r.qty || 1) > 1 ? r.name + " x" + r.qty : r.name;
   nameWrap.appendChild(name);
+
+  // LA CONFIGURACION DEL ARMA, y por que se pinta el nombre y no un "(Equipado)"
+  // mas.
+  // ---------------------------------------------------------------------------
+  // Un arma equipada trae `configuracion` —el nombre de la variante que el PED
+  // tiene— y una de mochila solo trae `silenciador`, el flag. Se pintan distinto
+  // porque los dos dicen cosas distintas:
+  //
+  //   equipada   "Colt .45 Silenced C15"   el modulo sabe la variante entera
+  //   mochila     "Colt .45" + "(sil.)"     el arma esta desnuda y solo se sabe si
+  //                                        lleva el silenciador montado
+  //
+  // Y la unequipada lleva el marcador porque sin el el jugador ve dos Colts
+  // iguales en la mochila y no puede saber cual tiene el silenciador. Esa es la
+  // version de "el inventario muestra una cosa y el juego otra" que se puede
+  // arreglar desde la pagina.
+  if (r.configuracion && r.configuracion !== r.name) {
+    const cfg = document.createElement("span");
+    cfg.className = "table__equipped";
+    cfg.textContent = "(" + r.configuracion + ")";
+    nameWrap.appendChild(cfg);
+  } else if (r.silenciador) {
+    const sil = document.createElement("span");
+    sil.className = "table__equipped";
+    sil.textContent = "(sil.)";
+    nameWrap.appendChild(sil);
+  }
+
+  // Cuando el estado del modulo y el motor no coinciden, la fila lo dice. Es la
+  // unica forma de que el jugador vea el problema en vez de investigarlo: la fila
+  // muestra el tipo que el PED tiene, y esto avisa que el modulo esperaba otro.
+  if (r.tipoEsperado && r.tipo && r.tipo !== r.tipoEsperado) {
+    const aviso = document.createElement("span");
+    aviso.className = "table__equipped";
+    aviso.textContent = "(desfasada)";
+    nameWrap.appendChild(aviso);
+  }
 
   if (r.equipado) {
     const tag = document.createElement("span");

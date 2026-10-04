@@ -77,6 +77,15 @@ export function ammoCell(it) {
     var n = it.ammo || 0;
     var cap = capacidadDeclarada(it.id);
     if (cap > 0) return n + "/" + cap;
+    // Un accesorio que se MONTA no tiene municion: el "0" de la linea de abajo
+    // diria "tiene cero balas", que es otra cosa. Y el silenciador es instanciado
+    // por un motivo de bookkeeping —una fila por unidad para que sacarlo y
+    // devolverlo sean simetricos—, asi que sin esta linea su fila pintaria "0".
+    //
+    // El tipo sale del CATALOGO y no de la fila: la fila cruda del save es
+    // `{ id, qty, salud, ammo }` y no tiene `type`. Preguntarle a la fila seria una
+    // comparacion contra undefined que nunca da true, y el "0" volveria a pintar.
+    if (getItemType(it.id) === "weapon_attachment") return null;
     if (isInstanced(it.id)) return String(n);
     return null;
 }

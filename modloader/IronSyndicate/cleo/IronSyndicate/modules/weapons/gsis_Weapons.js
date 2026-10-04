@@ -76,15 +76,18 @@ import { t } from "../../core/gsis_L10n.js";
 import { query } from "../../core/gsis_EventBus.js";
 import {
     ITEMS_TAKE_WEAPON, ITEMS_STORE_WEAPON, ITEMS_TAKE_MAGAZINE, ITEMS_STORE_MAGAZINE,
+    ITEMS_TAKE_ACCESSORY, ITEMS_STORE_ACCESSORY,
     ITEMS_MAG_AMMO, ITEMS_SET_MAG_AMMO, ITEMS_MAG_SOURCE
 } from "../../core/gsis_EventNames.js";
 import {
-    defDeArma, defDeCargador, cargadorDe, armaDeTipo, CARGADORES
+    defDeFamilia, defDeCargador, defDeSilenciador, cargadorSirveA, cargadoresDe,
+    tipoDe, varianteDeTipo, familiaDeTipo, nombreDeConfiguracion,
+    CARGADORES, SILENCIADORES
 } from "../../data/gsis_weapons.js";
 import * as Engine from "../../core/gsis_Engine.js";
 import { normalizarSinReserva } from "./ammo.js";
 import {
-    initState, getEntry, getEntries, setEntry,
+    initState, getEntry, getEntries, setEntry, silenciadorEnArma,
     getCargadores, setCargador, ranuraLibre, maxCargadores,
     getCargadorEnArma, setCargadorEnArma
 } from "./state.js";
@@ -110,6 +113,19 @@ function initWeapons() {
     var char = Engine.playerChar();
     var corregidas = char ? normalizarSinReserva(char) : 0;
 
+    // RECONCILIAR, antes de contar los huerfanos.
+    //
+    // El save del juego y el del mod son dos guardados y el del juego se carga
+    // antes: el ped puede traer un arma de la familia con un tipo que no es el que
+    // dicen los accesorios del modulo. Se corrige antes de seguir, y el conteo de
+    // huerfanos que viene abajo ya ve el estado como quedo.
+    //
+    // Y por que va en el init y no en cada frame: el desajuste no se produce solo,
+    // se produce al CARGAR. Un give por frame Costaria un remove+give por frame en
+    // el peor caso, y el modulo no tiene forma de saber si ya esta arreglado sin
+    // volver a mirar. Ver "QUE GANA Y POR QUE" en reconciliar().
+    var reconciliadas = char ? reconciliar() : 0;
+
     // Lo que quedo registrado de la partida anterior y el motor no tiene. Pasa
     // cuando el save del juego no nos guardo un arma que el mod si.
     var huerfanos = _entradasHuerfanas(char);
@@ -117,6 +133,7 @@ function initWeapons() {
     log("[Weapons] Sin reserva. Tipos " + WEAPONS.PLUGIN_TYPE_MIN + ".." +
         WEAPONS.PLUGIN_TYPE_MAX + " | normalizadas al arrancar: " + corregidas +
         " | equipadas registradas: " + getEntries().length +
+        (reconciliadas ? " | reconciliadas al cargar: " + reconciliadas : "") +
         (huerfanos ? " | sin arma en el ped: " + huerfanos : ""));
 }
 
@@ -172,6 +189,56 @@ function _darArma(char, tipo, balas) {
     // hace return false y el arma tiene balas y no dispara.
     Engine.setSlotState(addr, Engine.WEAPONSTATE_READY);
     return true;
+}
+
+// ---------------------------------------------------------------------------
+// CAMBIAR DE VARIANTE
+// ---------------------------------------------------------------------------
+// Un `_darArma` y nada mas. NO hay remove del tipo viejo, NO hay rollback y NO
+// hay transaccion, y esa es la decision de diseño de todo el sistema de familias.
+//
+// GIVE_WEAPON_TO_CHAR da el arma, la pone en el slot del arma y REEMPLAZA lo que
+// hubiera en ese slot. Las 4 variantes de la Colt son slot 2, asi que dar la 62
+// con la 63 en la mano deja la 62 y se lleva la 63. El motor hace el trabajo.
+//
+// El unico guard es el MISMO tipo: un give del mismo tipo NO reemplaza, SUMA. Con
+// un arma de 8 y un give de 8 el total pasaba a 16, que es el bug que motivo
+// `_darArma` a quitar antes de dar. Un cambio de variante que llega al mismo tipo
+// es un no-op, y hay que verlo venir:
+//
+//   el jugador recarga con el cargador de 15 en un arma que YA es de 15
+//   el silenciador se monta en un arma que ya lo tiene
+//
+// En los dos casos el give sumaria balas a un arma que ya las tiene y dejaria el
+// total mal. Por eso la comparacion es contra el tipo REAL del ped y no contra el
+// que el modulo cree: si el modulo esta desfasado, la comparacion contra lo que el
+// mod cree dejaria pasar el give y el bug seguiria.
+//
+// Y NO se escribe el estado antes de dar. Si el give no toma, el estado queda como
+// estaba y el proximo reconcile lo corrige; al reves, el mod announce una variante
+// que el motor no tiene y el inventario miente.
+function _darTipo(char, addr, tipoNuevo, balas) {
+    if (!addr) return false;
+    if (Engine.slotType(addr) === tipoNuevo) return true;
+    return _darArma(char, tipoNuevo, balas);
+}
+
+// El weaponType que le corresponde a un arma segun SUS ACCESORIOS, o 0 si la
+// combinacion no tiene variante.
+//
+// Y el arma DESNUDA tiene tipo: el de la capacidad base de la familia. No es un
+// caso raro ni un parche, es la definicion — naked es la base, con cargador de la
+// base—. Devolver 0 para un arma desnuda obligaba a que cada llamador se acordara
+// del fallback, y eran dos: el reconciliador lo tenia y `getEquipadas` no, y por eso
+// el aviso de "desfasada" nunca aparecia en un arma desnuda.
+//
+// El 0 es un valor de fallo explicito y no un tipo: tipoDe() devuelve null cuando
+// no hay variante, y un tipo inventado seria un arma que el motor no tiene. Quien
+// llama loguea y deja el arma como estaba.
+function _tipoDeConfiguracion(slot) {
+    var e = getEntry(slot);
+    if (!e) return 0;
+    return tipoDe(e.id, _clipDeConfiguracion(slot), silenciadorEnArma(slot)) || 0;
 }
 
 // Las balas que tiene un arma EN LA MANO, leidas del ped. 0 si no hay arma.
@@ -298,7 +365,7 @@ export function guardarCargador(indice) {
 // Sacar el arma del inventario y ponerla en la mano. La fila sale del inventario
 // ANTES del give y vuelve intacta si el motor no la acepta.
 export function equipar(itemId) {
-    var def = defDeArma(itemId);
+    var def = defDeFamilia(itemId);
     if (!def) {
         log("[Weapons] equipar: " + itemId + " no es un arma del mod");
         return false;
@@ -321,19 +388,64 @@ export function equipar(itemId) {
         return false;
     }
 
-    // DESNUDA. El arma se entrega sin cargador y con cero balas: las balas entran
-    // por la R, con un cargador del inventario. Ver el header del ciclo.
-    if (!_darArma(char, def.weaponType, 0)) {
+    // UN ARMA DESNUDA TIENE LA CAPACIDAD DE SU FAMILIA, Y EL SILENCIADOR SI CUENTA.
+    //
+    // El cargador es lo que no hay, y lo que falta es la capacidad: el cargador mas
+    // chico de la familia es la base. El silenciador en cambio esta MONTADO y viaja
+    // con el arma, asi que se respeta desde el mismo instante en que se equipa.
+    //
+    // Esto no es un detalle: armar la variante pelada en un arma que tiene el
+    // silenciador puesto la haria ver y sonar como una pistola normal hasta la
+    // primera recarga. El jugador tendria un arma en la mano que no es la que dice
+    // la mochila, que es exactamente la clase de mentira que hay que evitar.
+    //
+    // El silenciador sale de la FILA, no del registro: todavia no hay entry para este
+    // slot, y la fila es la que sabe como estaba el arma en la mochila.
+    var silenciador = !!fila.silenciador;
+    var tipo = tipoDe(itemId, _clipPelado(itemId), silenciador);
+    if (!tipo) {
         query(ITEMS_STORE_WEAPON, fila);
-        log("[Weapons] equipar: el motor no acepto el tipo " + def.weaponType +
+        log("[Weapons] equipar: la familia " + itemId +
+            " no tiene variante para (" + _clipPelado(itemId) + ", " +
+            (silenciador ? "sil." : "pelada") + "). La pieza vuelve al inventario.");
+        return false;
+    }
+
+    if (!_darArma(char, tipo, 0)) {
+        query(ITEMS_STORE_WEAPON, fila);
+        log("[Weapons] equipar: el motor no acepto el tipo " + tipo +
             ". El .asi lo registro? La pieza vuelve al inventario.");
         return false;
     }
 
-    setEntry(def.slot, { id: itemId, salud: fila.salud });
-    log("[Weapons] equipar: " + itemId + " -> tipo " + def.weaponType +
-        " | slot " + def.slot + " | desnuda, 0/" + Engine.clipCapacityOf(def.weaponType));
+    setEntry(def.slot, { id: itemId, salud: fila.salud, silenciador: silenciador });
+    log("[Weapons] equipar: " + itemId + " -> " + nombreDeConfiguracion(itemId, tipo) +
+        " (tipo " + tipo + ") | slot " + def.slot + " | desnuda, 0/" +
+        Engine.clipCapacityOf(tipo));
     return true;
+}
+
+// La capacidad de la variante pelada de una familia: la del cargador mas chico.
+//
+// POR QUE NO ESTA EN EL CATALOGO COMO UN DATO MAS
+// ---------------------------------------------------------------------------
+// Seria la cuarta copia del numero de balas si lo escribiera, y la segunda copia
+// es exactamente lo que produjo el cargador de 15 que terminaba en 8. Sale de los
+// cargadores que la familia declara, que son los mismos de los que salen las otras
+// tres variantes.
+//
+// Y si la familia no tuviera ningun cargador, el arma no se puede equipar: es el
+// caso degenerado que `_clipPelado` devuelve 0 para que `tipoDe` no encuentre
+// variante y el error diga "no tiene cargador" y no "el .asi no registro el tipo".
+function _clipPelado(familiaId) {
+    var mags = cargadoresDe(familiaId);
+    if (!mags.length) return 0;
+    var menor = null;
+    for (var i = 0; i < mags.length; i++) {
+        var c = CARGADORES[mags[i]].clipSize;
+        if (menor === null || c < menor) menor = c;
+    }
+    return menor === null ? 0 : menor;
 }
 
 // ---------------------------------------------------------------------------
@@ -467,7 +579,7 @@ export function desequipar(slot) {
         log("[Weapons] desequipar: no hay arma registrada en el slot " + slot);
         return false;
     }
-    var def = defDeArma(entry.id);
+    var def = defDeFamilia(entry.id);
     if (!def) {
         // El registro nombra un item que el catalogo ya no tiene: se descarta,
         // porque dejarlo bloquea el slot para siempre.
@@ -480,17 +592,33 @@ export function desequipar(slot) {
     var char = Engine.playerChar();
     if (!char) return false;
 
-    // Las dos cosas se leen DEL PED ANTES de sacar el arma, porque despues el slot ya
-    // no las tiene: que cargador tiene puesto, y cuantas balas le quedan.
+    // Las TRES cosas se leen DEL PED ANTES de sacar el arma, porque despues el slot
+    // ya no las tiene: que cargador tiene puesto, cuantas balas le quedan, y QUE
+    // TIPO tiene de verdad. El tipo se lee del ped y no del modulo a proposito: es
+    // el que hay que sacar, y si el modulo esta desfasado, sacar el que el modulo
+    // cree deja al otro en la mano con un arma en el inventario.
     var magId = getCargadorEnArma(slot);
     var ammo = _municionEnLaMano(char);
+    var ped = Engine.pedPointer(char);
+    var addr = ped ? Engine.slotAddress(ped, def.slot) : 0;
+    var tipoReal = addr ? Engine.slotType(addr) : 0;
 
-    Engine.removeWeapon(char, def.weaponType);
-    query(ITEMS_STORE_WEAPON, { id: entry.id, salud: entry.salud, ammo: 0 });
+    if (tipoReal) Engine.removeWeapon(char, tipoReal);
+
+    // El silenciador se va CON el arma: la fila del inventario lo lleva, y por eso
+    // vuelve a estar montado la proxima vez que se equipe. Sin este campo el arma
+    // perderia el silenciador en cada viaje a la mochila.
+    query(ITEMS_STORE_WEAPON, {
+        id: entry.id,
+        salud: entry.salud,
+        ammo: 0,
+        silenciador: !!entry.silenciador
+    });
     setEntry(slot, null);
     setCargadorEnArma(slot, null);
 
     var detalle = "vuelve al inventario desnuda";
+    detalle += entry.silenciador ? " | con el silenciador montado" : "";
     if (magId) {
         detalle += " | su cargador (" + magId + ", " + ammo + ") -> " +
             soltarCargador(magId, ammo);
@@ -500,6 +628,287 @@ export function desequipar(slot) {
 
     log("[Weapons] desequipar: slot " + slot + " | " + entry.id + " | " + detalle);
     return true;
+}
+
+// ---------------------------------------------------------------------------
+// EL SILENCIADOR
+// ---------------------------------------------------------------------------
+// Montarlo y desmontarlo cambia la variante, y por eso las dos operaciones son
+// "sacar una pieza, cambiar el tipo, dejar el flag".
+//
+// Y hay una diferencia importante con el cargador, que explica por que el
+// silenciador se monta y no se recarga:
+//
+//   el cargador   se CONSUME: sus balas pasan al arma y la fila desaparece. Es un
+//                 recurso.
+//   el silenciador NO se consume: se MONTA. El mismo silenciador se puede quitar
+//                 y volver a poner, y mientras esta en el arma no esta en ningun
+//                 otro lado del modulo — no hay ranura de silenciadores, y el flag
+//                 vive en la fila del arma.
+//
+// Por eso el silenciador no tiene `clipSize` ni `familias` en el catalogo: no es un
+// cargador, no entra en las ranuras de cargador, y `slotDe` lo devuelve como 0
+// mientras esta en la mochila. Ver data/gsis_weapons.js.
+
+// Montar el silenciador del inventario en el arma de un slot.
+//
+// El orden es el de siempre: el give primero, el flag despues. Si el give no toma,
+// el silenciador no se gasto.
+export function montarSilenciador(slot, silenciadorId) {
+    var char = Engine.playerChar();
+    if (!char) return false;
+    var ped = Engine.pedPointer(char);
+    if (!ped) return false;
+
+    var def = defDeSilenciador(silenciadorId);
+    if (!def) {
+        log("[Weapons] montarSilenciador: " + silenciadorId + " no es un silenciador del mod");
+        return false;
+    }
+
+    var entry = getEntry(slot);
+    if (!entry) {
+        log("[Weapons] montarSilenciador: no hay arma en el slot " + slot);
+        return false;
+    }
+    if (entry.silenciador) {
+        log("[Weapons] montarSilenciador: el slot " + slot + " ya tiene silenciador");
+        return false;
+    }
+
+    var addr = Engine.slotAddress(ped, entry.id ? _slotDeFamilia(entry.id) : 0);
+    if (!addr) {
+        log("[Weapons] montarSilenciador: el ped no tiene el arma del slot " + slot);
+        return false;
+    }
+    var tipoActual = Engine.slotType(addr);
+    var enClip = Engine.slotClip(addr);
+
+    // Que variante le toca. Con cargador puesto, la del cargador; desnuda, la base.
+    var clip = _clipDeConfiguracion(slot);
+    var tipoNuevo = tipoDe(entry.id, clip, true);
+    if (!tipoNuevo) {
+        log("[Weapons] montarSilenciador: la familia " + entry.id +
+            " no tiene variante silenciada para (" + clip + ")");
+        return false;
+    }
+
+    var fila = query(ITEMS_TAKE_ACCESSORY, { id: silenciadorId });
+    if (!fila) {
+        log("[Weapons] montarSilenciador: no hay " + silenciadorId + " en el inventario");
+        return false;
+    }
+
+    if (tipoNuevo !== tipoActual) {
+        if (!_darTipo(char, addr, tipoNuevo, enClip)) {
+            query(ITEMS_STORE_ACCESSORY, { id: silenciadorId });
+            log("[Weapons] montarSilenciador: el motor no acepto el tipo " + tipoNuevo +
+                ". El silenciador vuelve al inventario.");
+            return false;
+        }
+    }
+    setEntry(slot, { id: entry.id, salud: entry.salud, silenciador: true });
+    log("[Weapons] montarSilenciador: " + silenciadorId + " -> slot " + slot +
+        " | " + nombreDeConfiguracion(entry.id, tipoActual) + " -> " +
+        nombreDeConfiguracion(entry.id, tipoNuevo) + " (tipo " + tipoNuevo + ") | " +
+        enClip + " balas");
+    return true;
+}
+
+// Desmontar el silenciador del arma de un slot y devolverlo a la mochila.
+//
+// Al reves que montar, el estado va PRIMERO y el give despues, y por una razon
+// concreta: si el give falla, el arma tiene el silenciador puesto y asi debe
+// quedar. Si se hiciera al reves, un fallo dejaba el flag puesto con el silenciador
+// en la mochila, y el proximo reconcile lo montaria solo sin que el jugador lo
+// pidiera. Un flag que se pone solo es peor que un flag que no se pone.
+export function quitarSilenciador(slot) {
+    var char = Engine.playerChar();
+    if (!char) return false;
+    var ped = Engine.pedPointer(char);
+    if (!ped) return false;
+
+    var entry = getEntry(slot);
+    if (!entry) {
+        log("[Weapons] quitarSilenciador: no hay arma en el slot " + slot);
+        return false;
+    }
+    if (!entry.silenciador) {
+        log("[Weapons] quitarSilenciador: el slot " + slot + " no tiene silenciador");
+        return false;
+    }
+
+    var addr = Engine.slotAddress(ped, _slotDeFamilia(entry.id));
+    if (!addr) {
+        log("[Weapons] quitarSilenciador: el ped no tiene el arma del slot " + slot);
+        return false;
+    }
+    var tipoActual = Engine.slotType(addr);
+    var enClip = Engine.slotClip(addr);
+
+    var clip = _clipDeConfiguracion(slot);
+    var tipoNuevo = tipoDe(entry.id, clip, false);
+    if (!tipoNuevo) {
+        log("[Weapons] quitarSilenciador: la familia " + entry.id +
+            " no tiene variante pelada para (" + clip + ")");
+        return false;
+    }
+
+    // EL PESO SE CHEQUEA EN EL HANDLER, no aca: `storeAccessory` devuelve false si
+    // el silenciador no entra en la mochila. Esa es la razon de que el handler sea el
+    // que decide y no el que avisa despues — el modulo tiene que poder abortar la
+    // operacion ANTES de tocar el flag y el tipo, y no despues.
+    //
+    // Y por eso el orden es el inverso que en `montarSilenciador`: aca la pieza se
+    // guarda PRIMERO y el estado se escribe despues. Si la pieza no entra, no se
+    // toca nada y el arma sigue con el silenciador puesto y con su tipo.
+    if (!query(ITEMS_STORE_ACCESSORY, { id: defSilenciadorDe(entry) })) {
+        showTextBox(t("WPN_LLENO"));
+        log("[Weapons] quitarSilenciador: no hay lugar en la mochila para el silenciador");
+        return false;
+    }
+
+    setEntry(slot, { id: entry.id, salud: entry.salud, silenciador: false });
+
+    var detalle = "";
+    if (tipoNuevo !== tipoActual) {
+        if (!_darTipo(char, addr, tipoNuevo, enClip)) {
+            // El estado ya esta sin silenciador y la pieza ya esta en la mochila, que
+            // es coherente. Lo que no se pudo es el tipo: se avisa y el proximo
+            // reconcile lo arregla. No se devuelve la pieza porque eso dejaria el
+            // estado diciendo que el arma no lo tiene.
+            log("[Weapons] quitarSilenciador: el motor no acepto el tipo " + tipoNuevo +
+                ". El silenciador esta en la mochila y el arma sigue con su tipo viejo" +
+                "; el proximo reconcile lo corrige.");
+            return true;
+        }
+        detalle = " -> " + nombreDeConfiguracion(entry.id, tipoNuevo) +
+            " (tipo " + tipoNuevo + ")";
+    }
+
+    log("[Weapons] quitarSilenciador: slot " + slot + " | " +
+        nombreDeConfiguracion(entry.id, tipoActual) + detalle +
+        " | el silenciador vuelve a la mochila");
+    return true;
+}
+
+// El slot del motor de la familia de un item. 0 si el item no es un arma del mod.
+function _slotDeFamilia(familiaId) {
+    var f = defDeFamilia(familiaId);
+    return f ? f.slot : 0;
+}
+
+// El silenciador que el arma de un slot tiene montado. Hoy hay uno solo en el
+// catalogo; el dia que haya mas de uno pasa a ser "el primero que sirva", y el
+// llamador tiene que decidir cual monta. Mismo contrato que cargadorDe().
+//
+// Y sale del catalogo y no de la fila del arma a proposito: en la fila esta el
+// BOOLEANO ("tiene silenciador"), no la pieza. Que pieza es, se decide cuando se
+// monta, y el flag despues solo recuerda que hay una.
+function defSilenciadorDe(entry) {
+    for (var id in SILENCIADORES) {
+        if (Object.prototype.hasOwnProperty.call(SILENCIADORES, id)) return id;
+    }
+    return null;
+}
+
+// La capacidad de la configuracion actual de un slot: la del cargador puesto, o la
+// base de la familia si el arma esta desnuda.
+//
+// Es la misma cuenta que hace tipoDe(), y va en una funcion para que las dos no
+// puedan dejar de coincidir: si estas dos leyeran capacidades de fuentes distintas,
+// el flag "ya tiene silenciador" y el tipo del motor dejarian de estar de acuerdo.
+function _clipDeConfiguracion(slot) {
+    var magId = getCargadorEnArma(slot);
+    if (magId) {
+        var mag = defDeCargador(magId);
+        if (mag) return mag.clipSize;
+    }
+    var e = getEntry(slot);
+    return e ? _clipPelado(e.id) : 0;
+}
+
+// ---------------------------------------------------------------------------
+// RECONCILIAR
+// ---------------------------------------------------------------------------
+// Que el TIPO DEL PED sea el que dicen los accesorios del modulo, y arreglarlo si
+// no lo es.
+//
+// POR QUE HACE FALTA, Y NO ES UN EXTRA
+// ---------------------------------------------------------------------------
+// El save de GTA y el save del mod son DOS guardados distintos. El del juego tiene
+// `m_aWeapons[]` con los tipos; el del modulo tiene `equipped` y `enArma`. Nada los
+// cruza: cargar el slot 1 del juego con el slot 3 del mod deja un ped con un arma y
+// un modulo que cree que hay otra.
+//
+// Con el tipo DECLARADO eso se resolvia solo: las dos copias del numero eran el
+// mismo numero, y lo que no coincidia era la accesorios, no la identidad. Con el
+// tipo DERIVADO el desajuste es de tipo, y un 63 en la mano con el estado diciendo
+// "cargador de 15 y silenciador" no se arregla solo: el modulo cree que el arma es
+// de 15 balas y el HUD muestra 8.
+//
+// Y el caso del filesystem inverso tambien: un save del juego con la 63 en el slot
+// 2 y un modulo con la entry del slot 2. Antes `_entradasHuerfanas` contaba eso y
+// no hacia nada, y el arma se quedaba en la mano sin fila que la representara.
+//
+// QUE GANA Y POR QUE
+// ---------------------------------------------------------------------------
+// Gana el ESTADO DEL MOD. El tipo es una representacion derivada de los accesorios,
+// y los accesorios son lo que el jugador hizo: si el modulo dice que hay un
+// cargador de 15 montado, el arma es de 15 balas aunque el save de GTA diga otra
+// cosa. Al reves —adoptar el tipo del ped— el silenciador que el jugador se puso
+// desapareceria por un detalle de a que slot se cargo la partida.
+//
+// Y en un caso NO se toca nada: si el slot no tiene entry en el modulo, lo que hay
+// en el ped es un arma que el mod no conoce, y se avisa. No es un arma que este
+// "mal": puede ser una pistola de vanilla que el jugador agarro de una mission.
+export function reconciliar() {
+    var char = Engine.playerChar();
+    if (!char) return 0;
+    var ped = Engine.pedPointer(char);
+    if (!ped) return 0;
+
+    var corregidas = 0;
+    var entries = getEntries();
+    for (var i = 0; i < entries.length; i++) {
+        var e = entries[i];
+        var addr = Engine.slotAddress(ped, e.slot);
+        var tipoReal = addr ? Engine.slotType(addr) : 0;
+
+        // Que el modulo dice, con los accesorios guardados. El arma desnuda tambien
+        // tiene tipo, asi que aca no hay caso especial que se resuelva en otro
+        // lado: es la misma cuenta que hace `getEquipadas`.
+        var esperado = _tipoDeConfiguracion(e.slot);
+        if (!esperado) continue;      // el catalogo no tiene esa combinacion
+        if (tipoReal === esperado) continue;
+
+        // Un tipo en el slot que NO es del mod no se toca: seria pisar un arma que
+        // el modulo no tiene, y puede ser una pistola de vanilla que el jugador
+        // agarro de una mission. El aviso es lo unico que corresponde.
+        if (tipoReal && !familiaDeTipo(tipoReal)) {
+            log("[Weapons] reconciliar: el slot " + e.slot + " tiene el tipo " +
+                tipoReal + ", que no es del mod. Se deja como esta.");
+            continue;
+        }
+
+        if (!_darTipo(char, addr, esperado, addr ? Engine.slotClip(addr) : 0)) {
+            log("[Weapons] reconciliar: el motor no acepto el tipo " + esperado +
+                " en el slot " + e.slot + ". Queda como estaba.");
+            continue;
+        }
+        corregidas++;
+        log("[Weapons] reconciliar: slot " + e.slot + " | " + e.id +
+            " | tipo " + tipoReal + " -> " + esperado +
+            " (" + nombreDeConfiguracion(e.id, esperado) + ")");
+    }
+
+    var huerfanas = _entradasHuerfanas(char);
+    if (huerfanas > 0) {
+        log("[Weapons] reconciliar: quedan " + huerfanas +
+            " slot(s) del registro sin arma en el ped. No se tocan: un arma que el "
+            + "mod cree que tiene y el ped no, se devuelve a la mochila al desequipar.");
+    }
+    return corregidas;
 }
 
 // ---------------------------------------------------------------------------
@@ -551,7 +960,7 @@ export function recargar() {
     if (!addr) return false;
     var tipo = Engine.slotType(addr);
 
-    var delMod = armaDeTipo(tipo);
+    var delMod = familiaDeTipo(tipo);
     if (!delMod) return false;
 
     if (Engine.slotState(addr) === Engine.WEAPONSTATE_RELOADING) return false;
@@ -574,10 +983,14 @@ export function recargar() {
     var puestoId = getCargadorEnArma(slot);
     var enClip = Engine.slotClip(addr);
 
-    // La 4: hay un cargador que le corresponde a este arma. Un cargador de otro arma
-    // no se toca: esta en su ranura esperando a su propia arma.
-    var magId = cargadorDe(delMod.itemId);
-    if (!magId) {
+    // La 4: este arma tiene AL MENOS UN cargador que le sirve en el catalogo.
+    //
+    // Y son varios, no uno: la familia declara los que le sirven y la recarga elige
+    // entre los que estan EQUIPADOS. Con un indice unico —el primer cargador de la
+    // familia— el cargador de 15 quedaba inalcanzable en cuanto el de 8 estaba en la
+    // ranura de adelante, y la variante de 15 no se podia alcanzar nunca.
+    var candidatos = cargadoresDe(delMod.itemId);
+    if (!candidatos.length) {
         log("[Weapons] recargar: " + delMod.itemId + " no tiene cargador en el catalogo");
         return false;
     }
@@ -598,7 +1011,7 @@ export function recargar() {
     var equipados = getCargadores();
     var elegido = -1;
     for (var i = 0; i < equipados.length; i++) {
-        if (equipados[i].id === magId &&equipados[i].ammo > 0) {
+        if (equipados[i].ammo > 0 && cargadorSirveA(equipados[i].id, delMod.itemId)) {
             elegido = i;
             break;
         }
@@ -607,11 +1020,68 @@ export function recargar() {
     //
     // Hay cargador equipado con balas: entra este, y el que estaba puesto sale.
     if (elegido >= 0) {
-        // Las balas del cargador, recortadas a lo que le entra. Un cargador de 5 en
-        // un arma de 8 monta 5; uno de 15 en un arma de 8 monta 8 y las 7 sobrantes
-        // se pierden. Ver el header.
         var mag = equipados[elegido];
-        var n = Math.min(cap, mag.ammo);
+
+        // ---- LA CONVERSION DE VARIANTE, Y POR QUE VA ANTES DE NADA
+        //
+        // El cargador que entra define la capacidad del arma, y la capacidad con el
+        // silenciador defines la VARIANTE. O sea que el tipo del motor todavia no es
+        // el de este cargador, y se cambia aca: un `give` del tipo nuevo, que el
+        // motor usa para reemplazar el slot.
+        //
+        // Va antes de tocar el estado por dos razones, y las dos importan:
+        //
+        //   el clip   el give deja el arma en 0/0, asi que las balas se escriben
+        //             DESPUES, con el cargador ya montado. Al reves, el arma queda
+        //             con las balas del cargador viejo hasta el final de la recarga.
+        //   el fallo   si el give no toma, el cargador sigue equipado y el que
+        //             estaba puesto sigue puesto. Ningun cargador se gasto en un
+        //             cambio de tipo que no se pudo hacer.
+        //
+        // Y el `n` del recorte se calcula con la capacidad NUEVA, no con la que
+        // tiene el arma ahora: un cargador de 15 en un arma que era de 8 mete 15 y
+        // no 8, porque para cuando se cuenta el arma ya es de 15.
+        var tipoNuevo = tipoDe(delMod.itemId, CARGADORES[mag.id].clipSize,
+                               silenciadorEnArma(slot));
+        if (!tipoNuevo) {
+            log("[Weapons] recargar: la familia " + delMod.itemId +
+                " no tiene variante para (" + CARGADORES[mag.id].clipSize + ", " +
+                (silenciadorEnArma(slot) ? "sil." : "pelada") +
+                "). El cargador queda equipado y el arma como estaba.");
+            return false;
+        }
+
+        var capNuevo = Engine.clipCapacityOf(tipoNuevo);
+        if (capNuevo <= 0) {
+            log("[Weapons] recargar: el tipo " + tipoNuevo +
+                " no tiene capacidad declarada. El cargador queda equipado.");
+            return false;
+        }
+        var n = Math.min(capNuevo, mag.ammo);
+
+        // La animacion se pregunta para el tipo NUEVO cuando el tipo cambia: la
+        // animacion de recarga es la del padre, y un 62 y un 61 no tienen la misma.
+        // Preguntarla sobre el tipo viejo era correcto cuando el tipo no cambiaba.
+        var specNuevo = (tipoNuevo === tipo) ? spec : Engine.reloadSpec(tipoNuevo);
+        if (!specNuevo) {
+            log("[Weapons] recargar: el tipo " + tipoNuevo +
+                " no tiene anim de recarga. El cargador queda equipado.");
+            return false;
+        }
+
+        var cambio = "";
+        if (tipoNuevo !== tipo) {
+            if (!_darTipo(char, addr, tipoNuevo, 0)) {
+                log("[Weapons] recargar: el motor no acepto el tipo " + tipoNuevo +
+                    ". El cargador queda equipado y el arma como estaba.");
+                return false;
+            }
+            // El give dejo el arma en otro slot del ped: `addr` es puntero viejo.
+            addr = Engine.slotAddress(ped, slot) || addr;
+            cambio = " | " + nombreDeConfiguracion(delMod.itemId, tipo) +
+                " -> " + nombreDeConfiguracion(delMod.itemId, tipoNuevo) +
+                " (tipo " + tipoNuevo + ")";
+        }
 
         // EL QUE ESTABA PUESTO SALE PRIMERO, o se pierde. Antes no salia nunca: el
         // clip viejo se ponia en cero y el cargador no existed en ningun lado del
@@ -622,7 +1092,7 @@ export function recargar() {
 
         setCargador(elegido, null);
         setCargadorEnArma(slot, mag.id);
-        _empezarRecarga(addr, tipo, n, spec.ms);
+        _empezarRecarga(addr, tipoNuevo, n, specNuevo.ms);
 
         // El sonido NO se pide aca. Lo pide el .asi: el motor tiene
         // CAEWeaponAudioEntity::WeaponReload con la tabla de sonidos por tipo de arma, y
@@ -630,8 +1100,8 @@ export function recargar() {
         // el motor exige para elegir el sfx. El modulo solo pone RECARGANDO y el .asi ve
         // el estado y llama al motor.
         log("[Weapons] recargar: CAMBIO | " + mag.id + " de la ranura " + (elegido + 1) +
-            " -> tipo " + tipo + " | " + n + "/" + cap +
-            " | " + salio +
+            " -> tipo " + tipoNuevo + " | " + n + "/" + capNuevo +
+            " | " + salio + cambio +
             ((mag.ammo - n) > 0 ? " | " + (mag.ammo - n) + " balas sobrantes se pierden" : ""));
         return true;
     }
@@ -650,13 +1120,62 @@ export function recargar() {
     // Y el sonido tambien va, porque lo pide el .asi con el estado, y el estado es el
     // mismo. Es lo que hace el juego cuando el jugador saca el cargador a mano, y
     // ademas es el aviso de que la R hizo algo.
+    //
+    // LA DESCARGA TAMBIEN CAMBIA DE VARIANTE, y es la mitad de la que se espera.
+    // Sacar el cargador deja el arma desnuda, y desnuda es la capacidad BASE de la
+    // familia: un 62 con cargador de 15 vuelve a ser el 63 al descargar. No hacerlo
+    // dejaba un arma de 15 balas en la mano sin cargador, que es exactamente el
+    // estado que el modulo dice que no existe.
     if (puestoId) {
+        var tipoDesnudo = tipoDe(delMod.itemId, _clipPelado(delMod.itemId),
+                                 silenciadorEnArma(slot));
+        if (!tipoDesnudo) {
+            log("[Weapons] recargar: la familia " + delMod.itemId +
+                " no tiene variante base. El cargador sigue puesto.");
+            return false;
+        }
+
+        var animDesnudo = spec;
+        if (tipoDesnudo !== tipo) {
+            animDesnudo = Engine.reloadSpec(tipoDesnudo);
+            if (!animDesnudo) {
+                log("[Weapons] recargar: el tipo " + tipoDesnudo +
+                    " no tiene anim de recarga. El cargador sigue puesto.");
+                return false;
+            }
+        }
+
+        // EL GIVE VA PRIMERO, y el por que es el orden inverso al del CAMBIO:
+        //
+        // el give pone el clip en 0, asi que las balas del cargador que sale ya
+        // estan leidas —`enClip` se leyo al principio de la funcion— y no hay que
+        // volver a preguntarlas.
+        //
+        // Y si el give NO toma, el cargador sigue PUESTO y el arma sigue como
+        // estaba. Al reves —soltar el cargador y despues fallar el give— quedaba un
+        // arma desnuda CON balas en el motor y sin cargador en el registro, que es
+        // el estado que el header de este archivo dice que no puede existir: la
+        // proxima recarga no tendria nada que sacar de ella.
+        var cambioDesnudo = "";
+        if (tipoDesnudo !== tipo) {
+            if (!_darTipo(char, addr, tipoDesnudo, 0)) {
+                log("[Weapons] recargar: el motor no acepto el tipo " + tipoDesnudo +
+                    ". El cargador sigue puesto y el arma queda como estaba.");
+                return false;
+            }
+            addr = Engine.slotAddress(ped, slot) || addr;
+            cambioDesnudo = " | " + nombreDeConfiguracion(delMod.itemId, tipo) +
+                " -> " + nombreDeConfiguracion(delMod.itemId, tipoDesnudo) +
+                " (tipo " + tipoDesnudo + ")";
+        }
+
         var donde = soltarCargador(puestoId, enClip);
         setCargadorEnArma(slot, null);
-        _empezarRecarga(addr, tipo, 0, spec.ms);
+        _empezarRecarga(addr, tipoDesnudo, 0, animDesnudo.ms);
 
         log("[Weapons] recargar: DESCARGA | " + puestoId + " (" + enClip +
-            " balas) -> " + donde + " | el arma queda desnuda, con la anim del cambio");
+            " balas) -> " + donde + " | el arma queda desnuda, con la anim del cambio" +
+            cambioDesnudo);
         return true;
     }
 
@@ -759,17 +1278,37 @@ export function getEquipadas() {
     var entries = getEntries();
     for (var i = 0; i < entries.length; i++) {
         var e = entries[i];
-        var def = defDeArma(e.id);
+        var def = defDeFamilia(e.id);
         if (!def) continue;
 
-        var addr = ped ? Engine.addressOfType(ped, def.weaponType) : 0;
+        // TODO lo que la fila afirma sale del PED, no del modulo. Y el tipo que se
+        // muestra es el que el ped TIENE, no el que el estado derivaria.
+        //
+        // La diferencia importa cuando los dos no coinciden, y es el caso que el
+        // jugador no puede ver: la fila mostrando la variante del modulo con el
+        // modelo de otra en la mano es una mentira que el HUD contradice a la vista.
+        // Mostrando el tipo real, el HUD y la mochila dicen lo mismo siempre, y el
+        // desajuste queda como lo que es: un problema visible, no un dato
+        // misterioso.
+        var addr = Engine.slotAddress(ped, def.slot);
+        var tipoReal = addr ? Engine.slotType(addr) : 0;
+        var delMod = tipoReal ? familiaDeTipo(tipoReal) : null;
+
         out.push({
             id: e.id,
             slot: e.slot,
             salud: e.salud,
             ammo: addr ? Engine.slotClip(addr) : 0,
-            cap: Engine.clipCapacityOf(def.weaponType),
-            cargador: getCargadorEnArma(e.slot)
+            cap: tipoReal ? Engine.clipCapacityOf(tipoReal) : 0,
+            cargador: getCargadorEnArma(e.slot),
+            silenciador: e.silenciador,
+            // Lo que el modulo cree, y `null` cuando coincide con el ped. La UI lo
+            // usa para avisar que hay que reconciliar, no para mostrar una variante
+            // que el motor no tiene.
+            tipoEsperado: _tipoDeConfiguracion(e.slot) || null,
+            tipo: tipoReal,
+            configuracion: nombreDeConfiguracion(e.id, tipoReal),
+            enLaMano: !!(delMod && delMod.itemId === e.id)
         });
     }
     return out;
@@ -797,15 +1336,25 @@ export function getCargadoresEquipados() {
 // La capacidad que le ve el motor a un item del mod. La UI la usa para pintar
 // "N/cap" en la fila del arma equipada, que es el unico lugar donde el denominador
 // es el del motor y no el declarado.
-export function capacidadDeItem(itemId) {
-    var def = defDeArma(itemId);
-    if (def) return Engine.clipCapacityOf(def.weaponType);
+//
+// Y para un ARMA hay que dizer de QUE TIPO: la capacidad es de la VARIANTE, y un
+// item de arma ya no tiene un tipo propio. Con la familia sola no hay respuesta, y
+// devolver 0 seria la respuesta de "no declarada". Quien la llama para un arma
+// tiene el tipo del arma en la mano —`getEquipadas` lo tiene— y lo pasa.
+export function capacidadDeItem(itemId, tipo) {
+    var f = defDeFamilia(itemId);
+    if (f) return tipo ? Engine.clipCapacityOf(tipo) : 0;
     var mag = defDeCargador(itemId);
     return mag ? mag.clipSize : 0;
 }
 
 // Las entradas del registro cuyo arma el ped NO tiene. El numero, no la lista: lo
 // usa el init para avisar, y no hay nada que hacer con el salvo avisar.
+//
+// Y la pregunta es por SLOT y por FAMILIA, no por tipo: con el tipo derivado, "el
+// ped tiene ESTA variante" no es la pregunta. "El ped tiene ALGUNA variante de
+// esta familia en este slot" si, y es la que evita dar por perdida un arma que esta
+// en la mano con otra configuracion puesta.
 function _entradasHuerfanas(char) {
     if (!char) return 0;
     var ped = Engine.pedPointer(char);
@@ -813,8 +1362,12 @@ function _entradasHuerfanas(char) {
     var n = 0;
     var entries = getEntries();
     for (var i = 0; i < entries.length; i++) {
-        var def = defDeArma(entries[i].id);
-        if (!def || !Engine.addressOfType(ped, def.weaponType)) n++;
+        var def = defDeFamilia(entries[i].id);
+        if (!def) { n++; continue; }
+        var addr = Engine.slotAddress(ped, def.slot);
+        var tipo = addr ? Engine.slotType(addr) : 0;
+        var delMod = tipo ? familiaDeTipo(tipo) : null;
+        if (!delMod || delMod.itemId !== entries[i].id) n++;
     }
     return n;
 }
@@ -825,41 +1378,42 @@ function _entradasHuerfanas(char) {
 // El .asi da de alta los tipos 60..66 en su DllMain y el dealer todavia no los
 // vende, asi que sin esto no hay forma de tener un arma GSIS en la mano.
 //
-// La tecla de debug mete la Colt .45 y un cargador de 8 en el inventario, y los
-// deja puestos: el arma desnuda y el cargador todavia en la mochila, para que la
-// prueba pase por la R.
+// Con UNA familia hay que dar las cuatro piezas que producen las cuatro variantes,
+// y no cuatro armas: el arma es una, y lo que cambia son los cargadores y el
+// silenciador. Por eso la lista es de items sueltos y el `equipar` es uno solo.
 //
-// Las filas entran por `items:storeWeapon`, que es el camino de vuelta del
-// inventario. Es un nombre que no corresponde a un cargador, y esta es la razon por
-// que es provisorio: el camino de verdad para "un item nuevo" es el alta del
-// modulo de inventario, y ese todavia no tiene un "alta con estado". Cuando lo
-// tenga, esto se borra.
+// Y el orden importa para poder probar sin pensar: se da el cargador de 15 y el
+// silenciador DEPRIMERO, asi que al equipar y recargar el arma ya sale en la
+// variante mas completa (el 61) y de ahi se baja.
 function _darArmaDePrueba() {
     var char = Engine.playerChar();
     if (!char) return;
 
-    var armas = [DEBUG_ITEM_ARMA, DEBUG_ITEM_ARMA2, DEBUG_ITEM_ARMA3, DEBUG_ITEM_ARMA4];
-    for (var i = 0; i < armas.length; i++) {
-        var id = armas[i];
-        var def = defDeArma(id);
-        var magId = def ? cargadorDe(id) : null;
-        if (!def || !magId) {
-            log("[Weapons] prueba: el catalogo no tiene " + id + " con cargador");
-            continue;
-        }
-
-        // Un cargador nuevo, con las balas que trae de fabrica.
-        query(ITEMS_STORE_WEAPON, { id: magId, salud: 100, ammo: CARGADORES[magId].clipSize });
-        query(ITEMS_STORE_WEAPON, { id: id, salud: 100, ammo: 0 });
-        if (i === 0) equipar(id);
-
-        log("[Weapons] prueba: " + id + " (tipo " + def.weaponType +
-            ") y " + magId + " en el inventario.");
+    var id = DEBUG_ITEM_ARMA;
+    if (!defDeFamilia(id)) {
+        log("[Weapons] prueba: el catalogo no tiene " + id);
+        return;
     }
-    log("[Weapons] prueba: apretá la R para recargar.");
+
+    // Un cargador por capacidad, con las balas que traen de fabrica.
+    var mags = cargadoresDe(id);
+    for (var i = 0; i < mags.length; i++) {
+        query(ITEMS_STORE_MAGAZINE, { id: mags[i], ammo: CARGADORES[mags[i]].clipSize });
+    }
+    // El silenciador suelto, que es como lo compra el jugador.
+    var silId = DEBUG_ITEM_SILENCIADOR;
+    if (defDeSilenciador(silId)) query(ITEMS_STORE_ACCESSORY, { id: silId });
+    query(ITEMS_STORE_WEAPON, { id: id, salud: 100, ammo: 0 });
+
+    equipar(id);
+    var fam = defDeFamilia(id);
+    var addr = Engine.slotAddress(Engine.pedPointer(char), fam.slot);
+    log("[Weapons] prueba: " + id + " desnuda (tipo " + Engine.slotType(addr) + "), " +
+        mags.length + " cargador(es) (" + mags.join(", ") + ") y " + silId +
+        " en el inventario.");
+    log("[Weapons] prueba: poné un cargador en la ranura y apretá la R para recargar" +
+        " (ahi cambia de variante); montá el silenciador con el boton de la fila.");
 }
 
 var DEBUG_ITEM_ARMA = "colt45";
-var DEBUG_ITEM_ARMA2 = "colt45_c15";
-var DEBUG_ITEM_ARMA3 = "colt45_silenced";
-var DEBUG_ITEM_ARMA4 = "colt45_c15_silenced";
+var DEBUG_ITEM_SILENCIADOR = "suppressor";

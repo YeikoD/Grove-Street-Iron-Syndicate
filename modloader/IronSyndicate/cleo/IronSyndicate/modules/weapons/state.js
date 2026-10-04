@@ -7,23 +7,41 @@
 // ============================================================================
 // Lo unico que el modulo de armas PERSISTE, y son TRES registros:
 //
-//   GameState.Weapons.equipped[slot] = { id, salud }      que arma esta en cada slot
+//   GameState.Weapons.equipped[slot] = { id, salud, silenciador }  que arma esta
 //   GameState.Weapons.cargadores     = [ { id, ammo } ]   los cargadores equipados
 //   GameState.Weapons.enArma[slot]   = "mag_colt45"       QUE CARGADOR ESTA PUESTO
 //
 // Y los campos, y por que estan:
 //
-//   id      el itemId. El weaponType NO se guarda: es la representacion que
-//           ejecuta el motor y se deriva de la tabla. Un save que guarda el numero
-//           queda con un arma distinta en cuanto la tabla cambie.
+//   id      el itemId de la FAMILIA. El weaponType NO se guarda: es la
+//           representacion que ejecuta el motor y sale de los accesorios con
+//           tipoDe(). Un save que guarda el numero queda con un arma distinta en
+//           cuanto la tabla cambie, que es lo que paso cuando el .dat paso de 347
+//           a 15066.
 //
 //   salud   0..100. El arma equipada NO esta en items[] mientras esta en la mano:
 //           sale del inventario al equiparse. Es el unico sitio donde su desgaste
 //           puede vivir sin perderse al desequiparla.
 //
+//   silenciador  si el silenciador esta MONTADO. Vive en la fila y no en un
+//           registro por slot, y esa es la parte que no es obvia: el arma se va
+//           del inventario a la mano y vuelve, y un mapa por slot no puede seguir
+//           al arma en el viaje. La fila del inventario lleva el mismo campo, y
+//           por eso las dos copias viajan juntas.
+//
 //   ammo    solo en los cargadores, y por el mismo motivo: un cargador equipado
 //           tampoco esta en items[], asi que su municion tiene que vivir aca. Sin
 //           esto, equipar un cargador seria guardarlo vacio.
+//
+// EL SILENCIADOR ES LO UNICO QUE SE ESCRIBE Y SE LEE DE DOS LUGARES
+// ---------------------------------------------------------------------------
+// equipped[slot].silenciador y el `silenciador` de la fila en items[]. No hay una
+// tercera copia, y por eso no hay regla de prioridad: son el mismo dato en dos
+// momentos de la vida del arma. Cuando el arma se equipa, el de items[] se copia
+// al registro; cuando se desequipa, el del registro se copia a la fila.
+//
+// Un flag ausente es `false`, que es lo correcto para un save viejo: un arma que
+// no tiene el campo nunca estuvo silenciada.
 //
 // POR QUE CARGADORES ES UNA LISTA Y EQUIPPED UN MAPA
 // ---------------------------------------------------------------------------
@@ -48,6 +66,23 @@
 // modulo: al recargar, el clip viejo se ponia en cero y el cargador se perdia para
 // siempre. Solo el id alcanza para devolverlo con lo que le quedo.
 //
+// Y el clipSize de ese id es lo que ELIGE LA VARIANTE: es el "clip" que recibe
+// tipoDe(familia, clip, silenciador). O sea que el cargador puesto es la mitad de
+// la configuracion del arma, y la otra mitad es el flag silenciador de la entry.
+//
+// QUE ESTE ES UN STRING Y NO UN OBJETO, Y POR QUE LA MIGRACION LO TIENE QUE
+// TRATAR POR SEPARADO
+// ---------------------------------------------------------------------------
+// `_migrarNodo` en core/gsis_SaveMigration.js renombra todo objeto que tenga un
+// `id` string, y baja por arrays y por mapas. Este valor es un string SUELTO, y a
+// un string suelto el recorrido no baja: `typeof nodo === "object"` es falso. Un
+// cargador viejo que quedara aqui seria un id que el catalogo no tiene, que
+// getCargadorEnArma() trata como desnudo, y la pieza estaria en el limbo: ni en la
+// mochila ni en una ranura ni en el arma.
+//
+// Por eso la migracion tiene un pase explicito para este mapa. Ver
+// "EL MAPA DE LOS CARGADORES PUESTOS" en gsis_SaveMigration.js.
+//
 // LA FILA EQUIPADA DEL INVENTARIO TAMPOCO SE GUARDA: se arma en el snapshot, con lo
 // que hay aca mas lo que se lee del ped. Ver equipadasSnap().
 //
@@ -63,7 +98,7 @@
 // ============================================================================
 
 import { registerModule, getModuleData, setModuleData } from "../../core/gsis_SaveManager.js";
-import { ARMAS, defDeCargador } from "../../data/gsis_weapons.js";
+import { FAMILIAS, defDeCargador } from "../../data/gsis_weapons.js";
 import { clampSalud } from "../../data/gsis_item_data.js";
 import { WEAPONS } from "../../core/gsis_Config.js";
 
@@ -77,7 +112,7 @@ export function maxCargadores() {
     return WEAPONS.CARGADORES_EQUIPADOS;
 }
 
-// Lo que hay en equipped: { id, salud }. Null si el slot no tiene nada.
+// Lo que hay en equipped: { id, salud, silenciador }. Null si el slot no tiene nada.
 export function getEntry(slot) {
     var data = getModuleData(SAVE_KEY);
     if (!data || !data.equipped) return null;
@@ -93,8 +128,13 @@ export function getEntries() {
     for (var slot in data.equipped) {
         if (Object.prototype.hasOwnProperty.call(data.equipped, slot)) {
             var e = data.equipped[slot];
-            if (e && e.id && ARMAS[e.id]) {
-                out.push({ slot: parseInt(slot, 10), id: e.id, salud: clampSalud(e.salud) });
+            if (e && e.id && FAMILIAS[e.id]) {
+                out.push({
+                    slot: parseInt(slot, 10),
+                    id: e.id,
+                    salud: clampSalud(e.salud),
+                    silenciador: !!e.silenciador
+                });
             }
         }
     }
@@ -103,6 +143,10 @@ export function getEntries() {
 }
 
 // Escribir el registro de un slot. `entry` null lo borra.
+//
+// El `silenciador` se escribe SIEMPRE, y no solo cuando es true: asi la fila del
+// save dice lo que el arma es y no hay que suponer que la ausencia es false. Es
+// un booleano de un byte en un save que ya tiene el arma entera.
 export function setEntry(slot, entry) {
     var data = getModuleData(SAVE_KEY);
     if (!data) data = { equipped: {}, cargadores: [] };
@@ -111,9 +155,20 @@ export function setEntry(slot, entry) {
     if (!entry) {
         delete data.equipped[slot];
     } else {
-        data.equipped[slot] = { id: entry.id, salud: clampSalud(entry.salud) };
+        data.equipped[slot] = {
+            id: entry.id,
+            salud: clampSalud(entry.salud),
+            silenciador: !!entry.silenciador
+        };
     }
     setModuleData(SAVE_KEY, data);
+}
+
+// El silenciador montado en un slot. False si no hay arma, o si el arma no lo
+// tiene. Es la lectura que usa tipoDe() para elegir la variante.
+export function silenciadorEnArma(slot) {
+    var e = getEntry(slot);
+    return !!(e && e.silenciador);
 }
 
 // ---------------------------------------------------------------------------

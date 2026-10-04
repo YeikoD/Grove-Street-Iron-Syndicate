@@ -94,6 +94,27 @@ export var ITEMS_STORE_WEAPON = "items:storeWeapon";
 export var ITEMS_TAKE_MAGAZINE = "items:takeMagazine";
 export var ITEMS_STORE_MAGAZINE = "items:storeMagazine";
 
+// UN ACCESORIO QUE SE MONTA EN EL ARMA
+// ---------------------------------------------------------------------------
+// El silenciador es la tercera forma de vida de una pieza, y no comparte evento con
+// ninguna de las otras dos:
+//
+//   un arma      tiene `salud` y se equipa y desequipa
+//   un cargador  tiene `ammo` y va a una ranura
+//   un accesorio  no tiene ni `salud` ni `ammo`: se MONTA en el arma y a partir de
+//                ahi lo que existe es un booleano en la fila del arma
+//
+// La fila que deja en la mochila es `{ id, qty }` y nada mas. Y `storeAccessory`
+// CHEQUEA EL PESO y devuelve false si no entra, que es lo que permite que quien
+// llama decida el orden de sus escrituras: si el silenciador no entra en la mochila,
+// la operacion se rechaza entera antes de tocar el arma.
+//
+// Y no se reusa `storeMagazine` para eso. Ese handler escribe `ammo`, y un
+// silenciador con `ammo: 0` es una fila que dice que tiene municion un item que no
+// la tiene: el mismo argumento del comentario de arriba, aplicado a la otra mitad.
+export var ITEMS_TAKE_ACCESSORY = "items:takeAccessory";
+export var ITEMS_STORE_ACCESSORY = "items:storeAccessory";
+
 // LA MUNICION DE UN CARGADOR DE LA MOCHILA, POR INDICE
 // ---------------------------------------------------------------------------
 // Los tres existen por la accion de RELLENAR, que mueve balas de un cargador a

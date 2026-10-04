@@ -39,33 +39,44 @@ export var ITEMS = {
     // guarda como UNA fila por unidad, y por eso necesita saber el tipo de cada
     // unidad: su municion y su salud. Ver isInstanced(), que es la pregunta.
     //
-    // LAS ARMAS, UNA POR CONFIGURACION
+    // LAS ARMAS, UNA POR FAMILIA
     //
-    // Cada configuracion de la Colt .45 es su propio item, y su `weaponType` esta
-    // declarado en ARMAS (data/gsis_weapons.js). No hay un item por familia con
-    // accesorios que se resuelvan en runtime: ese diseño se fue entero y con el
-    // se fue `resolveWeaponType()`. Ver el header de gsis_weapons.js.
+    // UNA sola Colt .45 en el catalogo. Que se vea pelada, con cargador de 15,
+    // silenciada o silenciada con cargador de 15 NO son cuatro items: es la misma
+    // arma con distinto accesorio. Las cuatro configuraciones son las `variantes`
+    // de FAMILIAS (data/gsis_weapons.js), y el weaponType se deriva de los
+    // accesorios con `tipoDe()`. El jugador nunca elige entre cuatro filas: elige
+    // un cargador y un silenciador, y el arma cambia sola.
     //
-    // LAS CUATRO TIENEN SU FILA EN gsis_weapons.dat, y las dos mitades tienen que
-    // crecer juntas:
+    // LAS CUATRO VARIANTES TIENEN SU FILA EN gsis_weapons.dat, y las dos mitades
+    // tienen que crecer juntas:
     //
-    //   colt45                 tipo 63   63 22   346 2  8 -1
-    //   colt45_c15             tipo 62   62 22 15065 2 15 -1
-    //   colt45_silenced        tipo 60   60 23   347 2  8 -1
-    //   colt45_c15_silenced    tipo 61   61 23   347 2 15 -1
+    //   colt45                        tipo 63   63 22   346 2  8 -1
+    //   colt45 + cargador de 15       tipo 62   62 22 15065 2 15 -1
+    //   colt45 + silenciador          tipo 60   60 23   347 2  8 -1
+    //   colt45 + sil. + cargador 15   tipo 61   61 23 15066 2 15 -1
     //
-    // Y cada arma tiene su cargador, con el MISMO clipSize que la fila: es la
-    // segunda copia del numero, y es la que `check-dat.mjs` cruza.
+    // Y el cargador de cada capacidad tiene el MISMO clipSize que las filas que
+    // selecciona: es la segunda copia del numero, y es la que `check-dat.mjs`
+    // cruza.
     //
     // Un item de arma sin fila en el .dat es un arma que no se entrega nunca, y
     // una fila sin item es un tipo que el .asi registra al pedirlo y ocupa un
     // slot del rango 60..79 para siempre.
     "colt45":        { name: "Colt .45",           weight: 1.5, type: "weapon" },
-    "colt45_c15":    { name: "Colt .45 C15",       weight: 1.5, type: "weapon" },
-    "colt45_silenced": { name: "Colt .45 Silenced", weight: 1.6, type: "weapon" },
-    "colt45_c15_silenced": { name: "Colt .45 Silenced C15", weight: 1.6, type: "weapon" },
-    "mag_colt45":    { name: "Cargador Colt .45",  weight: 0.2, type: "magazine" },
-    "mag_colt45_c15": { name: "Cargador Colt .45 C15", weight: 0.25, type: "magazine" },
+    "mag_colt45":    { name: "Cargador Colt 45",  weight: 0.2, type: "magazine" },
+    "mag_colt45_c15": { name: "Cargador Colt 45 Extended", weight: 0.25, type: "magazine" },
+
+    // El silenciador se COMPRA suelto y se MONTA en el arma. No es una variante:
+    // es la pieza que convierte una variante en la de al lado. Por eso es un item
+    // y por eso el flag `silenciador` vive en la fila del arma.
+    //
+    // `instanced` porque se lleva UNO por fila, y no por una razon de diseno sino de
+    // bookkeeping: `ITEMS_TAKE_ACCESSORY` saca la fila entera del id que se le pide,
+    // asi que un silenciador apilable con cantidad 2 se llevaria los dos de un
+    // montage. Con una fila por unidad, sacar uno y devolver uno son simetricos, que
+    // es la misma propiedad por la que armas y cargadores son instanciados.
+    "suppressor":    { name: "Silenciador",        weight: 0.1, type: "weapon_attachment", instanced: true },
 
     // Chatarra
     //
@@ -73,9 +84,9 @@ export var ITEMS = {
     //
     // El mod tuvo un sistema de armas completo —familias, accesorios, cargadores
     // instanciados, variantes con weaponType propio— y se borro entero. Con el se
-    // fueron 17 armas, 19 cargadores, el silenciador como accesorio suelto y los
-    // ocho materiales de armeria. De todo eso quedan las 4 configuraciones de la
-    // Colt .45 de arriba, con su cargador cada una.
+    // fueron 17 armas, 19 cargadores y los ocho materiales de armeria. Lo que
+    // vuelve es la familia de la Colt .45 con sus accesorios: UNA arma, dos
+    // cargadores y un silenciador, y las cuatro configuraciones salen de ahi.
     //
     // Los materiales de armeria se fueron porque eran la entrada de un ensamblaje
     // que no llego a existir: sin armas que los consuman, un catalogo de piezas

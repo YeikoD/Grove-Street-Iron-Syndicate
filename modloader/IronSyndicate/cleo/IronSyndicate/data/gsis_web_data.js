@@ -57,8 +57,30 @@ export var WEB_ICONS = {
     // cargador por linea: el PNG propio de un arma se cambia aca y en ningun
     // otro lado. El PNG sale de la categoria del arma en WEAPON_DATA: los tres
     // primeros son pistolas, los tres siguientes subfusiles.
+    //
+    // LA CLAVE ES EL ID Y HACE FALTA QUE SEA EL DE HOY
+    // -----------------------------------------------------------------------
+    // Aca estaba `mag_colt45_15`, que es el nombre que tuvo el cargador de 15
+    // balas antes de que se llamara `mag_colt45_c15`. Una linea con un id que no
+    // esta en ITEMS no da error: la pagina pide el icono, no lo encuentra, y
+    // `iconCell` pinta un slot VACIO. Es el fallo mas barato de ver y el mas
+    // dificil de causalizar, porque no hay ni un error en ningun log.
+    //
+    // LOS DOS CARGADORES COMPARTEN EL MISMO PNG, Y NO ES UNA CONFUSION
+    // -----------------------------------------------------------------------
+    // Los dos son cargadores de pistola de 9mm y el juego tiene un solo sprite de
+    // eso. Lo que los distingue son el NOMBRE ("Cargador Colt 45" y "Cargador Colt
+    // 45 Extended") y la columna de municion, que el modulo pinta como "8/8" y
+    // "15/15" desde `clipSize`. Ese es el par de datos que ya diferencia dos
+    // cargadores del mismo tipo en la mochila —el vacio y el lleno—, asi que no es
+    // un caso nuevo: es el caso que ya estaba resuelto.
+    //
+    // Habia un PNG propio para el Extended, derivado del mismo sprite coloreado en
+    // ambar, y se fue: con el nombre y el "15/15" al lado, el color repetia lo que
+    // el texto ya dice y un cargador distinto para el mismo municion es una pieza
+    // que el juego no tiene.
     "mag_colt45": "mag_9mm.png",
-    "mag_colt45_15": "mag_9mm.png",
+    "mag_colt45_c15": "mag_9mm.png",
     "mag_ak47_drum": "mag_fusil.png",
     "mag_m4_lancer": "mag_fusil.png",
     "mag_m4_drum": "mag_fusil.png",

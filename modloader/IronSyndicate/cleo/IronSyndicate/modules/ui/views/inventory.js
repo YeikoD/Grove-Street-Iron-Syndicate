@@ -77,11 +77,33 @@ function equipadasSnap() {
             salud: e.salud,
             ammo: e.ammo
         });
-        row.ammo = e.ammo + "/" + (e.cap || capacidadDeItem(e.id));
+        row.ammo = e.ammo + "/" + (e.cap || capacidadDeItem(e.id, e.tipo));
         row.equipado = true;
         row.ranura = "arma";
         row.slot = e.slot;
         if (e.cargador) row.cargador = e.cargador;
+
+        // LA CONFIGURACION, Y POR QUE VIJA COMO DATO Y NO SE CALCULA ACA
+        //
+        // `configuracion` es el nombre de la variante que el PED tiene —"Colt .45
+        // Silenced C15"— y `tipo` es el numero con el que el modulo lo ejecuto.
+        //
+        // Viaja desde el modulo y no se arma en la pagina porque el nombre tiene que
+        // salir de la MISMA tabla que eligio el tipo. Si la pagina compusiera el
+        // nombre con el cargador y el flag que ve en la foto, habria dos reglas para
+        // decir que configuracion es, y el dia que no coincidan el inventario
+        // llamaria "Colt .45" a un arma que el juego muestra con silenciador.
+        //
+        // Y `enLaMano` mas `tipoEsperado` es la unica forma de que la pagina
+        // distinga "el arma es esta" de "el modulo cree que es esta otra". Cuando
+        // no coinciden la fila lo dice, en vez de mostrar una configuracion que el
+        // motor no tiene.
+        row.configuracion = e.configuracion;
+        row.tipo = e.tipo;
+        row.enLaMano = e.enLaMano;
+        row.tipoEsperado = e.tipoEsperado;
+        row.silenciador = e.silenciador;
+
         rows.push(row);
     }
     return rows;
@@ -133,6 +155,16 @@ function filasDeItems(items) {
             row.indice = i;
             row.puedeRellenar = (items[i].ammo || 0) < capacidadDeItem(row.id);
         }
+        // El silenciador de un arma DE LA MOCHILA. Sin esto, una Colt con el
+        // silenciador puesto sale en la lista como "Colt .45" y no hay forma de
+        // saber que lleva el silenciador adentro hasta equiparla.
+        //
+        // Y no se compone el nombre completo aca —"Colt .45 silenciada"— porque el
+        // nombre de la variante sale de la tabla que eligio el tipo, y un arma en la
+        // mochila esta SIEMPRE desnuda: su nombre depende de si tiene cargador, y en
+        // la mochila no tiene ninguno. Lo que la pagina puede afirmar sin inventar
+        // nada es el flag, que es un dato de la fila.
+        if (row.cat === "weapon") row.silenciador = !!items[i].silenciador;
         rows.push(row);
     }
     return rows;

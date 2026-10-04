@@ -40,13 +40,15 @@
 
 import { on } from "../../core/gsis_EventBus.js";
 import { getModuleData, setModuleData } from "../../core/gsis_SaveManager.js";
-import { SALUD_MAX } from "../../data/gsis_item_data.js";
+import { ITEMS, SALUD_MAX } from "../../data/gsis_item_data.js";
 import { capacidadDeclarada } from "../../data/gsis_weapons.js";
+import { MISC } from "../../core/gsis_Config.js";
 import {
     ITEMS_TAKE_WEAPON, ITEMS_STORE_WEAPON, ITEMS_TAKE_MAGAZINE, ITEMS_STORE_MAGAZINE,
+    ITEMS_TAKE_ACCESSORY, ITEMS_STORE_ACCESSORY,
     ITEMS_MAG_AMMO, ITEMS_SET_MAG_AMMO, ITEMS_MAG_SOURCE
 } from "../../core/gsis_EventNames.js";
-import { SAVE_KEY } from "./state.js";
+import { SAVE_KEY, getTotalWeight } from "./state.js";
 
 // Los handlers se registran al IMPORTAR este archivo, no en init().
 //
@@ -75,6 +77,14 @@ on(ITEMS_TAKE_MAGAZINE, function (e) {
 //
 // `ammo` viaja en la fila. No se tira: es lo que hace que desequipar a mitad de
 // un cargador devuelva un arma con balas y no una desnuda.
+//
+// `silenciador` tambien viaja, y es el que hace que esto no sea un bug. El
+// silenciador esta MONTADO en el arma y por eso no es un item de la mochila: su unico
+// hogar es la fila. Si este handler no lo copiara, `desequipar` devolveria el arma
+// sin el silenciador y `equipar` la devolveria pelada, y el jugador perderia la
+// pieza —el silenciador volveria a la mochila por el camino de `quitarSilenciador` y
+// el arma pelada se llevaria el juego entero—. Un item que viaja con otro es un dato
+// mas de la fila, no una tabla aparte.
 on(ITEMS_STORE_WEAPON, function (e) {
     var d = e.data;
     if (!d || !d.id) {
@@ -88,7 +98,8 @@ on(ITEMS_STORE_WEAPON, function (e) {
         id: d.id,
         qty: 1,
         salud: d.salud === undefined ? SALUD_MAX : d.salud,
-        ammo: d.ammo || 0
+        ammo: d.ammo || 0,
+        silenciador: !!d.silenciador
     });
     setModuleData(SAVE_KEY, data);
     e.respond(true);
@@ -114,6 +125,41 @@ on(ITEMS_STORE_MAGAZINE, function (e) {
         qty: 1,
         ammo: d.ammo || 0
     });
+    setModuleData(SAVE_KEY, data);
+    e.respond(true);
+});
+
+// Sacar una fila por id, sin filtro de municion. Es el camino de las piezas que no
+// son armas ni cargadores: el silenciador.
+on(ITEMS_TAKE_ACCESSORY, function (e) {
+    e.respond(_sacarUno(e.data ? e.data.id : null, false));
+});
+
+// Devolver un accesorio a la mochila.
+//
+// EL PESO SE CHEQUEA ACA y el handler devuelve false si no entra, en vez de
+// agregar la fila y avisar despues. La razon es el ORDEN de las escrituras del
+// modulo de armas: para desmontar un silenciador hace falta saber que vuelve a la
+// mochila ANTES de cambiar el flag del arma y el tipo del motor. Con un handler que
+// siempre agrega, el modulo no tendria forma de saber si la pieza se perdio, y un
+// silenciador que desaparece del mundo no se puede recuperar.
+on(ITEMS_STORE_ACCESSORY, function (e) {
+    var d = e.data;
+    if (!d || !d.id || !ITEMS[d.id]) {
+        e.respond(false);
+        return;
+    }
+    var data = getModuleData(SAVE_KEY);
+    if (!data) data = { items: [], trunks: {} };
+    if (!data.items) data.items = [];
+
+    var peso = ITEMS[d.id].weight;
+    if (getTotalWeight() + peso > MISC.MAX_INVENTORY_WEIGHT) {
+        e.respond(false);
+        return;
+    }
+
+    data.items.push({ id: d.id, qty: 1, salud: SALUD_MAX, ammo: 0 });
     setModuleData(SAVE_KEY, data);
     e.respond(true);
 });
@@ -145,10 +191,16 @@ function _sacarUno(id, conBalas) {
     data.items.splice(elegido, 1);
     setModuleData(SAVE_KEY, data);
 
+    // `silenciador` se copia siempre, y no solo cuando es true. Es lo que hace que
+    // el arma vuelva a la mochila CON el silenciador montado: el modulo lo lee de
+    // aca en `equipar` y lo escribe en el registro del slot. Un arma que perdiera el
+    // flag en este viaje ya no lo recuperaria nunca, porque el silenciador ya no
+    // esta en ningun otro lado del modulo.
     return {
         id: fila.id,
         salud: fila.salud === undefined ? SALUD_MAX : fila.salud,
-        ammo: fila.ammo || 0
+        ammo: fila.ammo || 0,
+        silenciador: !!fila.silenciador
     };
 }
 

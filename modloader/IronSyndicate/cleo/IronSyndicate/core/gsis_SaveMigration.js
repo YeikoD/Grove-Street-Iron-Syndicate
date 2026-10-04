@@ -81,24 +81,91 @@
 // destino de cada uno tiene que existir en ITEMS el dia que corre la
 // migracion, y el renombre es de un solo salto, sin encadenar.
 //
-// LOS DOS DE LOS CARGADORES SILENCIADOS (03/10)
-// ----------------------------------------------
-// Un cargador es de una CAPACIDAD, no de un arma: el de 8 le sirve a la colt45 y
-// a la silenciada, y el de 15 a la C15 y a la C15 silenciada. Por eso los cuatro
-// cargadores del catalogo pasaron a ser dos, y los dos ids silenciados quedaron
-// sin destino. Un save que los tenga guardado los renombra a su par de
-// capacidad, que es el mismo cargador con las mismas balas.
+// LOS RENOMBRES DEL 03/10, Y POR QUE NO HAY VERSION NUEVA
+// ---------------------------------------------------------------------------
+// Un solo salto de nombres, y todos en la misma direccion:
 //
-// OJO: esto no se aplica solo. renameItemId() lo consume migrateItem(), y
-// migrateItemList() —la unica que camina una lista entera— NO la llama nadie del
-// mod todavia (ver "MIGRADORES DE MODULOS"). O sea que los renombres de abajo
-// estan en el lugar correcto y no se ejecutan hasta que ese cable se conecte.
-// Mientras tanto un cargador silenciado en un save viejo queda como un item sin
-// nombre: getItemName devuelve el id crudo.
+//   colt45_c15              ->  colt45
+//   colt45_silenced         ->  colt45
+//   colt45_c15_silenced     ->  colt45
+//   mag_colt45_silenced     ->  mag_colt45
+//   mag_colt45_c15_silenced ->  mag_colt45_c15
+//
+// Las tres primeras son la familia de armas: antes cada CONFIGURACION era su propio
+// item y ahora hay uno solo. `migrateSave` renombra siempre y sin mirar la version,
+// asi que estas tres no necesitan migrador por version.
+//
+// LO QUE SE PIERDE, Y POR QUE NO SE INTENTA SALVAR
+// ---------------------------------------------------------------------------
+// Las armas que estaban guardadas como `colt45_silenced` NO vuelve silenciadas:
+// el silenciador paso a ser un item que se monta, y el flag no existia en la fila.
+// Renombrarlas a `colt45` las deja como tres Colts peladas, que es el arma
+// correcta para el catalogo de hoy.
+//
+// Se podria mirar el id viejo y setear el flag, y no se hace a proposito: seria
+// una segunda regla de migracion para un dato que el jugador puede volver a poner
+// con dos clics, y una regla que adivina el estado de un arma a partir de como se
+// llamaba es la clase de conversion que despues nadie puede explicar.
+//
+// EL MAPA DE LOS CARGADORES PUESTOS
+// ---------------------------------------------------------------------------
+// `GameState.Weapons.enArma[slot]` es un STRING SUELTO, no un objeto con `id`, y
+// `_migrarNodo` no baja a strings: su primera linea es
+//
+//   if (!nodo || typeof nodo !== "object" || ...) return 0;
+//
+// O sea que los cinco renombres de arriba funcionan en todas partes MENOS ahi. Un
+// cargador viejo que quedara en ese mapa seria un id que el catalogo ya no tiene,
+// que `getCargadorEnArma` trata como arma desnuda, y la pieza estaria en el limbo:
+// ni en la mochila ni en una ranura ni en el arma.
+//
+// Por eso el renombre de ese mapa va en un pase propio, con nombre propio, para que
+// el log diga que se hizo. Ver "EL MAPA DE LOS CARGADORES PUESTOS" abajo.
 export var ITEM_RENAMES = {
+    "colt45_c15": "colt45",
+    "colt45_silenced": "colt45",
+    "colt45_c15_silenced": "colt45",
     "mag_colt45_silenced": "mag_colt45",
     "mag_colt45_c15_silenced": "mag_colt45_c15"
 };
+
+// ============================================================================
+// EL MAPA DE LOS CARGADORES PUESTOS
+// ============================================================================
+// `GameState.Weapons.enArma` es el unico mapa del save cuyos valores son strings
+// sueltos, y es el unico que `_migrarNodo` no puede ver.
+//
+// EL POR QUE DE QUE SEA UN STRING, Y NO UN OBJETO CON `id`
+// ---------------------------------------------------------------------------
+// El cargador montado es el MISMO cargador que uno de los cargadores, pero metido en
+// el arma, y por eso no guarda `ammo`: sus balas son el clip, que es del juego. Lo
+// que hace falta guardar es la IDENTIDAD, y para eso un string basta. Guardar
+// `{ id, ammo }` seria una segunda copia de la municion con dos dueñas.
+//
+// El costo de ese "basta" es este: un string suelto no es un item, y el recorrido
+// de la migracion esta hecho para items.
+//
+// Y POR QUE NO SE CAMBIA A OBJETO PARA ARREGLAR ESTO
+// ---------------------------------------------------------------------------
+// Porque seria cambiar el FORMATO del save para tapar un caso de la migracion, y el
+// caso se tapa en una linea. Ademas el recorrido en profundidad tiene que seguir
+// bajando a mapas por clave: `trunks` esta indexado por vehicleId, y el mismo bug
+// vuelve a aparecer si el recorrido solo baja a los arrays.
+export function _migrarCargadoresPuestos(parsed) {
+    var w = parsed && parsed.Weapons;
+    if (!w || !w.enArma || typeof w.enArma !== "object") return 0;
+    var n = 0;
+    for (var slot in w.enArma) {
+        if (!Object.prototype.hasOwnProperty.call(w.enArma, slot)) continue;
+        var antes = w.enArma[slot];
+        var despues = renameItemId(antes);
+        if (despues !== antes) {
+            w.enArma[slot] = despues;
+            n++;
+        }
+    }
+    return n;
+}
 
 
 // ============================================================================
@@ -455,6 +522,27 @@ export function migrateSave(parsed) {
     informe.versionAntes = v;
 
     informe.renombrados = _migrarNodo(parsed, 0);
+
+    // EL MAPA DE LOS CARGADORES PUESTOS, y va acá y no en un migrador por version.
+    //
+    // Los renombres de arriba corren siempre, sin mirar la version, justamente para
+    // no depender de un numero: un save de la version de hoy con un cargador viejo
+    // tiene que salir igual. Este pase va en el mismo lugar por la misma razon —
+    // `enArma` es un string suelto y `_migrarNodo` no lo ve, asi que si esperara a
+    // un migrador por version no correria nunca en los saves que ya estan en la
+    // ultima version, que son todos los que importan.
+    //
+    // Y va antes del lazo de migradores por la misma razon que el renombrado: el
+    // migrador de un modulo tendria que leer los ids ya renombrados.
+    var puestos = _migrarCargadoresPuestos(parsed);
+    if (puestos > 0) {
+        informe.pasos.push({
+            nombre: "cargadores puestos",
+            ok: true,
+            detalle: { renombrados: puestos }
+        });
+    }
+    informe.renombrados += puestos;
 
     // De `v` hasta la actual. Un save mas nuevo que el codigo (v >
     // SAVE_FORMAT_VERSION) no se toca: es un save de una version posterior, y

@@ -46,7 +46,7 @@
 // modulo no valida, su respuesta seria la de hace un snapshot. Este archivo
 // traduce, no decide.
 import { removeItem } from "../inventory/index.js";
-import { equipar, desequipar, equiparCargador, guardarCargador, rellenarCargador, recargar } from "../weapons/gsis_Weapons.js";
+import { equipar, desequipar, equiparCargador, guardarCargador, rellenarCargador, recargar, montarSilenciador, quitarSilenciador } from "../weapons/gsis_Weapons.js";
 import { putInTrunk, takeFromTrunk } from "../gsis_Trunk.js";
 import { addToCart, removeFromCart, resetCart, checkout } from "../gsis_WeaponDealer.js";
 import { doOffer, moveOffer } from "../gsis_WeaponSeller.js";
@@ -216,9 +216,42 @@ export function handleCommand(cmd, ui) {
             case "inv:reload":
                 // No lleva id: recargar no es una accion sobre una fila, es una
                 // accion sobre el arma de la mano. El modulo ve que cargador le
-                // sirve, lo saca de los EQUIPADOS y lo gasta.
+                // sirve, lo saca de los EQUIPADOS y lo gasta. Y si el cargador
+                // cambia la capacidad, la R cambia la VARIANTE del arma.
                 if (!recargar()) return false;
                 log("[UI] recargar");
+                return true;
+
+            // MONTAR Y DESMONTAR EL SILENCIADOR
+            //
+            // Son las dos unicas acciones que cambian la variante sin gastar balas,
+            // y por eso van juntas: el silenciador es la mitad de la configuracion
+            // que no sale de un cargador.
+            //
+            // `inv:attach` lleva el id del silenciador y el slot del arma: la pieza
+            // viene de la mochila y se monta en un arma que esta en la mano. Sin el
+            // slot no hay arma a la que montarlo, y sin el id no hay pieza.
+            case "inv:attach":
+                if (!id) return false;
+                if (cmd.slot === undefined || cmd.slot === null) return false;
+                if (!montarSilenciador(parseInt(cmd.slot, 10), id)) {
+                    log("[UI] montarSilenciador fallo: " + id + " en el slot " + cmd.slot);
+                    return false;
+                }
+                log("[UI] montarSilenciador: " + id + " -> slot " + cmd.slot);
+                return true;
+
+            // `inv:detach` NO lleva id: lo que se desmonta es el silenciador que el
+            // arma YA tiene, y el slot alcanza para encontrarlo. Mandar el id desde
+            // la pagina seria mandar un dato que el modulo ya tiene y que puede
+            // estar desfasado —el snapshot tiene 400ms de retraso—.
+            case "inv:detach":
+                if (cmd.slot === undefined || cmd.slot === null) return false;
+                if (!quitarSilenciador(parseInt(cmd.slot, 10))) {
+                    log("[UI] quitarSilenciador fallo: slot " + cmd.slot);
+                    return false;
+                }
+                log("[UI] quitarSilenciador: slot " + cmd.slot);
                 return true;
 
             case "inv:drop":
