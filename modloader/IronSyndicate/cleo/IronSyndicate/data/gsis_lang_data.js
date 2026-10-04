@@ -60,9 +60,14 @@ export var STRINGS = {
         es: "~r~Inventario lleno (libre {free} kg, necesitas {need} kg)",
         en: "~r~Inventory full ({free} kg free, need {need} kg)"
     },
+    // El debug de la L, que es el del modulo de inventario: SOLO agrega chatarra.
+    //
+    // Decia "+1 9mm, +5 scrap, +1 cargador" desde que el sistema de armas se borro y
+    // el debug quedo reducido a `addItem("scrap_metal", 5)`. El texto prometia tres
+    // cosas que el debug no daba. Ahora dice la una que da.
     DBG_ITM: {
-        es: "~g~+1 9mm, +5 chatarra, +1 cargador",
-        en: "~g~+1 9mm, +5 scrap, +1 magazine"
+        es: "~g~+5 chatarra",
+        en: "~g~+5 scrap"
     },
 
     // --- Armas ---
@@ -82,8 +87,8 @@ export var STRINGS = {
 
     // Los cargadores van armados antes que el disparo: uno se EQUIPA (sale del
     // inventario a una de las dos ranuras) y otro se USA (lo agarra la R, que lo
-    // devuelve con las balas que le quedaban). Y hay una accion que le pasa las
-    // balas de un cargador a otro.
+    // devuelve con las balas que le quedaban). Y hay una accion que le pasa balas
+    // de la caja a un cargador.
     WPN_NOMAG_EQUIPADO: {
         es: "~r~No tenes ningun cargador equipado",
         en: "~r~You have no magazine equipped"
@@ -92,9 +97,19 @@ export var STRINGS = {
         es: "~y~Ya tenes dos cargadores equipados",
         en: "~y~You already have two magazines equipped"
     },
-    WPN_MAG_SIN_FUENTE: {
-        es: "~r~No tenes otro cargador con balas para rellenarlo",
-        en: "~r~You have no other magazine with bullets to fill it from"
+    // ESTA REEMPLAZA A WPN_MAG_SIN_FUENTE, que decia "no tenes otro cargador con
+    // balas para rellenarlo". Con las cajas la fuente es la bala suelta, asi que el
+    // aviso dice eso. El nombre de la clave tambien cambio, porque `FUENTE` era el
+    // termino del mecanismo viejo — una fila de la mochila que se buscaba — y el
+    // mecanismo nuevo no busca ninguna fila: descuenta un stack.
+    //
+    // Y el boton solo se ofrece cuando hay balas, asi que este aviso sale en un caso
+    // concreto: el jugador aprieta Llenar y entre el snapshot y el click se quedó
+    // sin balas. Es raro a proposito — antes pasaba cada vez que se apretaba Rellenar
+    // con un solo cargador en la mochila, que era el caso normal.
+    WPN_SIN_MUNICION: {
+        es: "~r~No tenes balas",
+        en: "~r~You have no bullets"
     },
 
     // --- Maletero ---

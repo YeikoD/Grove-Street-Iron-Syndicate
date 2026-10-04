@@ -81,6 +81,12 @@ export var WEB_ICONS = {
     // que el juego no tiene.
     "mag_colt45": "mag_9mm.png",
     "mag_colt45_c15": "mag_9mm.png",
+    // La bala tiene arte PROPIO y no comparte con los cargadores: bullet45.png
+    // es una bala, y mag_9mm.png es un cargador. Es la unica de las dos mitades de
+    // la banda "Municion" que se ve distinta de la otra, y es lo que hace falta
+    // para que el jugador distinga de un vistazo "esta fila se llena" de "esta fila
+    // se consume".
+    "bala_45": "bullet45.png",
     "mag_ak47_drum": "mag_fusil.png",
     "mag_m4_lancer": "mag_fusil.png",
     "mag_m4_drum": "mag_fusil.png",
@@ -133,7 +139,17 @@ export var WEB_CAT_ORDER = ["weapon", "magazine", "weapon_attachment", "material
 // ITEMS, el nombre es de la pagina.
 export var WEB_CAT_LABELS = {
     weapon: "Armas",
-    magazine: "Cargadores",
+    // La banda de los cargadores se llama MUNICION porque ahora tiene las dos
+    // mitades: las piezas con sus balas y la bala suelta que las llena. El nombre
+    // viejo mentia en la direccion contraria —decia "cargadores" y habia balas— y
+    // el nuevo es el que describe lo que el jugador ve en la banda.
+    //
+    // SIN ACENTO, y no por descuido. Las otras tres bandas son "Armas", "Accesorios"
+    // y "Materiales", y ninguna lo necesita: el acento aqui seria el unico acento
+    // de una lista de cinco palabras que de otro modo es toda ASCII, y el titulo de
+    // una banda no es el lugar donde se prueba la ortografia. Si alguna vez se
+    // escribe "Munición", el cambio es este string y nada mas.
+    magazine: "Municion",
     weapon_attachment: "Accesorios",
     material: "Materiales"
 };

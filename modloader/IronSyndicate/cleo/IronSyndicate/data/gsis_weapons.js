@@ -179,6 +179,85 @@ export var SILENCIADORES = {
     }
 };
 
+// ---------------------------------------------------------------------------
+// LA MUNICION SUELTA
+// ---------------------------------------------------------------------------
+// La bala es lo que se consume. El cargador es una PIEZA con SU municion, y hasta
+// ahora la municion de un cargador solo venía de otro cargador del mismo id —un
+// trasvase entre cargadores, que no deja entrar balas nuevas al sistema y obliga
+// a tirar el sobrante—. La bala suelta cierra el circulo: la caja es la UNICA
+// fuente, y el cargador se llena desde la caja.
+//
+// LA MISMA CLAVE `familias` QUE LOS CARGADORES, A PROPOSITO
+// ---------------------------------------------------------------------------
+// "Que calibre sirve esta bala" y "que familias le sirven a este cargador" son la
+// misma pregunta con dos palabras distintas, y contestarla con dos campos seria dos
+// fuentes de verdad: un cargador 9mm y una caja .45 podrian coexistir sin que nada
+// los casara y el jugador tendria municion que no le sirve a nada. Con `familias` en
+// los dos, el casamiento es el MISMO codigo —`cargadorSirveA` y `balaSirveA`— y
+// agregar una familia nueva obliga a las dos mitades juntas, que es el mismo
+// contrato que ya tienen FAMILIAS y CARGADORES.
+//
+// Y el `.45` del id es el calibre REAL de la Colt .45. El motor llama "9mm" a su
+// tipo de municion interno y por eso los cargadores se ven con mag_9mm.png; el
+// calibre del mundo es .45 y las dos cosas viven en capas distintas.
+//
+// `maxStack` NO esta aca: es una propiedad del CATALOGO de items y vive en ITEMS
+// (data/gsis_item_data.js), que es donde vive el peso y el nombre.
+export var MUNICION = {
+    "bala_45": {
+        nombre: "Balas .45",
+        familias: ["colt45"]
+    }
+};
+
+// Si una bala le sirve a una familia. La contraparte exacta de cargadorSirveA.
+export function balaSirveA(balaId, familiaId) {
+    var def = MUNICION[balaId];
+    if (!def || !familiaId) return false;
+    return def.familias.indexOf(familiaId) !== -1;
+}
+
+// Las balas que le sirven a una familia, en el orden de la tabla.
+//
+// Devuelve una LISTA y no un id aunque hoy haya una sola: la misma razon que
+// `cargadoresDe`. Una familia con dos calibres es un caso que el diseno ya tiene
+// que admitir, y un `return MUNICION[primero].id` la haria imposible de agregar
+// despues sin tocar tres lugares mas.
+export function balasDe(familiaId) {
+    var out = [];
+    for (var id in MUNICION) {
+        if (Object.prototype.hasOwnProperty.call(MUNICION, id) &&
+            MUNICION[id].familias.indexOf(familiaId) !== -1) {
+            out.push(id);
+        }
+    }
+    return out;
+}
+
+// Si el jugador tiene balas de una familia en el inventario, y cuantas.
+//
+// La respuesta es un NUMERO y no un booleano porque la UI la usa para pintar
+// cuanto falta en el cargador: "10 balas" y "sin balas" son dos filas distintas de
+// la tabla, y un booleano obliga a la pagina a contar por su cuenta con el mismo
+// criterio que el modulo —que es la razon por la que la fila del cargador la
+// calcula el modulo y no la pagina (ver `puedeRellenar` en ui/views/inventory.js).
+//
+// Y DEVUELVE -1, no 0, cuando no hay. La diferencia importa: 0 balas es un estado
+// ("tiene la caja vacia") y -1 es una ausencia ("no tiene esa municion"), y el
+// segundo tiene que poder desactivar el boton de Rellenar aunque la otra fila de
+// balas que el jugador tiene para otra familia le de algo que dibujar.
+export function balasDeFamilia(items, familiaId) {
+    var total = 0;
+    var hay = false;
+    for (var i = 0; i < items.length; i++) {
+        if (!balaSirveA(items[i].id, familiaId)) continue;
+        hay = true;
+        total += items[i].qty || 0;
+    }
+    return hay ? total : -1;
+}
+
 // La definicion de la familia de un itemId, o null si el item no es un arma del
 // mod. El nombre dice familia y no arma porque UN item es UN arma y todas sus
 // configuraciones; `defDeArma` sugeria que cada item era un arma distinta.

@@ -67,6 +67,35 @@ export var ITEMS = {
     "mag_colt45":    { name: "Cargador Colt 45",  weight: 0.2, type: "magazine" },
     "mag_colt45_c15": { name: "Cargador Colt 45 Extended", weight: 0.25, type: "magazine" },
 
+    // La bala suelta. La banda es "magazine" y el item NO es un cargador, y esa
+    // contradiccion es deliberada: la banda decide en que grupo de la UI se
+    // dibuja la fila, y balas y cargadores son la misma cosa para el jugador —
+    // "Municion"—. El tipo del catalogo no tiene que ser el nombre de la cosa.
+    //
+    // `instanced: false` es lo que hace que se APILE. Sin esta linea, el
+    // `type: "magazine"` de arriba la declararia instanciada y las 50 balas
+    // estarian en 50 filas de una, que es exactamente lo contrario de una caja.
+    // Ver `isInstanced` mas abajo: el opt-out esta ahi justamente para este caso.
+    //
+    // Y de paso arregla la columna de municion: `ammoCell` cae en
+    // `if (isInstanced(it.id)) return String(n)` y una fila de balas instanciada
+    // PINTARIA "0" en la columna de balas de un item que ES municion. Con el
+    // opt-out devuelve null y la fila no tiene celda, que es lo correcto: su
+    // cantidad ya esta en la columna de cantidad, al lado del nombre.
+    //
+    // `familias` es la MISMA clave que usan los cargadores: el casamiento bala y
+    // cargador sale de ahi y de ningun otro lado. Ver MUNICION en
+    // data/gsis_weapons.js.
+    //
+    // 0.005 kg por bala son 0.25 la caja de 50, que es lo que pesan de verdad.
+    //
+    // El nombre es PLURAL y no "Bala .45" a proposito: la fila de la mochila muestra
+    // la cantidad al lado —"Balas .45  x37"— y un nombre singular con un 37 al lado
+    // dice una cosa que la fila no muestra. Con el plural, el nombre y la cantidad
+    // cuentan la misma historia y el jugador no tiene que hacer la cuenta mental.
+    "bala_45":       { name: "Balas .45",         weight: 0.005, type: "magazine", instanced: false,
+                       familias: ["colt45"], maxStack: 50 },
+
     // El silenciador se COMPRA suelto y se MONTA en el arma. No es una variante:
     // es la pieza que convierte una variante en la de al lado. Por eso es un item
     // y por eso el flag `silenciador` vive en la fila del arma.
@@ -135,13 +164,35 @@ export function getItemType(id) {
 // Y la fila puede marcar `instanced: true` para un tipo que todavia no exista, que
 // es la puerta de salida para un item instanciado de otra familia.
 //
+// Y `instanced: false` es la puerta de ENTRADA: gana contra el tipo, y existe por
+// la bala, que tiene la banda de "magazine" y no es un cargador. El porque entero
+// esta sobre la funcion.
+//
 // Que el predicado viva en la capa de datos y no en el modulo de inventario es lo
 // que hace que los cinco que lo preguntan (los dos del modulo de inventario, el
 // baul, el vendedor y el retiro) compartan la misma respuesta. Si cada uno
 // preguntara distinto, "instanciado" seria una palabra con cinco significados.
+// export function isInstanced — el opt-out va PRIMERO y antes de todo.
+//
+// `instanced: false` gana contra el tipo. Es la unica excepcion a la regla de la
+// tabla de arriba, y existe por un caso: la BALA.
+//
+// El contrato de "magazine = instanciado" es "un cargador es una unidad con SUS
+// balas, no un numero de unidades". La bala rompe las dos mitades de ese contrato:
+// su banda de UI es la misma —por eso el jugador ve cargadores y balas juntos y
+// no entiende que son cosas distintas—, pero la bala ES un numero de unidades, y
+// de eso se trata.
+//
+// Si el opt-out no estuviera, `type: "magazine"` la declararia instanciada y
+// pasaria lo que sea que se pase por instanciado: el alta learia una fila por
+// bala —50 filas por caja—, la columna de municion le pintaria "0" a cada una, y
+// `ITEMS_TAKE_MAGAZINE` la trataria como un cargador sin cargador.
+//
+// O sea: el opt-out no es una comodidad, es lo que hace que la bala sea una bala.
 export function isInstanced(id) {
     var def = ITEMS[id];
     if (!def) return false;  // id fuera de catalogo: no hay nada que contar
+    if (def.instanced === false) return false;
     if (def.type === "weapon" || def.type === "magazine") return true;
     return def.instanced === true;
 }

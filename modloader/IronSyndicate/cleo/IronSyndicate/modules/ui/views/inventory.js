@@ -21,6 +21,11 @@ import { getItems, getTotalWeight } from "../../inventory/index.js";
 import {
     getEquipadas, getCargadoresEquipados, capacidadDeItem
 } from "../../weapons/gsis_Weapons.js";
+// De la capa de dato y no del modulo de armas: `defDeCargador` y `balasDeFamilia`
+// son preguntas al CATALOGO, y la banda de la UI es la unica que las hace — el
+// modulo de armas no tiene ninguna fila que dibujar. Ver itemRow.js, que importa
+// `capacidadDeclarada` del mismo lugar por la misma razon.
+import { defDeCargador, balasDeFamilia } from "../../../data/gsis_weapons.js";
 import { itemRow } from "./itemRow.js";
 
 var MAX_WEIGHT = MISC.MAX_INVENTORY_WEIGHT;
@@ -119,12 +124,23 @@ function equipadasSnap() {
 // Y el ammunition va con barra propia: el cargador no esta en el ped, asi que su
 // municion sale del registro del modulo y no de memoria del juego.
 //
-// `puedeRellenar` es lo unico que la pagina necesita saber de la accion Rellenar, y
-// es una comparacion entre dos numeros que el modulo ya tiene: la municion de la fila
-// y la capacidad del item. Que la pagina no la calcule es que no pueda equivocarse
-// con el mismo criterio que el modulo.
+// `puedeRellenar` es lo unico que la pagina necesita saber de la accion Llenar, y
+// son DOS condiciones: que el cargador tenga hueco, y que el jugador tenga balas de
+// la familia a la que ese cargador sirve.
+//
+// La segunda es la que hace que la accion aparezca solo cuando sirve. Con el
+// rellenado viejo la fuente era otro cargador, y con uno solo en la mochila el
+// boton llevaba a un "no tenes otro cargador con balas" —un aviso que aparecia
+// siempre que se apretaba y no se podia evitar—. Ahora el boton se apaga solo, y
+// el aviso queda para el caso real de apretarlo con las balas justo agotadas.
+//
+// Y las dos comparaciones las hace el modulo, no la pagina: el criterio de "hay
+// balas" es el mismo que usa el gasto, y si la pagina contara por su cuenta
+// cualquier diferencia entre los dos numeros seria un boton que promete y no
+// cumple.
 function cargadoresSnap() {
     var cargadores = getCargadoresEquipados();
+    var items = getItems();
     var rows = [];
     for (var i = 0; i < cargadores.length; i++) {
         var c = cargadores[i];
@@ -135,25 +151,63 @@ function cargadoresSnap() {
         row.ranura = "cargador";
         row.indice = c.indice;
         row.ranuraNro = c.indice + 1;
-        row.puedeRellenar = (c.ammo || 0) < cap;
+        // Toda fila de esta lista es un cargador: vienen de `getCargadoresEquipados`.
+        // El flag se pone igual, para que la pagina no tenga que deducirlo de donde
+        // vino la fila.
+        row.esCargador = true;
+        row.puedeRellenar = puedeLlenar(c.id, c.ammo || 0, cap, items);
         rows.push(row);
     }
     return rows;
 }
 
-// Las filas de la mochila. Para un cargador se le agregan `indice` y `puedeRellenar`.
+// Las DOS mitades de "puede llenarse", en un solo lugar.
 //
-// `indice` es el de items[], y es lo que permite la accion Rellenar: sin el, el
+// Vive en la vista y no en el modulo de armas porque las necesita la pagina, que
+// arma una fila por cada cargador y por cada fila de la mochila. Lo que NO vive aca
+// es el criterio: eso es `balasDeFamilia` y la capacidad del cargador, los dos del
+// modulo de armas. Aca solo se combinan.
+function puedeLlenar(magId, ammo, cap, items) {
+    if ((ammo || 0) >= cap) return false;
+    var def = defDeCargador(magId);
+    if (!def || !def.familias.length) return false;
+    // Todas las familias del cargador, no solo la primera. Hoy cada cargador
+    // sirve a una sola y el bucle daria lo mismo, pero un cargador que sirviera a
+    // dos se quedaria con el boton apagado si la bala que el jugador tiene fuera de
+    // la segunda — y el gasto, que tambien mira la lista entera, si le llenaria.
+    for (var f = 0; f < def.familias.length; f++) {
+        if (balasDeFamilia(items, def.familias[f]) > 0) return true;
+    }
+    return false;
+}
+
+// Las filas de la mochila. Para un CARGADOR se le agregan `indice`, `esCargador` y
+// `puedeRellenar`; para una bala, nada.
+//
+// Y el filtro es `defDeCargador`, no `cat === "magazine"`. Las balas tienen la
+// misma banda —por eso el jugador las ve con los cargadores— asi que un filtro por
+// banda le offeriria la accion Llenar a una fila de balas, y una fila de balas con
+// una sola unidad caeria en el filtro de Equipar cargador. La banda dice como se
+// DIBUJA la fila; para saber que acciones corresponden hay que preguntar que COSA
+// es, y contestar eso desde aca es lo que hace que la pagina no adivine.
+//
+// El `esCargador` va en la fila y la pagina no vuelve a preguntarlo: es la misma
+// idea que `puedeRellenar`, y por la misma razon — la pagina no tiene la tabla y no
+// debe hacer copias de los criterios del modulo —.
+//
+// `indice` es el de items[], y es lo que permite la accion Llenar: sin el, el
 // modulo tendria que buscar "un cargador" y con dos en la mochila no hay forma de
 // saber cual de los dos leyo el jugador. Las demas filas no lo llevan porque ninguna
-// otra accion lo necesita — Ellas van por id, que es unico para ellas.
+// otra accion lo necesita — ellas van por id, que es unico para ellas.
 function filasDeItems(items) {
     var rows = [];
     for (var i = 0; i < items.length; i++) {
         var row = itemRow(items[i]);
-        if (row.cat === "magazine") {
+        if (defDeCargador(row.id)) {
             row.indice = i;
-            row.puedeRellenar = (items[i].ammo || 0) < capacidadDeItem(row.id);
+            row.esCargador = true;
+            row.puedeRellenar = puedeLlenar(row.id, items[i].ammo || 0,
+                                           capacidadDeItem(row.id), items);
         }
         // El silenciador de un arma DE LA MOCHILA. Sin esto, una Colt con el
         // silenciador puesto sale en la lista como "Colt .45" y no hay forma de

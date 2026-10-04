@@ -13,16 +13,24 @@
 //                        cargador que tiene puesto, y ese se va por otro lado.
 //   items:takeMagazine   sacar UN cargador. Responde la fila, o null.
 //   items:storeMagazine  devolver UN cargador, con las balas que le quedaron.
+//   items:takeAccessory  sacar UN accesorio suelto. Responde la fila, o null.
+//   items:storeAccessory devolverlo, con el chequeo de peso.
 //   items:magAmmo        leer la municion de un cargador de la mochila, por indice.
 //   items:setMagAmmo     escribirla, sin sacarlo de la mochila.
-//   items:magSource      la fila de la mochila con mas balas de un id, sin sacarla.
+//   items:takeAmmo       DESCONTAR N balas de las que le sirven a una familia. No
+//                        saca filas: descuenta stacks, y borra los que llegan a cero.
+//   items:storeAmmo      dar N balas. Pasa por addItem, asi que respeta el tope de
+//                        fila y el peso.
+//
+// `items:magSource` estaba aqui y se borro con el rellenado entre cargadores. Ver
+// su lugar, mas abajo, y el bloque de la MUNICION SUELTA.
 //
 // Que vuelvan es la razon de ser del archivo: un `events.js` que no atiende nada
 // es un archivo vacio con un import, y este fue el lugar donde el modulo de armas
 // declaro el contrato con el.
 //
 // ============================================================================
-// LAS TRES REGLAS DE ESTOS HANDLERS
+// LAS CUATRO REGLAS DE ESTOS HANDLERS
 // ============================================================================
 // 1. NADA PARCIAL. Si no hay el item, se responde `null` y no se toca nada. Un
 //    "quedaste sin 1 de 2" es peor que un "no hay": el jugador no sabe si perdio
@@ -40,15 +48,19 @@
 
 import { on } from "../../core/gsis_EventBus.js";
 import { getModuleData, setModuleData } from "../../core/gsis_SaveManager.js";
-import { ITEMS, SALUD_MAX } from "../../data/gsis_item_data.js";
-import { capacidadDeclarada } from "../../data/gsis_weapons.js";
+import { ITEMS, SALUD_MAX, isInstanced } from "../../data/gsis_item_data.js";
+import { capacidadDeclarada, balaSirveA } from "../../data/gsis_weapons.js";
 import { MISC } from "../../core/gsis_Config.js";
 import {
     ITEMS_TAKE_WEAPON, ITEMS_STORE_WEAPON, ITEMS_TAKE_MAGAZINE, ITEMS_STORE_MAGAZINE,
     ITEMS_TAKE_ACCESSORY, ITEMS_STORE_ACCESSORY,
-    ITEMS_MAG_AMMO, ITEMS_SET_MAG_AMMO, ITEMS_MAG_SOURCE
+    ITEMS_MAG_AMMO, ITEMS_SET_MAG_AMMO,
+    ITEMS_TAKE_AMMO, ITEMS_STORE_AMMO
 } from "../../core/gsis_EventNames.js";
 import { SAVE_KEY, getTotalWeight } from "./state.js";
+// `addItem`, y no un push: es lo que hace que dar balas respete `maxStack` y el
+// peso. No hay ciclo —logic.js no importa este archivo—.
+import { addItem } from "./logic.js";
 
 // Los handlers se registran al IMPORTAR este archivo, no en init().
 //
@@ -170,6 +182,23 @@ on(ITEMS_STORE_ACCESSORY, function (e) {
 // aparezca: es la misma razon del handler de arriba.
 function _sacarUno(id, conBalas) {
     if (!id) return null;
+    // ESTE CAMINO SACA UNIDADES, Y UNA BALA NO ES UNA UNIDAD.
+    //
+    // `_sacarUno` no filtra por tipo: filtra por id, y el id lo elige quien llama.
+    // Eso estaba bien mientras todo lo que pasaba por aca era instanciado. Con la
+    // bala —que tiene la banda "magazine" y `instanced: false`— un
+    // `items:takeMagazine` con su id se llevaria una fila de 37 balas y la
+    // devolveria como un "cargador" con municion 0.
+    //
+    // El filtro va ACA y no en los tres handlers porque los tres tienen el mismo
+    // error y la respuesta correcta es la misma: esto saca filas de una unidad con
+    // estado, y un stack no es una unidad con estado. La bala tiene su propio
+    // camino, `items:takeAmmo`, que descuenta y no saca.
+    if (!isInstanced(id)) {
+        log("[Items] _sacarUno: " + id + " es apilable y no es una unidad. " +
+            "Las balas se gastan con items:takeAmmo, no se sacan con take*. Es un error de llamado.");
+        return null;
+    }
     var data = getModuleData(SAVE_KEY);
     if (!data) data = { items: [], trunks: {} };
     if (!data.items) data.items = [];
@@ -258,32 +287,118 @@ on(ITEMS_SET_MAG_AMMO, function (e) {
 
 // La fila de la mochila con MAS BALAS de un id. { indice, ammo } o null.
 //
-// No saca la fila: la devuelve con su indice. "Con mas balas" y no "la primera
-// con balas" porque rellenar tiene que vaciarle a la que mejor puede, que es la
-// unica que el jugador va a notar que se movio.
+// ESTE HANDLER SE BORRO, Y ESTA ES LA RAZON.
 //
-// `excluir` es el indice del cargador que se esta rellenando, y esta ahi por una
-// razon muy concreta: si el destino tiene balas y es el mas lleno de la mochila,
-// sin esto la "fuente" seria el mismo cargador que se quiere llenar, y el modulo se
-// llenaria a si mismo sin mover un solo proyectil.
-on(ITEMS_MAG_SOURCE, function (e) {
+// Existia para el rellenado entre cargadores: el destino era un cargador y la
+// fuente "otro cargador del mismo id con mas balas". Devolver el indice sin sacarlo
+// era lo que hacia posible la transferencia.
+//
+// Con las cajas la fuente es la bala, y a la bala no se la "busca y se saca": se le
+// DESCUENTA una cantidad. Un `items:magSource` de balas tendria que devolver un
+// indice para que el modulo lo desarmara a mano con `items:setMagAmmo`, o sea
+// exactamente las tres escrituras sin transaccion que este handler ya era. La bala
+// entra por `items:takeAmmo`, que hace el gasto entero adentro.
+//
+// ---------------------------------------------------------------------------
+// LA MUNICION SUELTA
+// ---------------------------------------------------------------------------
+// El gasto de balas, en un solo handler y en una sola escritura.
+//
+// POR QUE UN SOLO HANDLER Y NO TRES
+//
+// El rellenado viejo hacia: leer la fuente, escribir el destino, escribir la
+// fuente. Tres escrituras y ningun punto donde el modulo pudiera volver atras. Si
+// el juego se cerraba entre la segunda y la tercera, el jugador habia perdido
+// balas —la fuente nunca se desconto— o se habia ganado balas, si el crash caia
+// entre la primera y la segunda y la fuente se habia leido pero no gastado.
+//
+// Aqui no hay ventana: se lee el stock, se calcula y se escribe una vez. Si el
+// juego se cierra antes del `setModuleData`, no se desconto nada; si se cierra
+// despues, se desconto bien. No hay estado intermedio que pueda quedar a medias.
+//
+// De la mas llena primero, no de la primera que aparezca
+//
+// Con tres filas de 12, 50 y 3, llenar un cargador de 8 contra las tres deja
+// 42, 50 y 3; contra la de 12 primero deja 4, 50 y 3 y todavia no necesita abrir
+// la siguiente fila. La eleccion es invisible para el jugador en el caso normal y
+// evita partir una fila casi vacia cuando hay una llena.
+//
+// NADA SE SACA DEL INVENTARIO. Un stack se descuenta, no se mueve: la fila se
+// BORRA recien cuando llega a cero, y ese es el unico caso en que desaparece una.
+on(ITEMS_TAKE_AMMO, function (e) {
     var d = e.data || {};
-    var id = d.id;
-    var excluir = typeof d.excluir === "number" ? d.excluir : -1;
-    if (!id) { e.respond(null); return; }
-    var data = getModuleData(SAVE_KEY);
-    if (!data || !data.items) { e.respond(null); return; }
+    var n = Math.floor(Number(d.n));
+    if (!isFinite(n) || n <= 0) { e.respond({ taken: 0 }); return; }
 
-    var elegido = -1;
-    var mejor = 0;
+    var familias = d.familias || [];
+    var data = getModuleData(SAVE_KEY);
+    if (!data || !data.items) { e.respond({ taken: 0 }); return; }
+
+    // Cuales filas de municion le sirven a alguna de las familias pedidas.
+    var sirven = [];
     for (var i = 0; i < data.items.length; i++) {
-        if (i === excluir) continue;
-        if (data.items[i].id !== id) continue;
-        var n = data.items[i].ammo || 0;
-        if (n > mejor) { mejor = n; elegido = i; }
+        var fila = data.items[i];
+        if (!fila || !fila.id) continue;
+        var sirve = false;
+        for (var f = 0; f < familias.length; f++) {
+            if (balaSirveA(fila.id, familias[f])) { sirve = true; break; }
+        }
+        if (sirve) sirven.push(i);
     }
-    if (elegido < 0) { e.respond(null); return; }
-    e.respond({ indice: elegido, ammo: mejor });
+
+    // De la mas llena: el mismo criterio del handler que se borro, y por el mismo
+    // motivo —llenar contra la mas llena es lo que evita partir una fila a medio
+    // camino.
+    sirven.sort(function (a, b) { return (data.items[b].qty || 0) - (data.items[a].qty || 0); });
+
+    var faltan = n;
+    var tocadas = [];
+    for (var s = 0; s < sirven.length && faltan > 0; s++) {
+        var idx = sirven[s];
+        var q = data.items[idx].qty || 0;
+        if (q <= 0) continue;
+        var toma = Math.min(q, faltan);
+        data.items[idx].qty = q - toma;
+        faltan -= toma;
+        tocadas.push(idx);
+    }
+
+    var tomadas = n - faltan;
+
+    // Las filas que quedaron en cero SE BORRAN, y SOLO las que este handler toco.
+    //
+    // Un stack de 0 es una fila que el jugador ve en la mochila y no puede usar: no
+    // tiene cantidad, no tiene que pesar y ocupa lugar. Y dejarla seria peor que
+    // el bug de que se colgara: `balasDeFamilia` contaria esa fila como municion
+    // que existe y el boton de Rellenar se activaria sin balas que gastar.
+    //
+    // Pero solo las que toco ESTE handler. Un `qty` de cero en cualquier otra fila
+    // del inventario es de otro modulo y es problema de ese modulo: un barrido
+    // general de ceros seria un borrado de datos ajenos dentro de un gasto de balas.
+    //
+    // Y de ATRAS hacia adelante. Recorriendo al reves, el indice de una fila que
+    // todavia no se borro no cambio: borrar la de arriba correria la de abajo, y al
+    // reves no. Por eso `tocadas` guarda indices del estado de ANTES del borrado.
+    for (var b = tocadas.length - 1; b >= 0; b--) {
+        if (data.items[tocadas[b]].qty === 0) data.items.splice(tocadas[b], 1);
+    }
+
+    if (tomadas > 0) setModuleData(SAVE_KEY, data);
+    e.respond({ taken: tomadas, tocadas: tocadas.length });
+});
+
+// Dar balas. Es el camino del debug y de un pickup futuro.
+//
+// PASA POR addItem, y no por un push como el de `items:storeMagazine`, por dos
+// razones que son las dos cosas que un push no hace: respeta `maxStack` —dar 120
+// balas son tres filas de 50, 50 y 20, no una de 120— y pesa el total antes de
+// escribir. Un push desnudo que se Saltara las dos es el mismo bug que hacia el
+// magazineStore sin chequear peso, y esta vez lo esquivamos por existir.
+on(ITEMS_STORE_AMMO, function (e) {
+    var d = e.data || {};
+    var n = Math.floor(Number(d.n));
+    if (!d.id || !isFinite(n) || n <= 0) { e.respond(false); return; }
+    e.respond(addItem(d.id, n));
 });
 
 // El nombre que ESTE modulo emite. Declarado en el archivo del dueno y no en

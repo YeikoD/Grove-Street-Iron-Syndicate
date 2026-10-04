@@ -122,16 +122,33 @@ export var ITEMS_STORE_ACCESSORY = "items:storeAccessory";
 //
 //   magAmmo   { indice }            -> { id, ammo } o null
 //   setMagAmmo{ indice, ammo }      -> true o false
-//   magSource { id }                -> { indice, ammo } o null
 //
 // Por indice y no por id porque dos cargadores del mismo tipo pueden estar en la
 // mochila a la vez —el vacio y el lleno, que es justamente el caso de rellenar— y
 // "el primero que encuentre" no es el que el jugador leyo.
-//
-// Y `magSource` NO saca la fila: la devuelve. Si la sacara, las filas de abajo
-// correrian un lugar y el indice del destino dejaria de apuntar a la fila
-// correcta. Por eso rellenar lee, escribe y no mueve nada: mover filas es lo que
-// rompe los indices.
 export var ITEMS_MAG_AMMO = "items:magAmmo";
 export var ITEMS_SET_MAG_AMMO = "items:setMagAmmo";
-export var ITEMS_MAG_SOURCE = "items:magSource";
+
+// ---------------------------------------------------------------------------
+// LA MUNICION SUELTA
+// ---------------------------------------------------------------------------
+//   takeAmmo  { n, familias }  -> { taken } o { taken: 0 }
+//   storeAmmo { id, n }        -> true o false
+//
+// EL RELLENADO ENTRE CARGADORES SE FUE, Y `magSource` SE FUE CON EL
+// ---------------------------------------------------------------------------
+// `magSource` buscaba "otro cargador del mismo id con mas balas" para trasvasarle
+// las suyas. Con las cajas la fuente es la bala, y a la bala no se la busca: se le
+// DESCUENTA una cantidad. Asi que en vez de devolver un indice para desarmarlo a
+// mano, `takeAmmo` hace el gasto entero y responde cuanto salio.
+//
+// El gasto es de ahi adentro por una razon que no es de estilo: la version de tres
+// escrituras —leer la fuente, escribir el destino, escribir la fuente— no tenia
+// punto de vuelta, y un juego cerrando en el medio dejaba balas perdidas. Con una
+// sola escritura no hay estado intermedio.
+//
+// Y `familias`, no `id`: el casamiento es el MISMO de los cargadores. Un cargador
+// pregunta "que familias te sirven" y una bala tambien, y por eso agregar una
+// familia obliga a las dos mitades juntas. Ver MUNICION en data/gsis_weapons.js.
+export var ITEMS_TAKE_AMMO = "items:takeAmmo";
+export var ITEMS_STORE_AMMO = "items:storeAmmo";

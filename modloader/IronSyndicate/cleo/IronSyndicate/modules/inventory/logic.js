@@ -116,12 +116,43 @@ export function addItem(id, qty, opts) {
         return true;
     }
 
+    // EL TOPE POR FILA, Y POR QUE SOLO LO RESPETA EL QUE LO DECLARA
+    //
+    // `maxStack` es opt-in a proposito. Un item que no lo declara se apila en una
+    // sola fila y punto: la chatarra con 400 unidades es UNA fila, que es como se
+    // comportaba antes de que existieran las balas y como se sigue comportando.
+    // Ponerle un tope general habria roto el arbol entero para acomodar un caso, y
+    // habria que decidir un numero que todavia no existe.
+    //
+    // Y con tope, la fila LLENA se COMPLETA antes de abrir una nueva: agregar 30
+    // balas a un stock de 37 da 50 y 17 en dos filas, no una de 67. Al reves se
+    // desperdiciaria el hueco de la primera fila para siempre.
+    var tope = ITEMS[id].maxStack || 0;
+
+    if (tope > 0) {
+        var quedan = qty;
+        for (var s = 0; s < data.items.length && quedan > 0; s++) {
+            if (data.items[s].id !== id) continue;
+            var hueco = tope - (data.items[s].qty || 0);
+            if (hueco <= 0) continue;
+            // NO se toca su salud: el stack es una fila con una salud, y agregar no
+            // cambia la unidad que ya estaba ahi. La regla de "gastar de un stack
+            // gastado" la aplica quien consuma, no el alta.
+            var entra = Math.min(hueco, quedan);
+            data.items[s].qty += entra;
+            quedan -= entra;
+        }
+        while (quedan > 0) {
+            var nuevas = Math.min(tope, quedan);
+            data.items.push({ id: id, qty: nuevas, salud: SALUD_MAX });
+            quedan -= nuevas;
+        }
+        setModuleData(SAVE_KEY, data);
+        return true;
+    }
+
     for (var i = 0; i < data.items.length; i++) {
         if (data.items[i].id === id) {
-            // Une al stack que ya esta: NO se toca su salud. El stack es una
-            // fila con una salud, y agregar no esmbia la unidad que ya estaba
-            // ahi. La regla de "gastar de un stack gastado" la aplica quien
-            // consuma, no la alta.
             data.items[i].qty += qty;
             setModuleData(SAVE_KEY, data);
             return true;

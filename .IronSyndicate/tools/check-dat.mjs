@@ -40,8 +40,11 @@
 //   los cargadores  todo CARGADORES[].familias existe, clipSize > 0, y toda
 //                   familia tiene al menos un cargador
 //   los silenciadores  esta en ITEMS con type "weapon_attachment"
-//   el catalogo     todo FAMILIAS, CARGADORES y SILENCIADORES estan en ITEMS, y
-//                   ningun item de esos tipos queda fuera del catalogo
+//   la municion    todo MUNICION[].familias existe, esta en ITEMS con type
+//                   "magazine" e instanced false, tiene maxStack > 0, y toda
+//                   familia tiene al menos una bala
+//   el catalogo     todo FAMILIAS, CARGADORES, MUNICION y SILENCIADORES estan en
+//                   ITEMS, y ningun item de esos tipos queda fuera del catalogo
 //   los iconos      todo item tiene linea en WEB_ICONS y el PNG existe en image/
 //
 // QUE NO CHEQUEA, Y POR QUE
@@ -85,9 +88,9 @@ function cargar(ruta, nombres) {
     return new Function(src + "\nreturn { " + nombres.join(", ") + " };")();
 }
 
-const { FAMILIAS, CARGADORES, SILENCIADORES, tipoDe, varianteDeTipo } =
+const { FAMILIAS, CARGADORES, SILENCIADORES, MUNICION, tipoDe, varianteDeTipo } =
     cargar(join(DATA, "gsis_weapons.js"),
-        ["FAMILIAS", "CARGADORES", "SILENCIADORES", "tipoDe", "varianteDeTipo"]);
+        ["FAMILIAS", "CARGADORES", "SILENCIADORES", "MUNICION", "tipoDe", "varianteDeTipo"]);
 const { ITEMS } = cargar(join(DATA, "gsis_item_data.js"), ["ITEMS"]);
 const { WEB_ICONS } = cargar(join(DATA, "gsis_web_data.js"), ["WEB_ICONS"]);
 
@@ -237,13 +240,47 @@ if (!Object.keys(SILENCIADORES).length)
     mal("SILENCIADORES vacio: la mitad de las variantes no se puede alcanzar");
 bien(`${Object.keys(SILENCIADORES).length} silenciadores, en el catalogo y con la categoria correcta`);
 
+// --- la municion suelta -----------------------------------------------------
+// La bala comparte `type: "magazine"` con los cargadores a proposito — van en la
+// misma banda de la UI, que se llama "Municiones" — asi que el chequeo de catalogo
+// de mas arriba tiene que Exceptuarlas por tabla y no por tipo.
+for (const [id, m] of Object.entries(MUNICION)) {
+    const item = ITEMS[id];
+    if (!item) {
+        mal(`MUNICION["${id}"] no esta en ITEMS: hay una bala que el jugador no puede tener`);
+        continue;
+    }
+    if (!Array.isArray(m.familias) || !m.familias.length) {
+        mal(`MUNICION["${id}"] no declara familias: sin ellas no se sabe que cargador puede usar`);
+        continue;
+    }
+    for (const f of m.familias)
+        if (!FAMILIAS[f])
+            mal(`MUNICION["${id}"].familias tiene "${f}", que no esta en FAMILIAS`);
+    if (item.type !== "magazine")
+        mal(`ITEMS["${id}"].type es "${item.type}" y tiene que ser "magazine", ` +
+            `para que salga en la banda "Municiones" al lado de los cargadores`);
+    if (item.instanced !== false)
+        mal(`ITEMS["${id}"].instanced no es false. Sin esto la bala se declara ` +
+            `instanciada por su type y las 50 balas de una caja son 50 filas de una`);
+    if (!(item.maxStack > 0))
+        mal(`ITEMS["${id}"].maxStack no es > 0: sin tope, 100 balas son una sola fila`);
+}
+for (const f of Object.keys(FAMILIAS)) {
+    const hay = Object.values(MUNICION).some((m) => m.familias.includes(f));
+    if (!hay)
+        mal(`la familia "${f}" no tiene ninguna bala en MUNICION: sus cargadores ` +
+            `se llenan solos de la nada y no hay forma de gastarlos`);
+}
+bien(`${Object.keys(MUNICION).length} tipo(s) de municion, con tope de fila y casados por familias`);
+
 // --- catalogo ---------------------------------------------------------------
 for (const id of Object.keys(ITEMS)) {
     const t = ITEMS[id].type;
     if (t === "weapon" && !FAMILIAS[id])
         mal(`ITEMS["${id}"] es un arma y no esta en FAMILIAS: el item existe y el motor no`);
-    if (t === "magazine" && !CARGADORES[id])
-        mal(`ITEMS["${id}"] es un cargador y no esta en CARGADORES`);
+    if (t === "magazine" && !CARGADORES[id] && !MUNICION[id])
+        mal(`ITEMS["${id}"] es un cargador y no esta en CARGADORES ni en MUNICION`);
     if (t === "weapon_attachment" && !SILENCIADORES[id])
         mal(`ITEMS["${id}"] es un accesorio y no esta en SILENCIADORES`);
 }

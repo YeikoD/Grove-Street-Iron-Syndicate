@@ -77,11 +77,12 @@ import { query } from "../../core/gsis_EventBus.js";
 import {
     ITEMS_TAKE_WEAPON, ITEMS_STORE_WEAPON, ITEMS_TAKE_MAGAZINE, ITEMS_STORE_MAGAZINE,
     ITEMS_TAKE_ACCESSORY, ITEMS_STORE_ACCESSORY,
-    ITEMS_MAG_AMMO, ITEMS_SET_MAG_AMMO, ITEMS_MAG_SOURCE
+    ITEMS_MAG_AMMO, ITEMS_SET_MAG_AMMO,
+    ITEMS_TAKE_AMMO, ITEMS_STORE_AMMO
 } from "../../core/gsis_EventNames.js";
 import {
     defDeFamilia, defDeCargador, defDeSilenciador, cargadorSirveA, cargadoresDe,
-    tipoDe, varianteDeTipo, familiaDeTipo, nombreDeConfiguracion,
+    balaSirveA, balasDe, tipoDe, varianteDeTipo, familiaDeTipo, nombreDeConfiguracion,
     CARGADORES, SILENCIADORES
 } from "../../data/gsis_weapons.js";
 import * as Engine from "../../core/gsis_Engine.js";
@@ -449,29 +450,52 @@ function _clipPelado(familiaId) {
 }
 
 // ---------------------------------------------------------------------------
-// RELLENAR
+// LLENAR
 // ---------------------------------------------------------------------------
-// Pasarle las balas de un cargador a otro del mismo tipo. Es la accion que le da
-// sentido a un cargador vacio: sin ella, disparar las 8 balas dejaba una pieza en la
-// mochila que no servia para nada.
+// Pasarle balas a un cargador. Es la accion que le da sentido a un cargador vacio:
+// sin ella, disparar las 8 balas dejaba una pieza en la mochila que no servia para
+// nada.
 //
-// El destino es el cargador que el jugador eligio —el de la fila que toco— y la
-// fuente la elige el modulo: la de la mochila con MAS balas, o si no hay ninguna, la
-// ranura mas llena. Se mira la mochila primero para no vaciar una ranura de un click
-// cuando hay un cargador en la mochila que puede cubrirlo.
+// LA FUENTE SON LAS BALAS SUELTAS, Y ANTES ERA OTRO CARGADOR. Ese cambio es todo el
+// sistema: antes la accion era un trasvase entre cargadores del mismo id, que hacia
+// circular lo que ya estaba dentro y no dejaba entrar municion nueva al sistema —
+// con dos cargadores y ocho balas, la suma de balas del mundo no crecia nunca—.
+// Ahora la caja es la unica entrada, y el cargador es la pieza que se llena.
+//
+// Que el destino siga siendo el cargador y no el arma es lo que sostiene el
+// sistema de variantes: la capacidad la elige QUE CARGADOR esta puesto, y sin
+// cargadores el cargador de 15 —y con el, las variantes 62 y 61— seria
+// inalcanzable.
 //
 // Y NUNCA se mueve una fila: las dos se escriben donde estan. Sacar una fila corre
 // los indices de las de abajo, y la segunda escritura caeria en el cargador
 // equivocado —que es la forma sutil de que un cargador aparezca con las balas de
 // otro—.
-export function rellenarCargador(equipado, indice) {
+// ---------------------------------------------------------------------------
+// LLENAR UN CARGADOR DESDE LA CAJA
+// ---------------------------------------------------------------------------
+// El destino es el cargador que el jugador eligio —el de la fila que toco— y la
+// fuente ya no es un cargador: son las balas sueltas, que son la UNICA entrada de
+// municion al sistema. Antes la fuente era "otro cargador del mismo id", un
+// trasvase que hacia circular lo que ya estaba dentro y no dejaba entrar nada
+// nuevo.
+//
+// Que elija el MODULO y no el jugador tambien es lo mismo que antes: si el modulo
+// pregunta "cual caja" y hay varias, "la de la familia" alcanza, porque una caja de
+// otra familia no le sirve a este cargador.
+//
+// Y NUNCA se mueve una fila del destino: se le ESCRIBE la municion donde esta. Y
+// las balas tampoco se mueven: se las descuenta, que es una operacion distinta y no
+// corre indices. Por eso la fila que el jugador toco sigue siendo la misma fila
+// despues de rellenar.
+export function llenarDesdeCaja(equipado, indice) {
     // ---- EL DESTINO
     var destId = null;
     var destAmmo = 0;
     if (equipado) {
         var enRanura = getCargadores()[indice];
         if (!enRanura) {
-            log("[Weapons] rellenarCargador: la ranura " + (indice + 1) + " esta vacia");
+            log("[Weapons] llenarDesdeCaja: la ranura " + (indice + 1) + " esta vacia");
             return false;
         }
         destId = enRanura.id;
@@ -479,80 +503,65 @@ export function rellenarCargador(equipado, indice) {
     } else {
         var fila = query(ITEMS_MAG_AMMO, { indice: indice });
         if (!fila) {
-            log("[Weapons] rellenarCargador: en la mochila no hay un cargador en el indice " + indice);
+            log("[Weapons] llenarDesdeCaja: en la mochila no hay un cargador en el indice " + indice);
             return false;
         }
         destId = fila.id;
         destAmmo = fila.ammo || 0;
     }
 
+    // ---- QUE FAMILIA ES
+    //
+    // La familia es lo que decide que balas sirven, y sale del CARGADOR, no del
+    // arma: el cargador es la pieza, y el casamiento de una bala con un cargador es
+    // "las familias que le sirven a ambos". Un cargador de otra familia en esta
+    // ranura es un estado que `recargar` no puede dejar, pero aca se rechaza igual
+    // en vez de llenar un cargador que ninguna variante puede usar.
+    var destDef = defDeCargador(destId);
+    if (!destDef || !destDef.familias.length) {
+        log("[Weapons] llenarDesdeCaja: " + destId + " no es un cargador con familias");
+        return false;
+    }
+
     var cap = capacidadDeItem(destId);
     var falta = cap - destAmmo;
     if (falta <= 0) {
         showTextBox(t("WPN_LLENO"));
-        log("[Weapons] rellenarCargador: " + destId + " ya esta lleno (" + destAmmo + "/" + cap + ")");
+        log("[Weapons] llenarDesdeCaja: " + destId + " ya esta lleno (" + destAmmo + "/" + cap + ")");
         return false;
     }
 
-    // ---- LA FUENTE
+    // ---- LAS BALAS
     //
-    // `excluir` es el indice del destino solo si esta en la mochila: en las ranuras
-    // no hace falta porque el destino no esta en items[].
-    var fuente = null;
-    var enMochila = query(ITEMS_MAG_SOURCE, {
-        id: destId,
-        excluir: equipado ? -1 : indice
-    });
-    if (enMochila) {
-        fuente = { donde: "mochila", indice: enMochila.indice, ammo: enMochila.ammo || 0 };
-    } else {
-        var equipadas = getCargadores();
-        for (var i = 0; i < equipadas.length; i++) {
-            if (equipado && i === indice) continue;
-            if (equipadas[i].id !== destId) continue;
-            if (!fuente || equipadas[i].ammo > fuente.ammo) {
-                fuente = { donde: "ranura " + (i + 1), indice: i, ammo: equipadas[i].ammo || 0 };
-            }
-        }
-    }
-    if (!fuente || fuente.ammo <= 0) {
-        showTextBox(t("WPN_MAG_SIN_FUENTE"));
-        log("[Weapons] rellenarCargador: no hay otro " + destId + " con balas para rellenar");
+    // Un solo evento, y hace el gasto entero adentro. Se pide `falta`, no todo lo
+    // que hay: si el jugador tiene 200 balas y el cargador va a estar lleno con 8,
+    // pedir 200 gastaria el stock entero en una caja que se iba a llenar igual. El
+    // handler responde cuanto salio de verdad, que es lo que se le suma al
+    // cargador, y por eso un `taken` menor que `falta` no es un error: es que no
+    // habia balas.
+    var r = query(ITEMS_TAKE_AMMO, { n: falta, familias: destDef.familias });
+    var tomadas = (r && r.taken) || 0;
+    if (tomadas <= 0) {
+        showTextBox(t("WPN_SIN_MUNICION"));
+        log("[Weapons] llenarDesdeCaja: no hay balas para " + destId +
+            " (familia " + destDef.familias.join(", ") + ")");
         return false;
     }
 
-    // ---- MOVER
+    // ---- ESCRIBIR EL DESTINO
     //
-    // Lo que entra es lo que falta en el destino o lo que tiene la fuente, lo que
-    // se acabe primero. Un cargador de 15 llenando uno de 8 pone 8 y deja 7.
-    var movidas = Math.min(falta, fuente.ammo);
-
-    // El destino primero. Es el orden que importa: el indice del destino se leyo
-    // antes de escribir nada, y hasta aca no se movio ninguna fila.
+    // El indice del destino se leyo antes de gastar las balas, y gastar balas no
+    // mueve filas —descuenta cantidades y borra stacks que llegaron a cero, que no
+    // son el destino porque el destino es un cargador instanciado— asi que el
+    // indice sigue apuntando a la misma fila.
     if (equipado) {
-        setCargador(indice, { id: destId, ammo: destAmmo + movidas });
+        setCargador(indice, { id: destId, ammo: destAmmo + tomadas });
     } else {
-        query(ITEMS_SET_MAG_AMMO, { indice: indice, ammo: destAmmo + movidas });
+        query(ITEMS_SET_MAG_AMMO, { indice: indice, ammo: destAmmo + tomadas });
     }
 
-    // Y la fuente se queda con lo que sobro. Si era una ranura y no le queda nada,
-    // sale por soltarCargador: una ranura no guarda un cargador vacio.
-    var resto = fuente.ammo - movidas;
-    var detalleFuente;
-    if (fuente.donde === "mochila") {
-        query(ITEMS_SET_MAG_AMMO, { indice: fuente.indice, ammo: resto });
-        detalleFuente = "la mochila (" + fuente.ammo + " -> " + resto + ")";
-    } else if (resto > 0) {
-        setCargador(fuente.indice, { id: destId, ammo: resto });
-        detalleFuente = "la " + fuente.donde + " (" + fuente.ammo + " -> " + resto + ")";
-    } else {
-        setCargador(fuente.indice, null);
-        detalleFuente = "la " + fuente.donde + ", que se vacio -> " + soltarCargador(destId, 0);
-    }
-
-    log("[Weapons] rellenarCargador: " + destId + " " + destAmmo + "/" + cap +
-        " -> " + (destAmmo + movidas) + "/" + cap +
-        " | " + movidas + " balas desde " + detalleFuente);
+    log("[Weapons] llenarDesdeCaja: " + destId + " " + destAmmo + "/" + cap +
+        " -> " + (destAmmo + tomadas) + "/" + cap + " | " + tomadas + " bala(s) de la caja");
     return true;
 }
 
@@ -1395,25 +1404,51 @@ function _darArmaDePrueba() {
         return;
     }
 
-    // Un cargador por capacidad, con las balas que traen de fabrica.
+    // Un cargador por capacidad. VACIOS, y no con las balas que traen de fabrica.
+    //
+    // El dealer los entrega llenos y el ciclo de la recarga hay que probarlo
+    // tambien asi, pero lo que es NUEVO en el sistema es el camino de llenar desde
+    // la caja, y para llegar a un cargador vacio habria que gastar municion real
+    // disparando. Con un cargador en cero y una caja de 50, el ciclo entero se ve
+    // de una sentada: llenar, recargar, disparar, vaciar, llenar.
+    //
+    // 50 balas y no mas: dan para varias vueltas, y el tope de 50 por fila ya se
+    // ve en la mochila —tres filas de 50, 50 y 20 si se pide mas.
     var mags = cargadoresDe(id);
     for (var i = 0; i < mags.length; i++) {
-        query(ITEMS_STORE_MAGAZINE, { id: mags[i], ammo: CARGADORES[mags[i]].clipSize });
+        query(ITEMS_STORE_MAGAZINE, { id: mags[i], ammo: 0 });
     }
     // El silenciador suelto, que es como lo compra el jugador.
     var silId = DEBUG_ITEM_SILENCIADOR;
     if (defDeSilenciador(silId)) query(ITEMS_STORE_ACCESSORY, { id: silId });
+
+    var balas = balasDe(id);
+    var dadas = [];
+    for (var b = 0; b < balas.length; b++) {
+        if (query(ITEMS_STORE_AMMO, { id: balas[b], n: DEBUG_CANTIDAD_BALAS })) {
+            dadas.push(balas[b]);
+        }
+    }
+
     query(ITEMS_STORE_WEAPON, { id: id, salud: 100, ammo: 0 });
 
     equipar(id);
     var fam = defDeFamilia(id);
     var addr = Engine.slotAddress(Engine.pedPointer(char), fam.slot);
     log("[Weapons] prueba: " + id + " desnuda (tipo " + Engine.slotType(addr) + "), " +
-        mags.length + " cargador(es) (" + mags.join(", ") + ") y " + silId +
-        " en el inventario.");
-    log("[Weapons] prueba: poné un cargador en la ranura y apretá la R para recargar" +
-        " (ahi cambia de variante); montá el silenciador con el boton de la fila.");
+        mags.length + " cargador(es) VACIOS (" + mags.join(", ") + "), " +
+        (dadas.length ? dadas.join(", ") + " x" + DEBUG_CANTIDAD_BALAS : "sin balas") +
+        " y " + silId + " en el inventario.");
+    log("[Weapons] prueba: Llená un cargador con el boton de la fila, ponelo en una ranura y " +
+        "apretá la R para recargar (ahi cambia de variante); montá el silenciador con su boton.");
 }
 
 var DEBUG_ITEM_ARMA = "colt45";
 var DEBUG_ITEM_SILENCIADOR = "suppressor";
+
+// Cuantas balas deja el debug.
+//
+// 100, y no 50, para que se vea el tope en accion: son DOS filas de 50 y no una de
+// 100. Los dos cargadores de 8 y 15 se llenan y sobra, asi que el ciclo se puede
+// probar varias veces antes de que se acaben.
+var DEBUG_CANTIDAD_BALAS = 100;

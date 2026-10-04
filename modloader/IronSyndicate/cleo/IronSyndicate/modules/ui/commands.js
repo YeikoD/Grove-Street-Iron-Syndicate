@@ -46,7 +46,7 @@
 // modulo no valida, su respuesta seria la de hace un snapshot. Este archivo
 // traduce, no decide.
 import { removeItem } from "../inventory/index.js";
-import { equipar, desequipar, equiparCargador, guardarCargador, rellenarCargador, recargar, montarSilenciador, quitarSilenciador } from "../weapons/gsis_Weapons.js";
+import { equipar, desequipar, equiparCargador, guardarCargador, llenarDesdeCaja, recargar, montarSilenciador, quitarSilenciador } from "../weapons/gsis_Weapons.js";
 import { putInTrunk, takeFromTrunk } from "../gsis_Trunk.js";
 import { addToCart, removeFromCart, resetCart, checkout } from "../gsis_WeaponDealer.js";
 import { doOffer, moveOffer } from "../gsis_WeaponSeller.js";
@@ -147,7 +147,7 @@ export function handleCommand(cmd, ui) {
             //   inv:equipMag   sacar un cargador del inventario y ponerlo en una
             //                  de las dos ranuras de equipados
             //   inv:unequipMag sacar un cargador de su ranura y devolverlo
-            //   inv:fillMag    pasarle las balas de otro cargador a este
+            //   inv:fillMag    passarle balas de la caja a este cargador
             //   inv:reload     la R del arma de la mano: cambio o descarga
             //
             // EL CONTRATO: la pagina manda un ID DE ITEM, nunca un weaponType ni un
@@ -198,19 +198,25 @@ export function handleCommand(cmd, ui) {
                 return true;
 
             case "inv:fillMag":
-                // Rellenar pasa el INDICE, no el id, y el `equipado` que lo acompana
-                // dice si ese indice es una ranura o un lugar de la mochila. No es la
-                // excepcion que parece: con dos cargadores del mismo tipo en la
-                // mochila —el vacio y el lleno— el id no distingue a cual leyo el
-                // jugador, y rellenar el equivocado es un cargador que se llena solo.
+                // Llenar pasa el INDICE, no el id, y el `equipado` que lo acompana
+                // dice si ese indice es una ranura o un lugar de la mochila.
+                //
+                // Y sigue siendo el indice y no el id, aunque la fuente ya no sea
+                // otro cargador. Antes la razon era que con dos cargadores del mismo
+                // tipo en la mochila —el vacio y el lleno— el id no distinguia a cual
+                // leyo el jugador; ahora la razon es mas simple y no depende de que
+                // haya otro: la accion es sobre UNA fila y la fila se identifica por
+                // su lugar. Que el destino venga por indice es lo que permite, entre
+                // otras cosas, que llenar un cargador en la mochila no dependa de que
+                // haya otro cargador en ella.
                 if (cmd.indice === undefined || cmd.indice === null) return false;
                 var destinoMag = parseInt(cmd.indice, 10);
                 var enRanura = cmd.equipado === true;
-                if (!rellenarCargador(enRanura, destinoMag)) {
-                    log("[UI] rellenarCargador fallo: " + (enRanura ? "ranura " : "mochila ") + destinoMag);
+                if (!llenarDesdeCaja(enRanura, destinoMag)) {
+                    log("[UI] llenarDesdeCaja fallo: " + (enRanura ? "ranura " : "mochila ") + destinoMag);
                     return false;
                 }
-                log("[UI] rellenarCargador: " + (enRanura ? "ranura " : "mochila ") + destinoMag);
+                log("[UI] llenarDesdeCaja: " + (enRanura ? "ranura " : "mochila ") + destinoMag);
                 return true;
 
             case "inv:reload":

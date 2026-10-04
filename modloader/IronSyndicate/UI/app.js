@@ -969,12 +969,19 @@ function actionFor(r, what) {
   }
 
   if (what === "equip" && r.cat === "weapon") return { cmd: "inv:equip", id: r.id };
-  if (what === "equipMag" && r.cat === "magazine") return { cmd: "inv:equipMag", id: r.id };
+  // `esCargador`, NO `cat === "magazine"`. La banda "Municion" contiene las dos
+  // mitades —cargadores y balas— asi que el filtro por banda le offerria "equipar
+  // cargador" a una fila de balas con una sola unidad, y el modulo la rechazaria con
+  // un log y sin explicacion en pantalla. El flag lo pone la vista, que si tiene la
+  // tabla; ver `defDeCargador` en ui/views/inventory.js.
+  if (what === "equipMag" && r.esCargador) return { cmd: "inv:equipMag", id: r.id };
   if (what === "attach" && r.cat === "weapon_attachment") {
     const arma = armaParaMontar();
     return arma ? { cmd: "inv:attach", id: r.id, slot: arma.slot } : null;
   }
-  if (what === "fillMag" && r.cat === "magazine" && r.puedeRellenar) {
+  // Y `esCargador` en vez de `cat`: la accion es sobre un cargador, y el criterio de
+  // que el jugador tenga balas para llenarlo ya viene resuelto en `puedeRellenar`.
+  if (what === "fillMag" && r.esCargador && r.puedeRellenar) {
     // Por indice y no por id: dos cargadores del mismo tipo en la mochila es el caso
     // normal —el vacio y el lleno—, y el id no dice cual de los dos leyo el jugador.
     return { cmd: "inv:fillMag", equipado: false, indice: r.indice };
@@ -1032,7 +1039,7 @@ const ACCIONES = [
   },
   {
     id: "fillMag",
-    label: "Rellenar cargador",
+    label: "Llenar cargador",
     sep: true,
     aplica: (r) => !!actionFor(r, "fillMag")
   },
