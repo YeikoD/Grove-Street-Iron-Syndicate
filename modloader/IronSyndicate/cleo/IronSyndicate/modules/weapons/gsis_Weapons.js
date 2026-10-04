@@ -838,20 +838,28 @@ function _darArmaDePrueba() {
     var char = Engine.playerChar();
     if (!char) return;
 
-    var def = defDeArma(DEBUG_ITEM_ARMA);
-    var magId = def ? cargadorDe(DEBUG_ITEM_ARMA) : null;
-    if (!def || !magId) {
-        log("[Weapons] prueba: el catalogo no tiene " + DEBUG_ITEM_ARMA + " con cargador");
-        return;
+    var armas = [DEBUG_ITEM_ARMA, DEBUG_ITEM_ARMA2, DEBUG_ITEM_ARMA3, DEBUG_ITEM_ARMA4];
+    for (var i = 0; i < armas.length; i++) {
+        var id = armas[i];
+        var def = defDeArma(id);
+        var magId = def ? cargadorDe(id) : null;
+        if (!def || !magId) {
+            log("[Weapons] prueba: el catalogo no tiene " + id + " con cargador");
+            continue;
+        }
+
+        // Un cargador nuevo, con las balas que trae de fabrica.
+        query(ITEMS_STORE_WEAPON, { id: magId, salud: 100, ammo: CARGADORES[magId].clipSize });
+        query(ITEMS_STORE_WEAPON, { id: id, salud: 100, ammo: 0 });
+        if (i === 0) equipar(id);
+
+        log("[Weapons] prueba: " + id + " (tipo " + def.weaponType +
+            ") y " + magId + " en el inventario.");
     }
-
-    // Un cargador nuevo, con las balas que trae de fabrica.
-    query(ITEMS_STORE_WEAPON, { id: magId, salud: 100, ammo: CARGADORES[magId].clipSize });
-    query(ITEMS_STORE_WEAPON, { id: DEBUG_ITEM_ARMA, salud: 100, ammo: 0 });
-    equipar(DEBUG_ITEM_ARMA);
-
-    log("[Weapons] prueba: " + DEBUG_ITEM_ARMA + " (tipo " + def.weaponType +
-        ") y " + magId + " en el inventario. Desnuda: apretá la R.");
+    log("[Weapons] prueba: apretá la R para recargar.");
 }
 
 var DEBUG_ITEM_ARMA = "colt45";
+var DEBUG_ITEM_ARMA2 = "colt45_c15";
+var DEBUG_ITEM_ARMA3 = "colt45_silenced";
+var DEBUG_ITEM_ARMA4 = "colt45_c15_silenced";

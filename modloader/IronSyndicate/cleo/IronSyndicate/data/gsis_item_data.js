@@ -42,7 +42,13 @@ export var ITEMS = {
     // LAS DOS ARMAS DEL PASO 2, con los numeros que tenian en el sistema viejo
     // (peso del archivo de armas, nombre del catalogo):
     "colt45":        { name: "Colt .45",           weight: 1.5, type: "weapon" },
+    "colt45_c15":    { name: "Colt .45 C15",       weight: 1.5, type: "weapon" },
+    "colt45_silenced": { name: "Colt .45 Silenced", weight: 1.6, type: "weapon" },
+    "colt45_c15_silenced": { name: "Colt .45 Silenced C15", weight: 1.6, type: "weapon" },
     "mag_colt45":    { name: "Cargador Colt .45",  weight: 0.2, type: "magazine" },
+    "mag_colt45_c15": { name: "Cargador Colt .45 C15", weight: 0.25, type: "magazine" },
+    "mag_colt45_silenced": { name: "Cargador Colt .45 Silenced", weight: 0.2, type: "magazine" },
+    "mag_colt45_c15_silenced": { name: "Cargador Colt .45 Silenced C15", weight: 0.25, type: "magazine" },
 
     // Chatarra
     //

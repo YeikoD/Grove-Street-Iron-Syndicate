@@ -58,9 +58,37 @@ export var ARMAS = {
         slot: 2,
         precio: 550,
         peso: 1.5,
-        // Para la UI y para la ficha. No son entradas de runtime: el motor tiene su
-        // propio damage en la CWeaponInfo y el mod no lo escribe.
         damage: 25,
+        categoria: "Pistolas"
+    },
+    "colt45_c15": {
+        nombre: "Colt .45 C15",
+        family: "colt45",
+        weaponType: 62,      // .dat: 62 22 347 2 15 -1
+        slot: 2,
+        precio: 600,
+        peso: 1.5,
+        damage: 40,
+        categoria: "Pistolas"
+    },
+    "colt45_silenced": {
+        nombre: "Colt .45 Silenced",
+        family: "colt45",
+        weaponType: 60,      // .dat: 60 23 347 2  8 -1
+        slot: 2,
+        precio: 700,
+        peso: 1.6,
+        damage: 40,          // hereda del padre 23 (silenciada vanilla)
+        categoria: "Pistolas"
+    },
+    "colt45_c15_silenced": {
+        nombre: "Colt .45 Silenced C15",
+        family: "colt45",
+        weaponType: 61,      // .dat: 61 23 347 2 15 -1
+        slot: 2,
+        precio: 750,
+        peso: 1.6,
+        damage: 40,          // hereda del padre 23 (silenciada vanilla)
         categoria: "Pistolas"
     }
 };
@@ -72,9 +100,30 @@ export var CARGADORES = {
     "mag_colt45": {
         nombre: "Cargador Colt .45",
         arma: "colt45",
-        clipSize: 8,         // el .asi le escribio 8 a la CWeaponInfo del 63
+        clipSize: 8,
         precio: 220,
         peso: 0.2
+    },
+    "mag_colt45_c15": {
+        nombre: "Cargador Colt .45 C15",
+        arma: "colt45_c15",
+        clipSize: 15,
+        precio: 250,
+        peso: 0.25
+    },
+    "mag_colt45_silenced": {
+        nombre: "Cargador Colt .45 Silenced",
+        arma: "colt45_silenced",
+        clipSize: 8,
+        precio: 240,
+        peso: 0.2
+    },
+    "mag_colt45_c15_silenced": {
+        nombre: "Cargador Colt .45 Silenced C15",
+        arma: "colt45_c15_silenced",
+        clipSize: 15,
+        precio: 260,
+        peso: 0.25
     }
 };
 
