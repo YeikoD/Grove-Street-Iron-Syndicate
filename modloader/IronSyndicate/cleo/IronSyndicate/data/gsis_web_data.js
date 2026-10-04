@@ -15,7 +15,40 @@
 // vivia en app.js).
 // ============================================================================
 
-// Iconos de item → PNG en modloader\IronSyndicate\image\.
+// Iconos de item → PNG, en modloader\IronSyndicate\UI\assets\.
+//
+// EL VALOR ES UNA RUTA DENTRO DE `assets/`, NO UN NOMBRE DE ARCHIVO
+// ---------------------------------------------------------------------------
+// Antes el valor era el nombre pelado ("colt45.png") y la pagina prependia una
+// base. El 04/10/2026 los PNG se repartieron en tres carpetas y el nombre pelado
+// dejo de alcanzar:
+//
+//   imagenes/            los 50x50 del catalogo: cargadores, bala, reporte
+//   imagenes/weapons/    los 256x256 de cada arma
+//   iconos/categorias/   los botones de filtro
+//
+// Que el valor lleve la ruta es lo que hace que las tres convivan sin un `../`
+// por item, y que agregar una cuarta carpeta sea agregar un prefijo y no cambiar
+// la base de la pagina. Ver ICON_DIR en UI/app.js, que es el otro extremo del
+// mismo acuerdo.
+//
+// LOS ESPACIOS EN LOS NOMBRES, A PROPOSITO
+// ---------------------------------------------------------------------------
+// "Silenced Pistol.png" y "Desert Eagle.png" tienen espacio, y `img.src` lo
+// resuelve solo. No normalizar los nombres: el archivo se llama asi, y renombrar
+// el arte para que el path se vea lindo es romper una convencion del set por una
+// cuestion de tipo.
+//
+// LOS 256x256 CONVIVEN CON LOS 50x50
+// ---------------------------------------------------------------------------
+// La caja la fija `--table-icon-w` en el CSS con `object-fit: contain`, asi que el
+// arte de 256 baja a la misma caja que el de 50 sin descuadrar la fila.
+//
+// QUE NO EXISTE
+// ---------------------------------------------------------------------------
+// `material.png` no esta. El unico arte de materiales del set es
+// `iconos/categorias/materiales.png`, que es el boton de filtro, y es lo que usan
+// los items de tipo `material`. Si aparece un `material.png` de verdad, es una linea.
 //
 // Son 45 ids en tres bloques: 18 de armas, 17 de cargadores y 10 de materiales.
 // Cada id tiene su linea igual: cuando un item tenga arte propio lo unico que se
@@ -28,30 +61,30 @@
 // (mag_fusil.png, el curvo). Cuando una categoria tenga arte propio, se agrega
 // el PNG y se cambia el valor de las lineas de esa categoria.
 //
-// body_armor no tiene icono. satchelCharge.png existe en image\ pero no
-// corresponde a ningun item del catalogo: son los dos huecos conocidos del set.
-// Cuando WEAPON_DATA crezca un campo "icon", este mapa se borra y pasa a leerse
-// de alla.
+// body_armor no tiene icono. satchelCharge.png estaba en la carpeta image\ vieja y no
+// sobrevive al reparto del 04/10: no hay equivalente en assets\imagenes\weapons\, asi
+// que el hueco del set es ahora de a uno y no de dos. Cuando WEAPON_DATA crezca un
+// campo "icon", este mapa se borra y pasa a leerse de alla.
 export var WEB_ICONS = {
-    "colt45": "colt45.png",
+    "colt45": "imagenes/weapons/Pistol.png",
     // Un accesorio que se compra suelto y se ve suelto. El PNG es el de la
     // pistola silenciada, que es lo que un silenciador produce.
-    "suppressor": "silenced9mm.png",
-    "desert_eagle": "desertEagle.png",
-    "shotgun": "shotgun.png",
-    "sawed_off": "sawnoffShotgun.png",
-    "combat_shotgun": "combatShotgun.png",
-    "micro_uzi": "microSMG-Uzi.png",
-    "mp5": "mp5.png",
-    "tec9": "tec9.png",
-    "ak47": "ak47.png",
-    "m4_assembled": "m4.png",
-    "country_rifle": "countryRifle.png",
-    "sniper_rifle": "sniperRifle.png",
-    "rpg": "rpg.png",
-    "heat_seeker": "hsRocket.png",
-    "flamethrower": "flame-Thrower.png",
-    "minigun": "minigun.png",
+    "suppressor": "imagenes/weapons/Silenced Pistol.png",
+    "desert_eagle": "imagenes/weapons/Desert Eagle.png",
+    "shotgun": "imagenes/weapons/shotgun.png",
+    "sawed_off": "imagenes/weapons/Sawnoff Shotgun.png",
+    "combat_shotgun": "imagenes/weapons/Combat Shotgun.png",
+    "micro_uzi": "imagenes/weapons/Micro SMG.png",
+    "mp5": "imagenes/weapons/SMG.png",
+    "tec9": "imagenes/weapons/tec9.png",
+    "ak47": "imagenes/weapons/ak47.png",
+    "m4_assembled": "imagenes/weapons/m4.png",
+    "country_rifle": "imagenes/weapons/Riffle.png",
+    "sniper_rifle": "imagenes/weapons/Sniper Riffle.png",
+    "rpg": "imagenes/weapons/Rocket.png",
+    "heat_seeker": "imagenes/weapons/Heatseeker.png",
+    "flamethrower": "imagenes/weapons/Flame Thrower.png",
+    "minigun": "imagenes/weapons/minigun.png",
 
     // Cargadores (ITEMS type magazine), en el mismo orden que WEAPON_DATA. Un
     // cargador por linea: el PNG propio de un arma se cambia aca y en ningun
@@ -79,46 +112,46 @@ export var WEB_ICONS = {
     // ambar, y se fue: con el nombre y el "15/15" al lado, el color repetia lo que
     // el texto ya dice y un cargador distinto para el mismo municion es una pieza
     // que el juego no tiene.
-    "mag_colt45": "mag_9mm.png",
-    "mag_colt45_c15": "mag_9mm.png",
+    "mag_colt45": "imagenes/mag_9mm.png",
+    "mag_colt45_c15": "imagenes/mag_9mm.png",
     // La bala tiene arte PROPIO y no comparte con los cargadores: bullet45.png
     // es una bala, y mag_9mm.png es un cargador. Es la unica de las dos mitades de
     // la banda "Municion" que se ve distinta de la otra, y es lo que hace falta
     // para que el jugador distinga de un vistazo "esta fila se llena" de "esta fila
     // se consume".
-    "bala_45": "bullet45.png",
-    "mag_ak47_drum": "mag_fusil.png",
-    "mag_m4_lancer": "mag_fusil.png",
-    "mag_m4_drum": "mag_fusil.png",
-    "mag_desert_eagle": "mag_9mm.png",
-    "mag_shotgun": "mag_fusil.png",
-    "mag_sawed_off": "mag_fusil.png",
-    "mag_combat_shotgun": "mag_fusil.png",
-    "mag_micro_uzi": "mag_SMG.png",
-    "mag_mp5": "mag_SMG.png",
-    "mag_tec9": "mag_SMG.png",
-    "mag_ak47": "mag_fusil.png",
-    "mag_m4_assembled": "mag_fusil.png",
-    "mag_country_rifle": "mag_fusil.png",
-    "mag_sniper_rifle": "mag_fusil.png",
-    "mag_rpg": "mag_fusil.png",
-    "mag_heat_seeker": "mag_fusil.png",
-    "mag_flamethrower": "mag_fusil.png",
-    "mag_minigun": "mag_fusil.png",
+    "bala_45": "imagenes/bullet45.png",
+    "mag_ak47_drum": "imagenes/mag_fusil.png",
+    "mag_m4_lancer": "imagenes/mag_fusil.png",
+    "mag_m4_drum": "imagenes/mag_fusil.png",
+    "mag_desert_eagle": "imagenes/mag_9mm.png",
+    "mag_shotgun": "imagenes/mag_fusil.png",
+    "mag_sawed_off": "imagenes/mag_fusil.png",
+    "mag_combat_shotgun": "imagenes/mag_fusil.png",
+    "mag_micro_uzi": "imagenes/mag_SMG.png",
+    "mag_mp5": "imagenes/mag_SMG.png",
+    "mag_tec9": "imagenes/mag_SMG.png",
+    "mag_ak47": "imagenes/mag_fusil.png",
+    "mag_m4_assembled": "imagenes/mag_fusil.png",
+    "mag_country_rifle": "imagenes/mag_fusil.png",
+    "mag_sniper_rifle": "imagenes/mag_fusil.png",
+    "mag_rpg": "imagenes/mag_fusil.png",
+    "mag_heat_seeker": "imagenes/mag_fusil.png",
+    "mag_flamethrower": "imagenes/mag_fusil.png",
+    "mag_minigun": "imagenes/mag_fusil.png",
 
     // Materiales (ITEMS type material): materias primas y componentes, la
     // chatarra (scrap_metal) entre las primeras. Solo muelle y mira tienen
     // icono propio de armas (weapons_report.png).
-    "scrap_metal": "material.png",
-    "gunpowder": "material.png",
-    "spring": "weapons_report.png",
-    "barrel_small": "material.png",
-    "scope": "weapons_report.png",
-    "armor_plate": "material.png",
-    "pistol_frame": "material.png",
-    "pistol_barrel": "material.png",
-    "rifle_receiver": "material.png",
-    "rifle_barrel": "material.png"
+    "scrap_metal": "iconos/categorias/materiales.png",
+    "gunpowder": "iconos/categorias/materiales.png",
+    "spring": "imagenes/weapons_report.png",
+    "barrel_small": "iconos/categorias/materiales.png",
+    "scope": "imagenes/weapons_report.png",
+    "armor_plate": "iconos/categorias/materiales.png",
+    "pistol_frame": "iconos/categorias/materiales.png",
+    "pistol_barrel": "iconos/categorias/materiales.png",
+    "rifle_receiver": "iconos/categorias/materiales.png",
+    "rifle_barrel": "iconos/categorias/materiales.png"
 };
 
 // Orden de las bandas de grupo de la tabla. Es el mismo orden que usaba el menu

@@ -293,16 +293,31 @@ function broadcast() {
     //   - el passthrough de WASD (setMenuKeyPassthrough) existia por lo mismo: con
     //     un panel en pantalla la pagina se queda con el teclado entero, y sin la
     //     lista el juego no veia la W con la que el jugador se iba.
-    //   - el bloqueo del mouse (setMenuGameMouse) era porque con el menu de
-    //     proximidad el mundo seguia vivo y un click que se escapaba golpeaba a
-    //     quien estuviera enfrente. Congelado no hay a quien pegarle.
+    //   - el bloqueo del mouse (setMenuGameMouse) AHORA SE PONE EN TRUE, y antes
+    //     pasaba en false. La razon de antes ("congelado no hay a quien pegarle") era
+    //     correcta para el golpe, pero se equivocaba en lo que de verdad lo
+    //     rompia: SET_PLAYER_CONTROL al reves CONGELA al jugador y NO suelta el
+    //     mouse. El juego sigue leyendo los deltas del mouse para la camara, y eso
+    //     es lo que|centeriza el cursor del sistema: el jugador abria el panel, movia
+    //     el mouse y este volvia solo al centro, sin poder clickear nada fuera de ahi.
     //
-    // Las tres se pasan en false, y cada una tiene su latch: mandan una vez el
-    // cambio y despues no vuelven a tocar la ASI.
+    //     El bloqueo del mouse de la ASI (SAWEB_SET_GAME_MOUSE_BLOCK) pone en cero
+    //     CPad::NewMouseControllerState y PCTempMouseControllerState, que son
+    //     justamente los deltas que mueven la camara, y ademas pone
+    //     bDisablePlayerFireWeapon para que el click no dispare. O sea que hace
+    //     las dos cosas que se le pedian.
+    //
+    //     Y NO ciega a la pagina: la UI no lee el mouse de DirectInput, lo lee de
+    //     WM_MOUSEMOVE, que es un mensaje de ventana. El bloqueo solo toca
+    //     DirectInput y el pad, asi que el cursor de la pagina se sigue moviendo
+    //     normal. Eso se verifico en el source de la ASI antes de tocar aca.
+    //
+    // Las cuatro tienen su latch: mandan una vez el cambio y despues no vuelven a
+    // tocar la ASI.
     setMenuCursor(anyVisible);
     setMenuGameState(anyVisible);
     setMenuKeyPassthrough(null);
-    setMenuGameMouse(false);
+    setMenuGameMouse(anyVisible);
     setMenuAnchor(false);
 
     // radar: mismo interruptor que el freeze y por la misma razon. Con cualquier

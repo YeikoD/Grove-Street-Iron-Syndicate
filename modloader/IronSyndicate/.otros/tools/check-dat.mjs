@@ -45,7 +45,7 @@
 //                   familia tiene al menos una bala
 //   el catalogo     todo FAMILIAS, CARGADORES, MUNICION y SILENCIADORES estan en
 //                   ITEMS, y ningun item de esos tipos queda fuera del catalogo
-//   los iconos      todo item tiene linea en WEB_ICONS y el PNG existe en UI\assets\
+//   los iconos      todo item tiene linea en WEB_ICONS y el PNG existe en image/
 //
 // QUE NO CHEQUEA, Y POR QUE
 // ------------------------
@@ -70,12 +70,7 @@ const JUEGO = join(aqui, "..", "..");                       // .IronSyndicate/to
 const MODLOADER = join(JUEGO, "modloader", "IronSyndicate");
 const DAT = join(MODLOADER, "gsis_weapons.dat");
 const DATA = join(MODLOADER, "cleo", "IronSyndicate", "data");
-// La base de los iconos es `UI\assets\`, y el valor de WEB_ICONS es una ruta
-// DENTRO de esa base: `imagenes/mag_9mm.png`, `imagenes/weapons/Pistol.png`,
-// `iconos/categorias/materiales.png`. El 04/10/2026 los PNG se repartieron en esas
-// tres carpetas y `assets\` quedo como unica base, que es lo que permite que las
-// tres convivan sin un `../` por item.
-const ASSETS = join(MODLOADER, "UI", "assets");
+const IMAGE = join(MODLOADER, "image");
 
 const GSIS_MIN = 60, GSIS_MAX = 79;
 const PADRE_MIN = 22, PADRE_MAX = 32;
@@ -304,14 +299,8 @@ for (const [id] of Object.entries(ITEMS)) {
         sinIcono++;
         continue;
     }
-    if (!existsSync(join(ASSETS, icono))) {
-        // CUENTA COMO FALLA. Antes no incrementaba nada, y el resumen de abajo
-        // imprimia "todos los PNG existen" en el mismo run que habia cinco FALLA
-        // de archivo missing: el check se contradijia a si mismo y el que leia la
-        // ultima linea se iba con un ok falso.
-        mal(`WEB_ICONS["${id}"] = "${icono}" y ese PNG no existe en UI\\assets\\`);
-        sinIcono++;
-    }
+    if (!existsSync(join(IMAGE, icono)))
+        mal(`WEB_ICONS["${id}"] = "${icono}" y ese PNG no existe en image/`);
 }
 if (!sinIcono) bien(`los ${Object.keys(ITEMS).length} items tienen icono, y todos los PNG existen`);
 

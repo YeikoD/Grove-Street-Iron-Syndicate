@@ -161,70 +161,88 @@ const MOCK_CATALOG = {
   maxWeight: 12, // = MISC.MAX_INVENTORY_WEIGHT del mod
   cats: [
     { key: "weapon", label: "Armas" },
-    { key: "magazine", label: "Cargadores" },
+    { key: "magazine", label: "Municion" },
     { key: "material", label: "Materiales" }
   ],
   icons: {
-    "9mm": "9mm.png",
-    "pistol_assembled": "9mm.png",
-    "silenced_9mm": "silenced9mm.png",
-    "desert_eagle": "desertEagle.png",
-    "shotgun": "shotgun.png",
-    "sawed_off": "sawnoffShotgun.png",
-    "combat_shotgun": "combatShotgun.png",
-    "micro_uzi": "microSMG-Uzi.png",
-    "mp5": "mp5.png",
-    "tec9": "tec9.png",
-    "ak47": "ak47.png",
-    "m4_assembled": "m4.png",
-    "country_rifle": "countryRifle.png",
-    "sniper_rifle": "sniperRifle.png",
-    "rpg": "rpg.png",
-    "heat_seeker": "hsRocket.png",
-    "flamethrower": "flame-Thrower.png",
-    "minigun": "minigun.png",
+    "9mm": "imagenes/mag_9mm.png",
+    "pistol_assembled": "imagenes/mag_9mm.png",
+    "silenced_9mm": "imagenes/weapons/Silenced Pistol.png",
+    "desert_eagle": "imagenes/weapons/Desert Eagle.png",
+    "shotgun": "imagenes/weapons/shotgun.png",
+    "sawed_off": "imagenes/weapons/Sawnoff Shotgun.png",
+    "combat_shotgun": "imagenes/weapons/Combat Shotgun.png",
+    "micro_uzi": "imagenes/weapons/Micro SMG.png",
+    "mp5": "imagenes/weapons/SMG.png",
+    "tec9": "imagenes/weapons/tec9.png",
+    "ak47": "imagenes/weapons/ak47.png",
+    "m4_assembled": "imagenes/weapons/m4.png",
+    "country_rifle": "imagenes/weapons/Riffle.png",
+    "sniper_rifle": "imagenes/weapons/Sniper Riffle.png",
+    "rpg": "imagenes/weapons/Rocket.png",
+    "heat_seeker": "imagenes/weapons/Heatseeker.png",
+    "flamethrower": "imagenes/weapons/Flame Thrower.png",
+    "minigun": "imagenes/weapons/minigun.png",
     // Cargadores: los 17 de data\gsis_web_data.js. Pistolas con el cargador
-    // recto (mag_9mm.png), subfusiles con el largo (mag_SMG.png) y el resto con
-    // el curvo (mag_fusil.png). Es una copia del mapa real, no una seleccion: si
+    // recto (imagenes/mag_9mm.png), subfusiles con el largo (imagenes/mag_SMG.png) y el resto con
+    // el curvo (imagenes/mag_fusil.png). Es una copia del mapa real, no una seleccion: si
     // divergiera, el preview mostraria una columna distinta de la del juego.
-    "mag_9mm": "mag_9mm.png",
-    "mag_9mm_replica": "mag_9mm.png",
-    "mag_9mm_extended": "mag_9mm.png",
-    "mag_ak47_drum": "mag_fusil.png",
-    "mag_m4_lancer": "mag_fusil.png",
-    "mag_m4_drum": "mag_fusil.png",
-    "mag_silenced_9mm": "mag_9mm.png",
-    "mag_desert_eagle": "mag_9mm.png",
-    "mag_shotgun": "mag_fusil.png",
-    "mag_sawed_off": "mag_fusil.png",
-    "mag_combat_shotgun": "mag_fusil.png",
-    "mag_micro_uzi": "mag_SMG.png",
-    "mag_mp5": "mag_SMG.png",
-    "mag_tec9": "mag_SMG.png",
-    "mag_ak47": "mag_fusil.png",
-    "mag_m4_assembled": "mag_fusil.png",
-    "mag_country_rifle": "mag_fusil.png",
-    "mag_sniper_rifle": "mag_fusil.png",
-    "mag_rpg": "mag_fusil.png",
-    "mag_heat_seeker": "mag_fusil.png",
-    "mag_flamethrower": "mag_fusil.png",
-    "mag_minigun": "mag_fusil.png",
+    "mag_9mm": "imagenes/mag_9mm.png",
+    "mag_9mm_replica": "imagenes/mag_9mm.png",
+    "mag_9mm_extended": "imagenes/mag_9mm.png",
+    "mag_ak47_drum": "imagenes/mag_fusil.png",
+    "mag_m4_lancer": "imagenes/mag_fusil.png",
+    "mag_m4_drum": "imagenes/mag_fusil.png",
+    "mag_silenced_9mm": "imagenes/mag_9mm.png",
+    "mag_desert_eagle": "imagenes/mag_9mm.png",
+    "mag_shotgun": "imagenes/mag_fusil.png",
+    "mag_sawed_off": "imagenes/mag_fusil.png",
+    "mag_combat_shotgun": "imagenes/mag_fusil.png",
+    "mag_micro_uzi": "imagenes/mag_SMG.png",
+    "mag_mp5": "imagenes/mag_SMG.png",
+    "mag_tec9": "imagenes/mag_SMG.png",
+    "mag_ak47": "imagenes/mag_fusil.png",
+    "mag_m4_assembled": "imagenes/mag_fusil.png",
+    "mag_country_rifle": "imagenes/mag_fusil.png",
+    "mag_sniper_rifle": "imagenes/mag_fusil.png",
+    "mag_rpg": "imagenes/mag_fusil.png",
+    "mag_heat_seeker": "imagenes/mag_fusil.png",
+    "mag_flamethrower": "imagenes/mag_fusil.png",
+    "mag_minigun": "imagenes/mag_fusil.png",
     // Materiales: los 10 de data\gsis_web_data.js (chatarra incluida). Todos al
     // mismo PNG salvo muelle y mira, que tienen el suyo de piezas de arma.
-    "scrap_metal": "material.png",
-    "gunpowder": "material.png",
-    "spring": "weapons_report.png",
-    "barrel_small": "material.png",
-    "scope": "weapons_report.png",
-    "armor_plate": "material.png",
-    "pistol_frame": "material.png",
-    "pistol_barrel": "material.png",
-    "rifle_receiver": "material.png",
-    "rifle_barrel": "material.png"
+    "scrap_metal": "iconos/categorias/materiales.png",
+    "gunpowder": "iconos/categorias/materiales.png",
+    "spring": "imagenes/weapons_report.png",
+    "barrel_small": "iconos/categorias/materiales.png",
+    "scope": "imagenes/weapons_report.png",
+    "armor_plate": "iconos/categorias/materiales.png",
+    "pistol_frame": "iconos/categorias/materiales.png",
+    "pistol_barrel": "iconos/categorias/materiales.png",
+    "rifle_receiver": "iconos/categorias/materiales.png",
+    "rifle_barrel": "iconos/categorias/materiales.png"
   }
 };
 
-const ICON_DIR = "../image/";
+// DONDE VIVEN LOS ICONOS
+//
+// Antes era "../image/", que desde app.js resolvia a modloader\IronSyndicate\image\
+// — una sola carpeta con los 23 PNG del catalogo. El 04/10/2026 esa carpeta se
+// repartio en tres, y por eso la base ahora es `assets/` y NO `assets/imagenes/`:
+//
+//   assets/imagenes/            los 50x50 del catalogo: cargadores, bala, reporte
+//   assets/imagenes/weapons/    los 256x256 de cada arma
+//   assets/iconos/categorias/   los botones de filtro de la pestana
+//
+// Que la base sea `assets/` y no la primera de las tres es lo que evita un `../`
+// por item: `imagenes/weapons/Pistol.png` y `iconos/categorias/materiales.png` son
+// los dos prefijos de la misma constante. Con la base en `imagenes/` habria que
+// escribir `../iconos/...` para el segundo grupo, y un `../` en un `img.src` es
+// justo la clase de ruta que un cambio de carpeta rompe sin avisar.
+//
+// Y el `object-fit: contain` del CSS es lo que hace que convivan los 50x50 con los
+// 256x256 en la misma columna: la caja la fija `--table-icon-w`, no el archivo.
+const ICON_DIR = "assets/";
 
 // Fila CRUDA del mock, con la misma forma que manda el mod (gsis_ItemRow.js):
 // nombre pelado, sin icono y sin "x5". Lo que se dibuja se agrega despues, en

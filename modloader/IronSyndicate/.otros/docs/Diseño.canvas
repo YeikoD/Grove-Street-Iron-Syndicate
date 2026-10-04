@@ -1,0 +1,27 @@
+{
+	"nodes":[
+		{"id":"cd847290653f1d87","type":"text","text":"Los Santos","x":-420,"y":-460,"width":174,"height":60},
+		{"id":"a4404d0dcc43237d","type":"text","text":"Armas con salud baja","x":-543,"y":-320,"width":210,"height":60},
+		{"id":"eb3b6c7a8e87fb98","type":"text","text":"Clientes Simples","x":-175,"y":-370,"width":171,"height":50},
+		{"id":"e2f4a41768611cff","type":"text","text":"Poca Cantidad de materiales","x":-300,"y":-240,"width":250,"height":60},
+		{"id":"a8be679f3f4e6195","x":280,"y":-460,"width":187,"height":60,"type":"text","text":"Exterior San Fierro"},
+		{"id":"1293c5f550fc17e8","x":160,"y":-320,"width":164,"height":60,"type":"text","text":"Mas materiales"},
+		{"id":"d4140ace90edb851","x":440,"y":-320,"width":160,"height":60,"type":"text","text":"Pocos Clientes"},
+		{"id":"41d8f241e486eb51","x":-980,"y":-460,"width":180,"height":60,"type":"text","text":"Exterior Los Santos"},
+		{"id":"4d8fb98b4fc4d185","x":-1200,"y":-350,"width":173,"height":60,"type":"text","text":"Cliente Minimo"},
+		{"id":"4686cffcdc9a1737","x":-1132,"y":-210,"width":211,"height":60,"type":"text","text":"Registro de vehiculos"},
+		{"id":"e54d620de923ca00","x":-1015,"y":-100,"width":250,"height":60,"type":"text","text":"Armas Ligeramente mejor"},
+		{"id":"21be2632283b6656","x":-864,"y":-305,"width":198,"height":90,"type":"text","text":"Gran fabrica de arma\n(muy caro)"}
+	],
+	"edges":[
+		{"id":"07579077d7f082d7","fromNode":"cd847290653f1d87","fromSide":"bottom","toNode":"a4404d0dcc43237d","toSide":"top"},
+		{"id":"56bfccffe987488d","fromNode":"cd847290653f1d87","fromSide":"bottom","toNode":"e2f4a41768611cff","toSide":"top"},
+		{"id":"33278575df0f4500","fromNode":"cd847290653f1d87","fromSide":"bottom","toNode":"eb3b6c7a8e87fb98","toSide":"left"},
+		{"id":"eb4a002ba615f9da","fromNode":"a8be679f3f4e6195","fromSide":"bottom","toNode":"1293c5f550fc17e8","toSide":"top"},
+		{"id":"090ca9eb81602b37","fromNode":"a8be679f3f4e6195","fromSide":"bottom","toNode":"d4140ace90edb851","toSide":"top"},
+		{"id":"7e34512d8b9aea5e","fromNode":"41d8f241e486eb51","fromSide":"bottom","toNode":"4d8fb98b4fc4d185","toSide":"right"},
+		{"id":"0ac147bd1be5013e","fromNode":"41d8f241e486eb51","fromSide":"bottom","toNode":"4686cffcdc9a1737","toSide":"top"},
+		{"id":"5329f6fa427beb30","fromNode":"41d8f241e486eb51","fromSide":"bottom","toNode":"21be2632283b6656","toSide":"top"},
+		{"id":"9f26f734e0d0feb5","fromNode":"41d8f241e486eb51","fromSide":"bottom","toNode":"e54d620de923ca00","toSide":"top"}
+	]
+}
