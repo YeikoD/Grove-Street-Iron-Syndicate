@@ -6,6 +6,13 @@
 # tiene que dar de alta. Las que el motor ya conoce NO van, porque no hacen
 # falta filas y cada fila de mas es un tipo que se registra al pedirlo.
 #
+# Que una variante sea un item de inventario es OTRO archivo, y no es este:
+# data/gsis_weapons.js, tabla ARMAS. Aca va la REPRESENTACION --el tipo que
+# ejecuta el motor--; alla va la IDENTIDAD --el itemId que el jugador tiene en
+# la mochila--. Los dos tienen que existir para el mismo tipo: una fila sin item
+# es un arma que nunca se entrega, y un item sin fila es un tipo que el motor
+# no tiene.
+#
 # EL RANGO
 # ----------------------------------------------------------------------------
 # tipo      60..79. Es la franja libre, y ES LIBRE SOLO PORQUE fastman92 limit
@@ -24,8 +31,9 @@
 #           es una precondicion, no una observacion, asi que CargarArmas la
 #           exige y no confia en el archivo.
 #
-#           EL POOL DE MODELOS, Y POR QUE ESTE ARCHIVO DEPENDE DE UN AJUSTE
-#           EXTERNO. MEDIDO el 30/09, no es teoria:
+# EL POOL DE MODELOS, Y POR QUE ESTE ARCHIVO DEPENDE DE UN AJUSTE EXTERNO
+# ----------------------------------------------------------------------------
+# MEDIDO el 30/09, no es teoria:
 #
 #             - El array de CWeaponModelInfo del ejecutable tiene 51 slots
 #               (push 33h en 0x4C5E9B). Con vanilla quedan 50 en uso, asi que
@@ -35,17 +43,17 @@
 #               contador, y al no haber slot 51 leia memoria de otro pool.
 #             - WeaponModels = unlimited en el .ini NO agranda nada: 'unlimited'
 #               no es un numero, y el .asi lo ignora en silencio.
-#             - WeaponModels = 200 SI reasigna el array completo, y los dos
-#               modelos entran. Tambien mueve los modelos de VANILLA.
+#             - WeaponModels = 200 SI reasigna el array completo. Tambien mueve
+#               los modelos de VANILLA.
 #
 #           CONFIGURACION REQUERIDA, no una preferencia de desarrollo:
 #
 #             modloader\Open Limit Adjuster\III.VC.SA.LimitAdjuster.ini
 #             [SALIMITS] WeaponModels = 200
 #
-#           200 es el valor VALIDADO con los dos modelos actuales (15065 y
-#           15066). No es un minimo teorico ni un maximo: es lo que se probo. Si
-#           se agregan mas modelos, hay que subirlo y volver a probar.
+#           200 es el valor VALIDADO con el unico modelo propio que hay hoy
+#           (15065). No es un minimo teorico ni un maximo: es lo que se probo.
+#           Si se agrega un segundo, hay que subirlo y volver a probar.
 #
 #           Y lo que GSIS NO hace, que es lo importante: no lee ninguna
 #           direccion de ese pool. Toma la ranura del retorno de
@@ -55,7 +63,7 @@
 #
 #           fastman92 limit adjuster sigue APAGADO (.asi.off), y es otro
 #           proyecto: el que agranda el pool es Open Limit Adjuster, que se
-#           carga desde modloader\\ y lee su .ini.
+#           carga desde modloader\ y lee su .ini.
 #
 # padre     22..32, y SIEMPRE de vanilla. Tres motivos, los tres medidos:
 #
@@ -65,7 +73,9 @@
 #           2. Resolver() sube hasta el ANCESTRO MAS ALTO, no el padre
 #              inmediato. Si un padre fuera un tipo de GSIS, el clon de
 #              HookGetWeaponInfo saldria del ancestro final y perderia todo lo
-#              que el padre intermedio habia heredado. Por eso no hay cadenas.
+#              que el padre intermedio habia heredado. Por eso no hay cadenas:
+#              "el 61 hereda del 60" NO es una cadena posible, es un RECHAZO del
+#              parser, y el comentario que lo diga en otro sentido esta viejo.
 #           3. Los otros 4 parches (Fire, sonido de disparo, sonido de recarga,
 #              mira) comparan el tipo RESUELTO contra rangos que arrancan en
 #              22: 22..43, 22..45, 22..34, 22..31. Un padre fuera de ahi
@@ -75,120 +85,109 @@
 #           6 fusil, 7 pesado, 8 lanzado, 9 especial.
 #
 # cargador  La capacidad de ESTA variante, en balas. Es un numero, no un flag:
-#           no existe el "-1 = hereda del padre" que decia la version
-#           anterior de este comentario, y CargarArmas rechaza un cargador <= 0
-#           en vez de inventarse un valor. La razon de que sea obligatorio: el
-#           mod NO escribe m_nAmmoClip en ningun momento, asi que el unico
-#           lugar del sistema donde existe una capacidad es esta linea. Si
-#           aqui no hay numero, el arma no tiene cargador.
+#           no existe el "-1 = hereda del padre" que decia la version anterior
+#           de este comentario, y CargarArmas rechaza un cargador <= 0 en vez
+#           de inventarse un valor. La razon de que sea obligatorio: el mod NO
+#           escribe m_nAmmoClip en ningun momento, asi que el unico lugar del
+#           sistema donde existe una capacidad es esta linea. Si aqui no hay
+#           numero, el arma no tiene cargador.
 #
 # damage    -1 = hereda del padre. Un 0 aca significa "cero dano", no "no
 #           tocar". HookGetWeaponInfo solo lo sobreescribe si es >= 0.
+#
+#           Y OJO con esto, porque es la trampa de cambiar de padre: al cambiar
+#           de padre el damage heredado cambia SOLO. El 61 paso de heredar 40
+#           (del 23) a heredar 25 (del 22) sin que nadie lo pidiera. Por eso el
+#           damage va EXPLICITO en cuanto el padre cambia.
 #
 # modelId   El modelo de ESTA variante. HookGetWeaponInfo lo sobreescribe en las
 #           4 filas de skill SIEMPRE, sin condiciones, asi que va explicito
 #           aunque sea el mismo que el del padre.
 #
-#           Hay DOS clases de modelId, y la diferencia importa:
+# modelId: LAS DOS CLASES, Y POR QUE DIFEREN TANTO
+# ----------------------------------------------------------------------------
+# 1. VANILLA (346, 347, 355, 356...). El juego YA tiene el CModelInfo. Escribir
+#    el id alcanza... y por eso mismo el fallo es el MAS DIFICIL DE VER.
 #
-#           1. modelId DE VANILLA (346, 347, 355, 356...). Son indices de
-#              CModelInfo que el juego ya tiene. Se escriben y listo: el
-#              modelo existe.
+#    MEDIDO el 03/10: el tipo 60 (colt45 silenciada, modelo 347) salia
+#    INVISIBLE. El arma estaba en el slot, con el cargador correcto, la
+#    animacion 18 y el sonido de la 23. Solo faltaba el modelo en pantalla:
 #
-#           2. modelId PROPIO (>= 15025). Son indices que NADIE creo todavia.
-#              El .asi los registra en su primer CStreaming::Update, con
-#              AddWeaponModel + RequestSpecialModel, y recien ahi existen.
-#              O sea: si pones 15025 aca y el .asi no lo tiene en su tabla
-#              g_modelos, el arma se da igual, dispara, y sale INVISIBLE.
+#       [60] MODELO 347 ahora: loadState 0 | cdSize 6 | rwObject NULL
 #
-#           Por eso HookGetWeaponInfo chequea: un modelId >= 15025 que no este
-#           en la tabla del .asi hace que NO se de el tipo, y el log dice
-#           exactamente que id pidio el .dat y que hay que agregar. El fallo
-#           invisible se convierte en un error de una linea.
+#    Y no lo pedia nadie. El juego pide el modelo de un arma vanilla cuando el
+#    arma llega a la mano por su camino normal; con un tipo de plugin eso no
+#    pasa, y el .asi no lo cubria. La 346 (la colt pelada) si estaba en
+#    memoria --el juego la pide al arrancar-- y por eso el 63 NUNCA fallo. La
+#    347 solo se carga si algo la uso antes en la partida. En una sesion
+#    limpia se mantuvo en loadState 0 toda la corrida, con el arma equipada.
 #
-#           Y un modelId >= 15025 que este en la tabla pero todavia no haya
-#           cargado, tambien avisa: esa es la ventana de startup, y el modelo
-#           registrado-pero-no-cargado es invisible igual.
+#    O sea: un modelo de vanilla NO es "escribir y listo". Es "escribir, y
+#    asegurar que este en memoria".
 #
-#           La tabla del .asi vive en limiter.cpp, array g_modelos. Hoy tiene
-#           DOS entradas: 15065 -> colt45_c15 (la usa el 62) y 15066 ->
-#           colt45_c15_silenced (la usa el 61). Las dos se vieron cambiar en
-#           pantalla.
+#    Que lo asegura: PedirModelosVanilla() en limiter.cpp, llamada desde el
+#    hook de CStreaming::Update. Pide, con CStreaming::RequestModel (0x4087E0),
+#    el modelo de cada tipo registrado mientras no este cargado, y avisa una
+#    sola vez. En el log:
 #
-#           MEDIDO (30/09): con 15065 el log da cdSize 0x7, txdIndex 3609 y
-#           loadState 2->1 en el frame 3. Antes de esa correccion, el 62
-#           declaraba 346 y se veia la Colt de vanilla: el tipo era 62 pero el
-#           modelo era el de la 63. Tipo y modelo son dos cosas separadas.
+#       [60] el modelo de vanilla 347 NO ESTA CARGADO ... Se pide.
+#       [60] modelo de vanilla 347 CARGADO: el arma se ve.
 #
-#           *** SI EL MODELO ES PROPIO, EL PADRE TIENE QUE SER DE LA MISMA ***
+#    Si aparece el primero y NO el segundo, el modelo no esta entrando y el
+#    arma sigue invisible: eso es un bug del .asi, no de esta fila.
 #
-#           CLASE DE ARMA. Esta es la segunda mitad de la regla de 'clonar, no
-#           reemplazar', yuesta vez por un crash.
+# 2. PROPIO (>= 15025). Son indices que NADIE creo todavia. El .asi los
+#    registra en su primer CStreaming::Update, con AddWeaponModel +
+#    RequestSpecialModel, y recien ahi existen.
 #
-#           El padre trae la ANIMACION. HookGetWeaponInfo sobreescribe cuatro
-#           campos del padre -m_modelId, m_nWeaponSlot, m_nAmmo y m_nDamage si es
-#           >= 0- y NUNCA m_animGroup. O sea: la animacion siempre es la del padre,
-#           siempre.
+#    Si pones 15025 aca y el .asi no lo tiene en su tabla g_modelos, el arma
+#    se da igual, dispara, y sale INVISIBLE. HookGetWeaponInfo lo detecta y el
+#    log dice exactamente que id pidio el .dat y que hay que agregar. El fallo
+#    invisible se convierte en un error de una linea.
 #
-#           Si pones un modelId propio encima sin cambiar el padre, queda la
-#           animacion del modelo que ya no esta, y APUNTAR CON ESA ARMA CRASHEA
-#           el juego. MEDIDO el 30/09 con el 61:
+#    La tabla del .asi vive en limiter.cpp, array g_modelos. Hoy tiene UNA
+#    entrada: 15065 -> "colt45_c15" (la usa el 62) y 15066 ->
+#    "colt45_c15_silenced" (la usa el 61).
 #
-#              61 23 15066 2 15  -1   ->  animGroup 18 (la de la 347)   CRASH
-#              61 22 15066 2 15  40   ->  animGroup 13 (la de pistola)   funciona
+# SI EL MODELO ES PROPIO, EL PADRE TIENE QUE SER DE LA MISMA CLASE
+# ----------------------------------------------------------------------------
+# Esta es la segunda mitad de la regla de "clonar, no reemplazar", y esta vez
+# por un crash.
 #
-#           Y por que el 62 nunca lo tuvo: su padre es el 22, la pistola, y
-#           colt45_c15 ES una pistola. Padre y modelo de la misma clase. El 61
-#           tenia padre 23 (la silenciada) y un .dff que es la silenciada, pero
-#           pisaba el modelo y no la animacion.
+# El padre trae la ANIMACION. HookGetWeaponInfo sobreescribe cuatro campos del
+# padre --m_modelId, m_nWeaponSlot, m_nAmmo y m_nDamage si es >= 0-- y NUNCA
+# m_animGroup. O sea: la animacion siempre es la del padre, siempre.
 #
-#           OJO con el damage. -1 significa 'hereda del padre', asi que al
-#           cambiar de padre el damage heredado cambia solo: el 61 paso de heredar
-#           40 (del 23) a heredar 25 (del 22) sin que nadie lo pidiera. Por eso
-#           el damage va EXPLICITO en cuanto se cambia el padre.
+# Si pones un modelId propio encima sin cambiar el padre, queda la animacion
+# del modelo que ya no esta, y APUNTAR CON ESA ARMA CRASHEA el juego.
+# MEDIDO el 30/09 con el 61:
 #
-#           Y el camino que NO tiene este problema es clonar sin pisar: el 60
-#           sigue con modelId 347 y padre 23, que es la configuracion original.
-#           Cuando no hay asset propio, esa es la correcta.
+#    61 23 15066 2 15  -1   ->  animGroup 18 (la de la 347)   CRASH
+#    61 22 15066 2 15  40   ->  animGroup 13 (la de pistola)   funciona
 #
-# El archivo se relee en cada arranque. Comentar con #. Con # sola, o con
-# espacios, no cuenta como fila: el parser salta las lineas vacias antes del
-# sscanf para que no salgan como rechazos.
+# Y por que el 62 nunca lo tuvo: su padre es el 22, la pistola, y colt45_c15 ES
+# una pistola. Padre y modelo de la misma clase.
 #
-# ============================================================================
-# QUE HAY EN ESTE ARCHIVO Y QUE NO
-# ============================================================================
-# Aca van SOLO las variantes de tipo PLUGIN, o sea las que GTA no tiene y el
-# .asi tiene que dar de alta. Las que el motor ya conoce NO van: no hacen falta
-# filas y cada fila de mas es un tipo que se registra al pedirlo.
+# Y el camino que NO tiene este problema es CLONAR SIN PISAR: cuando no hay un
+# asset propio, se deja el modelId del padre y solo se cambia lo que hace
+# falta. El 60 y el 61 son ese caso, y por eso pueden ser padre 23 sin mas.
 #
-# Y esa es la idea del refactor: el weaponType no es la identidad del arma, es la
-# REPRESENTACION de una configuracion concreta. La identidad es la familia
-# (colt45) y vive en gsis_weapon_variants.js. Un solo item de inventario para
-# toda la familia, y aca una fila por cada combinacion que el motor no tiene.
+# LAS 4 FILAS QUE HAY
+# ----------------------------------------------------------------------------
+# El orden es el de la familia y no el numerico, para que se lea como el jugador
+# lo ve. Son las 4 configuraciones de la Colt .45, y las 4 necesitan estar aca:
 #
-# Las 4 configuraciones de la Colt .45, y las 4 necesitan estar aca:
-#
-#   configuracion                    tipo  modelo  padre  capacidad  hace falta fila
-#   colt45                            63     346     22      8        SI
-#   colt45 + cargador 15              62  15065     22     15        SI
-#   colt45 + silenciador              60     347     23      8        SI
-#   colt45 + silenciador + cargador 15 61     347     23     15        SI
-#   ak47 + tambor                     64     355     30     75        SI
-#   m4 + Lancer                       65     356     31     40        SI
-#   m4 + tambor                       66     356     31     60        SI
-#
-# Y las 16 familias que usan su tipo de VANILLA, que NO necesitan fila porque el
-# motor ya las ejecuta: desert_eagle 24, shotgun 25, sawed_off 26,
-# combat_shotgun 27, micro_uzi 28, mp5 29, ak47 30, m4 31, tec9 32,
-# country_rifle 33, sniper_rifle 34, rpg 35, heat_seeker 36, flamethrower 37,
-# minigun 38.
+#   configuracion                      tipo  modelo  padre  capacidad  asset
+#   colt45                              63     346     22      8        vanilla
+#   colt45 + cargador 15                62   15065     22     15        PROPIO
+#   colt45 + silenciador                60     347     23      8        vanilla
+#   colt45 + silenciador + cargador 15  61    15066     23     15        PROPIO
 #
 # POR QUE LA COLT TIENE CUATRO Y LAS OTRAS UNA
 # ----------------------------------------------------------------------------
-# Antes eran 2 para la Colt porque su base usaba el 22 de vanilla y el silenciado
-# usaba el 23 de vanilla. Las dos cosas se resolvieron con una regla que ya no
-# alcanza:
+# Antes eran 2 para la Colt porque su base usaba el 22 de vanilla y el
+# silenciado usaba el 23 de vanilla. Las dos cosas se resolvieron con una regla
+# que ya no alcanza:
 #
 #   - El 22 de vanilla trae 17 balas, no 8. Sin el parche global de
 #     m_nAmmoClip el mod no puede bajarlo, asi que la Colt de GSIS necesita su
@@ -205,35 +204,39 @@
 # padre, no los reemplazan. La diferencia entre "clonar" y "reemplazar" es toda
 # la linea entre un silenciador que funciona y uno que no cambia nada.
 #
-# ============================================================================
-# LAS 7 FILAS
-# ============================================================================
-# El orden es el de la familia y no el numerico, para que se lea como el jugador
-# lo ve.
-#
-# 60..63  la Colt .45, la unica familia con cuatro configuraciones
-# 64..66  los tres cargadores que cambian la capacidad de su familia
-#
-# POR QUE 64, 65 Y 66 TIENEN SU PROPIO TIPO, Y LOS OTROS CARGADORES NO
+# COMO SE COMPRUEBA QUE UNA FILA NUEVA SIRVE
 # ----------------------------------------------------------------------------
-# Un cargador cuesta un slot del rango SOLO si al montarlo el motor tiene que
-# ejecutar algo distinto. O sea, si cambia la capacidad respecto de la familia:
+# 1. El check, antes de arrancar el juego:
 #
-#   mag_ak47 (30) sobre un AK-47 (30)   -> mismo tipo 30. No cuesta nada.
-#   mag_ak47_drum (75) sobre un AK-47   -> tipo 64. Cuesta uno.
-#   mag_m4_lancer (40) sobre un M4 (30) -> tipo 65. Cuesta uno.
-#   mag_m4_drum (60) sobre un M4 (30)   -> tipo 66. Cuesta uno.
-#   mag_colt45_15 (15) sobre una Colt (8) -> tipo 62. Cuesta uno.
+#      node .IronSyndicate\tools\check-dat.mjs
 #
-# El padre de los tres es el tipo de VANILLA de la propia familia (30 y 31), no el
-# 22. Clonar del mismo arma y cambiar solo el cargador es lo que hace que hereden
-# la animacion, el sonido y la mira correctos; con un padre equivocado el arma
-# dispara bien y suena como otra cosa, que es el fallo mas dificil de ver.
+#    Cruza este archivo contra ARMAS y CARGADORES de data/gsis_weapons.js, y
+#    sale distinto de cero si un tipo no esta en las dos mitades, si hay dos
+#    filas con el mismo tipo, si un cargador no le sirve a ningun arma, o si el
+#    clipSize del cargador no es el clip de la fila.
 #
-# Quedan 13 slots libres de los 20.
-
+# 2. El log, en este orden (gsis_limiter.txt, en la raiz del juego):
+#
+#      config leida de ...\gsis_weapons.dat
+#      dado de alta: tipo 62, padre 22, modelId 15065, ...   <- la fila se tomo
+#      dado de alta: tipo 60, padre 23, modelId 347, ...
+#      [62] modelo 15065 | loadState 1 | ...                  <- el propio cargo
+#      [60] el modelo de vanilla 347 NO ESTA CARGADO ... Se pide.
+#      [60] modelo de vanilla 347 CARGADO: el arma se ve.
+#      [60] clonado de 23 | modelId pedido 347 / de la tabla 347 | clip 8
+#
+#    "dado de alta" sin un RECHAZADA al lado es lo minimo. El RECHAZADA explica
+#    por que la fila no esta: padre fuera de 22..32, padre que es tipo de GSIS,
+#    padre igual al tipo, tipo repetido, cargador <= 0, slot <= 0.
+#
+#    Y las dos lineas del modelo son las que dicen si el arma SE VE. Sin ellas
+#    el log puede estar impecable y el arma no aparecer en la mano: ese fue el
+#    fallo del 03/10, y no lo delataba ni el HUD ni el log de un give.
+#
+# El archivo se relee en cada arranque. Comentar con #. Con # sola, o con
+# espacios, no cuenta como fila: el parser salta las lineas vacias antes del
+# sscanf para que no salgan como rechazos.
 60 23 347 2  8 -1
-61 23 347 2 15 -1
+61 23 15066 2 15 -1
 62 22 15065 2 15 -1
 63 22 346 2  8 -1
-

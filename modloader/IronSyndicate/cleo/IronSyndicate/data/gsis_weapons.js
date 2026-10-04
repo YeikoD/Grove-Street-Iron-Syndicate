@@ -5,25 +5,45 @@
 // ============================================================================
 // QUE RESUELVE ESTE ARCHIVO
 // ============================================================================
-// Que es un arma del mod y a que tipo del motor corresponde. DOS tablas y dos
-// funciones, y nada mas:
+// Que es un arma del mod y a que tipo del motor corresponde. DOS tablas y las
+// funciones que las caminan, y nada mas:
 //
-//   ARMAS        itemId -> { nombre, weaponType, slot, precio }
-//   CARGADORES   itemId -> { arma, clipSize, precio }
+//   ARMAS        itemId -> { nombre, family, weaponType, slot, precio, peso,
+//                           damage, categoria }
+//   CARGADORES   itemId -> { nombre, armas[], clipSize, precio, peso }
 //
+// UN ITEM POR CONFIGURACION, Y POR QUE NO HAY UN RESOLVER
+// ---------------------------------------------------------------------------
 // El `weaponType` es lo que el motor ejecuta; el `itemId` es lo que el jugador
-// tiene en el inventario. Son dos cosas y por eso viven en dos campos: el arma
-// del inventario es SIEMPRE la misma, y el tipo es la representacion que ejecuta
-// el .asi. El tipo se deriva de la configuracion, nunca se guarda y nunca viaja
-// por la UI.
+// tiene en el inventario. Son dos cosas y por eso viven en dos campos.
+//
+// Cada CONFIGURACION es su propio item, y su `weaponType` esta DECLARADO aqui
+// de forma directa: `colt45_silenced` es el 60, `colt45_c15_silenced` es el 61.
+// No hay `family + attachments -> tipo`: no existe `resolveWeaponType()` y no
+// hay ninguna resolucion en runtime. El campo `family` esta para agrupar y
+// mostrar, no para derivar nada.
+//
+// Que el tipo se derive en vez de declararse fue el diseño viejo, y se fue con
+// el sistema de accesorios entero. Volver a esa forma sin querer es facil --un
+// `switch` por nombre de item parece innocent-- y produce un fallo concreto:
+// un item sin entrada en ARMAS nunca llama a `Engine.giveWeapon()`, el arma no
+// aparece, y el .dat puede estar impecable. Ver "QUE PASA SI FALTA UNA DE LAS
+// DOS MITADES".
 //
 // ============================================================================
-// EL 63 ESTA TAMBIEN EN gsis_weapons.dat
+// LAS CUATRO FILAS DEL .dat, Y POR QUE ESTAN DUPLICADAS
 // ============================================================================
-// Es la fila `63 22 346 2 8 -1` del archivo que lee el .asi. Son DOS copias de un
-// numero en dos lugares, y la duplicacion de datos de configuracion es
-// exactamente la clase de bug que produjo el cargador de 15 que terminaba en 8:
-// dos copias, una regla de prioridad, y el valor equivocado visible en el arma.
+// Las 4 son la fila de gsis_weapons.dat que lee el .asi, una por tipo:
+//
+//   60 23   347 2  8 -1     colt45_silenced        (colt45_c15_silenced)
+//   61 23   347 2 15 -1     colt45_c15_silenced
+//   62 22 15065 2 15 -1     colt45_c15
+//   63 22   346 2  8 -1     colt45
+//
+// Son DOS copias de un numero en dos lugares, y la duplicacion de datos de
+// configuracion es exactamente la clase de bug que produjo el cargador de 15
+// que terminaba en 8: dos copias, una regla de prioridad, y el valor equivocado
+// visible en el arma.
 //
 // Se acepta por una razon concreta: el .dat lo lee el .asi en su DllMain, antes
 // de que exista un solo script de CLEO, y el mod no abre archivos. No hay forma
@@ -32,12 +52,36 @@
 //
 // QUE SE HACE CONTRA ESO
 // ---------------------------------------------------------------------------
-// .IronSyndicate/tools/check-dat.mjs cruza las dos mitades fila por fila y sale
-// distinto de cero si el tipo no coincide. Es la red, y mientras no exista el
-// check la red es el comentario de arriba.
+//   node .IronSyndicate\tools\check-dat.mjs
 //
-// LA CAPACIDAD NO ESTA ACA, Y ESA ES LA DIFERENCIA
+// Cruza las dos mitades y sale distinto de cero si un tipo no esta en las dos,
+// si hay dos items con el mismo weaponType, si un cargador no le sirve a ningun
+// arma, o si el clipSize no coincide con el clip de la fila.
+//
+// LO QUE EL CHECK NO DICE, Y ES LA MITAD DEL PROBLEMA
 // ---------------------------------------------------------------------------
+// El check dice que la configuracion es coherente. No dice que el ARMA SE VEA,
+// y esa diferencia es un bug entero: un .dat impecable cuyo `modelId` no esta
+// cargado da un arma INVISIBLE, con el cargador, la animacion y el sonido
+// correctos. MEDIDO el 03/10 con el 60 y el 61, modelo 347 de vanilla.
+//
+// Que se vea se verifica en el log, no aca. Ver "COMO SE COMPRUEBA QUE UNA
+// FILA NUEVA SIRVE" en el header de gsis_weapons.dat.
+//
+// QUE PASA SI FALTA UNA DE LAS DOS MITADES
+// ---------------------------------------------------------------------------
+//   item sin fila   el .asi no registra el tipo. El give no da nada.
+//   fila sin item   el .asi registra el tipo y nadie lo pide nunca: se registra
+//                   al pedirlo y ocupa un slot del rango 60..79 para siempre.
+//                   El sintoma es un arma que no aparece en la mochila.
+//
+// Las dos mitades tienen que crecer JUNTAS. Agregar un arma es: una fila en el
+// .dat, una entrada en ARMAS, una entrada en CARGADORES con el clipSize de la
+// fila, y las dos entradas en ITEMS de gsis_item_data.js.
+//
+// ============================================================================
+// LA CAPACIDAD NO ESTA ACA, Y ESA ES LA DIFERENCIA
+// ============================================================================
 // El cargador de 8 balas NO es lo que le cabe al arma: eso lo dice el motor, con
 // Engine.clipCapacityOf(63), que pega en el hook de GET_WEAPONINFO y recibe la
 // fila que escribio el .asi. Lo que dice `clipSize` en CARGADORES es cuantas balas
@@ -94,38 +138,52 @@ export var ARMAS = {
 };
 
 // Los cargadores. `clipSize` es lo que mete UN cargador de los que hay, y
-// `arma` es a que arma le sirve: un cargador que no le sirve a un arma es una
-// combinacion que no existe y la accion se rechaza ANTES de gastar la pieza.
+// `armas` es la LISTA de armas a las que le sirve.
+//
+// POR QUE UNA LISTA Y NO UN `arma` SOLO
+// ----------------------------------------------------------------------------
+// Un cargador no es de un arma: es de una CAPACIDAD, y el silenciador no cambia
+// la capacidad. El cargador de 8 le sirve a la colt45 pelada y a la silenciada;
+// el de 15 le sirve a la C15 y a la C15 silenciada. Con un `arma` solo habia que
+// elegir entre dos males:
+//
+//   un cargador por arma   cuatro cargadores para dos capacidades, y el jugador
+//                         tenia que saber cual de los dos de 8 era el suyo
+//   un cargador compartido y ningun arma declarada   un cargador que no le
+//                         sirve a nadie
+//
+// La lista es la unica de las dos que no inventa una pieza que no existe. Y el
+// orden de la lista no es decorative: el primero es el que muestra la UI como
+// arma principal del cargador (ver slotDe).
+//
+// Y "cada cargador en su arma" no necesita una regla aparte: la recarga pide el
+// cargador con cargadorDe(armaEnLaMano), o sea que un cargador que no esta en la
+// lista de esa arma no se toca nunca. Esta en su ranura esperando a su propia
+// arma. Ver "LA 4" en modules/weapons/gsis_Weapons.js.
 export var CARGADORES = {
     "mag_colt45": {
         nombre: "Cargador Colt .45",
-        arma: "colt45",
+        armas: ["colt45", "colt45_silenced"],
         clipSize: 8,
         precio: 220,
         peso: 0.2
     },
     "mag_colt45_c15": {
         nombre: "Cargador Colt .45 C15",
-        arma: "colt45_c15",
+        armas: ["colt45_c15", "colt45_c15_silenced"],
         clipSize: 15,
         precio: 250,
         peso: 0.25
-    },
-    "mag_colt45_silenced": {
-        nombre: "Cargador Colt .45 Silenced",
-        arma: "colt45_silenced",
-        clipSize: 8,
-        precio: 240,
-        peso: 0.2
-    },
-    "mag_colt45_c15_silenced": {
-        nombre: "Cargador Colt .45 Silenced C15",
-        arma: "colt45_c15_silenced",
-        clipSize: 15,
-        precio: 260,
-        peso: 0.25
     }
 };
+
+// Si un cargador le sirve a un arma. La regla, en una linea, y sin que ningun
+// llamador tenga que recorrer la lista.
+export function cargadorSirveA(magId, armaId) {
+    var def = CARGADORES[magId];
+    if (!def || !armaId) return false;
+    return def.armas.indexOf(armaId) !== -1;
+}
 
 // La definicion del arma de un itemId, o null si el item no es un arma del mod.
 export function defDeArma(itemId) {
@@ -140,12 +198,12 @@ export function defDeCargador(itemId) {
 }
 
 // El cargador que le sirve a un arma. Con un cargador por arma es un indice
-// directo; el dia que haya mas de uno pasa a ser "el primero que le sirva", y el
-// llamador tiene que decidir cual monta.
+// directo; con la lista de `armas` es "el primero que le sirva", y el llamador
+// tiene que decidir cual monta.
 export function cargadorDe(armaId) {
     for (var id in CARGADORES) {
         if (Object.prototype.hasOwnProperty.call(CARGADORES, id) &&
-            CARGADORES[id].arma === armaId) {
+            CARGADORES[id].armas.indexOf(armaId) !== -1) {
             return id;
         }
     }
@@ -205,12 +263,16 @@ export function municionDeFabrica(itemId) {
 // El slot del motor de un item. Si el item es un arma, el suyo; si es un
 // cargador, el del arma a la que le sirve. La UI lo usa para el `ranura` de la
 // fila equipada.
+//
+// Con la lista de `armas` hay mas de una respuesta posible, y todas las de un
+// cargador son el mismo numero: un cargador le sirve a armas de la MISMA ranura
+// por definicion, asi que se toma la primera y no hay nada que decidir.
 export function slotDe(itemId) {
     var arma = defDeArma(itemId);
     if (arma) return arma.slot;
     var cargador = defDeCargador(itemId);
-    if (cargador) {
-        var deArma = defDeArma(cargador.arma);
+    if (cargador && cargador.armas.length) {
+        var deArma = defDeArma(cargador.armas[0]);
         return deArma ? deArma.slot : 0;
     }
     return 0;

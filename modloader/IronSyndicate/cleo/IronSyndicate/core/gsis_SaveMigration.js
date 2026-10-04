@@ -80,7 +80,25 @@
 // Esta tabla se restaura con los mismos 14 renombres, y el orden importa: el
 // destino de cada uno tiene que existir en ITEMS el dia que corre la
 // migracion, y el renombre es de un solo salto, sin encadenar.
-export var ITEM_RENAMES = {};
+//
+// LOS DOS DE LOS CARGADORES SILENCIADOS (03/10)
+// ----------------------------------------------
+// Un cargador es de una CAPACIDAD, no de un arma: el de 8 le sirve a la colt45 y
+// a la silenciada, y el de 15 a la C15 y a la C15 silenciada. Por eso los cuatro
+// cargadores del catalogo pasaron a ser dos, y los dos ids silenciados quedaron
+// sin destino. Un save que los tenga guardado los renombra a su par de
+// capacidad, que es el mismo cargador con las mismas balas.
+//
+// OJO: esto no se aplica solo. renameItemId() lo consume migrateItem(), y
+// migrateItemList() —la unica que camina una lista entera— NO la llama nadie del
+// mod todavia (ver "MIGRADORES DE MODULOS"). O sea que los renombres de abajo
+// estan en el lugar correcto y no se ejecutan hasta que ese cable se conecte.
+// Mientras tanto un cargador silenciado en un save viejo queda como un item sin
+// nombre: getItemName devuelve el id crudo.
+export var ITEM_RENAMES = {
+    "mag_colt45_silenced": "mag_colt45",
+    "mag_colt45_c15_silenced": "mag_colt45_c15"
+};
 
 
 // ============================================================================
