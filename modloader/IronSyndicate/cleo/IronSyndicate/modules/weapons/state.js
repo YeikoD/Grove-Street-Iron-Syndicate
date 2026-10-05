@@ -204,27 +204,81 @@ export function ranuraLibre() {
 
 // Poner un cargador en una ranura. `entry` null saca el de esa ranura.
 //
-// La escritura pasa por la lista Densa: se arma con la lista que devuelve
-// getCargadores() y se cambia una posicion, asi que en el save nunca queda un
-// hueco en el medio. Sacar el del medio (ranura 0 de 2) deja el 1 corrida a la 0.
+// La escritura pasa por la lista DENSE y sin huecos: se arma con la lista que
+// devuelve getCargadores() —que ya filtro lo que el catalogo no reconoce— y se
+// cambia una posicion. Al save van solo las ranuras REALES, nunca un placeholder.
+//
+// POR QUE EL INDICE SE VALIDA ANTES DE TOCAR NADA
+// ---------------------------------------------------------------------------
+// Antes, `splice(indice, 1)` con un indice fuera de rango no hacia nada y la
+// funcion seguia como si hubiera hecho: escribia la lista y devolvia `true`. Un
+// `false` de setCargador es lo que hace que un llamador no crea que guardo una
+// pieza, asi que un `true` en un no-op es peor que un `false`: es una mentira que
+// el llamador no tiene forma de detectar.
 export function setCargador(indice, entry) {
-    var lista = getCargadores();
-    while (lista.length < indice && lista.length < maxCargadores()) {
-        lista.push({ indice: lista.length, id: null, ammo: 0 });
+    if (typeof indice !== "number" || indice < 0 || indice >= maxCargadores()) {
+        return false;
     }
 
+    var lista = getCargadores();
+
     if (!entry) {
+        // Sacar el ultimo corre los de abajo. Sacar uno que no esta no es un no-op
+        // tolerable: es una peticion que no se puede satisfacer, y avisarla por log
+        // es lo que la hace visible.
+        if (indice >= lista.length) {
+            log("[Weapons] setCargador: la ranura " + (indice + 1) +
+                " no tiene cargador. No se toca nada.");
+            return false;
+        }
         lista.splice(indice, 1);
     } else {
-        if (indice < 0 || indice >= maxCargadores()) return false;
-        lista[indice] = { indice: indice, id: entry.id, ammo: entry.ammo || 0 };
+        if (indice >= lista.length) {
+            // Ranura nueva: se llena el hueco con los que ya hay. `getCargadores()`
+            // es denso, asi que llegar hasta `indice` es agregar los que faltan.
+            while (lista.length < indice) {
+                lista.push({ indice: lista.length, id: null, ammo: 0 });
+            }
+        }
+        lista[indice] = {
+            indice: indice,
+            id: entry.id,
+            ammo: _ammoEnRango(entry.id, entry.ammo)
+        };
     }
 
     var data = getModuleData(SAVE_KEY) || { equipped: {} };
     if (!data.equipped) data.equipped = {};
-    data.cargadores = lista;
+    // Se guarda la lista SIN los huecos que se rellenaron para llegar a `indice`:
+    // `getCargadores()` los filtra y si estan en el save ocupan ranura de mas.
+    data.cargadores = lista.filter(function (c) { return !!(c && c.id); });
     setModuleData(SAVE_KEY, data);
     return true;
+}
+
+// La municion de un cargador, acotada a lo que le entra.
+//
+// Y POR QUE HACE FALTA, SI `clipSize` NO CAMBIA
+// ---------------------------------------------------------------------------
+// Porque el save es de una version anterior. Un cargador puede haberse guardado con
+// `clipSize` balas de una epoca en la que el catalogo declaraba mas, y `setCargador`
+// no lo mira: copia el numero.
+//
+// Y el recorte no es cosmético: `llenarDesdeCaja` calcula `falta = cap - ammo`, asi
+// que un cargador sobrecargado da `falta` negativo, el boton dice "ya esta lleno", y
+// no hay ninguna accion que lo baje a su capacidad. El cargador queda sobrecargado
+// para siempre y el jugador no tiene como arreglarlo.
+//
+// Un numero negativo tambien se acotaba a 0: un `ammo` negativo en el save hace que
+// el HUD muestre menos que cero y que la recarga calcule un `n` negativo.
+function _ammoEnRango(magId, ammo) {
+    var def = defDeCargador(magId);
+    if (!def) return 0;
+    var n = ammo || 0;
+    if (n < 0) n = 0;
+    var cap = def.clipSize || 0;
+    if (cap > 0 && n > cap) n = cap;
+    return n;
 }
 
 // ---------------------------------------------------------------------------
@@ -254,11 +308,61 @@ export function setCargadorEnArma(slot, id) {
     return id || null;
 }
 
-// El init del modulo. Sin export, porque la llama el register() de gsis_Weapons.js:
-// registrar por el modulo y no por nombre es lo que hace que este archivo no
-// dependa de ModuleRegistry.
+// ---------------------------------------------------------------------------
+// LA NORMALIZACION DE CARGA
+// ---------------------------------------------------------------------------
+// Un cargador con mas balas de las que le entran es un estado que el save puede
+// traer y que no se arregla con la UI: `llenarDesdeCaja` calcula `falta = cap - ammo`,
+// un `falta` negativo da "ya esta lleno", y no hay ninguna accion que baje el
+// cargador a su capacidad. Se queda sobrecargado para siempre.
+//
+// CUANDO SE ARREGLA, Y POR QUE EN EL INIT Y NO EN CADA ESCRITURA
+// ---------------------------------------------------------------------------
+// En el init. Es el unico momento en que el numero puede venir de una epoca con otro
+// catalogo, y es donde ya se normalizan otras cosas del save —ver
+// `normalizeInstances` en inventory/state.js, que hace lo mismo con `salud` y con
+// los stacks—. Normalizar en cada escritura taparia el sintoma y dejaria el save con
+// el numero viejo, que es la clase de bug que este modulo no quiere.
+//
+// Y solo se ESCRIBE si algo cambio. Un save sano no se reescribe al arrancar, y eso
+// importa porque `setModuleData` marca el guardado sucio: normalizar siempre
+// provocaria un guardado en cada carga, en el slot activo, al entrar al juego.
+function _normalizarCargadores() {
+    var data = getModuleData(SAVE_KEY);
+    if (!data || !Array.isArray(data.cargadores)) return 0;
+
+    var cambiados = 0;
+    var lista = [];
+    for (var i = 0; i < data.cargadores.length && i < maxCargadores(); i++) {
+        var c = data.cargadores[i];
+        if (!c || !c.id || !defDeCargador(c.id)) continue;   // lo que no existe no ocupa ranura
+        var acotado = _ammoEnRango(c.id, c.ammo);
+        if (acotado !== (c.ammo || 0)) {
+            log("[Weapons] carga: el cargador " + c.id + " tenia " + (c.ammo || 0) +
+                " balas y su capacidad es " + acotado + ". Se recorta.");
+            cambiados++;
+        }
+        lista.push({ indice: lista.length, id: c.id, ammo: acotado });
+    }
+
+    if (lista.length !== data.cargadores.length) cambiados++;
+    if (!cambiados) return 0;
+
+    data.cargadores = lista;
+    setModuleData(SAVE_KEY, data);
+    return cambiados;
+}
+
+// ---------------------------------------------------------------------------
+// EL INIT DEL MODULO
+// ---------------------------------------------------------------------------
+// Sin export, porque la llama el register() de gsis_Weapons.js: registrar por el
+// modulo y no por nombre es lo que hace que este archivo no dependa de
+// ModuleRegistry.
 export function initState() {
     registerModule(SAVE_KEY, { equipped: {}, cargadores: [], enArma: {} });
+    var corregidos = _normalizarCargadores();
     log("[Weapons] Registro de equipadas inicializado | cargadores: max " +
-        maxCargadores());
+        maxCargadores() +
+        (corregidos ? " | normalizados al cargar: " + corregidos : ""));
 }

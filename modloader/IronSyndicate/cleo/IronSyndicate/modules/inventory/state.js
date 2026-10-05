@@ -13,29 +13,32 @@
 // cambia de contenedor. Eso es logic.js. Aca solo se pregunta "que hay".
 //
 // ============================================================================
-// LO QUE SE FUE CON EL SISTEMA DE ARMAS
+// LO QUE SE FUE, Y LO QUE ESTA MAL DICHO DE ESO
 // ============================================================================
-// Este archivo tenia tres cosas que hoy no tienen a quien preguntar:
+// Este archivo tuvo tres cosas que hoy no tienen a quien preguntar:
 //
 //   capacityOfItem()   la capacidad de un cargador. Preguntaba por el bus a
-//                      `weapons:capacityOfItem`, y el que contestaba era el
-//                      modulo de armas. Sin ese modulo, la pregunta no tiene a
-//                      quien contestarle y devolvia 0 con un WARN en el log.
-//
+//                      `weapons:capacityOfItem`.
 //   isMagazine()       y las fabricas makeMagazineInstance() /
-//                      makeWeaponInstance() / makeInstance(). Existian para
-//                      armar filas de cargador y de arma, que son instanciadas:
-//                      una fila por unidad, con su propia municion y su propia
-//                      salud. El unico item del catalogo es chatarra, que se
-//                      apila, asi que una fila es { id, qty, salud }.
+//   makeWeaponInstance()  makeInstance().
 //
-//   ensureBelt()       el cinturon de cargadores equipados. Eran 3 casillas
-//   getBelt()          fijas donde vivian los cargadores que el jugador llevaba
-//                      puestos, y su unico consumidor era el ciclo de recarga
-//                      de la tecla R. Sin armas no hay cargadores que llevar.
+// Y este header decia que se fueron "con el sistema de armas" y que "sin armas no
+// hay cargadores que llevar".
 //
-// Que se hayan ido los tres es lo que hace que addItem() sea, hoy, una linea:
-// apila, pesa, avisa si no cabe. Ver logic.js.
+// CORREGIDO el 04/10/2026. El sistema de armas esta vivo —modules/weapons/— y las
+// tres funciones se fueron por otra razon: el modulo de armas dejo de preguntar por
+// el bus y se calculo la capacidad solo. `capacidadDeItem()` vive hoy en
+// gsis_Weapons.js, y no como un evento sino como una funcion que pregunta al motor
+// con `Engine.clipCapacityOf`, que es la unica fuente de verdad de la capacidad.
+//
+// La segunda parte del header era la de `ensureBelt()` / `getBelt()`: 3 casillas de
+// cargadores equipados, que eran el cinturon. Se substituyeron por las dos ranuras de
+// `GameState.Weapons.cargadores`, que viven en el save del modulo de armas y no
+// aca. El cinturon no se perdio: se movio de contenedor.
+//
+// Que addItem() sea, hoy, una linea —apila, pesa, avisa si no cabe— sigue siendo
+// cierto, pero por la razon que corresponde: una fila de arma o de cargador es
+// instanciada y la hace `_filaDeInstancia`, no que no haya armas.
 // ============================================================================
 
 import { registerModule, getModuleData, setModuleData } from "../../core/gsis_SaveManager.js";

@@ -8,6 +8,9 @@
 
 import { TIMERS, MISC } from "./gsis_Config.js";
 import { migrateSave, SAVE_FORMAT_VERSION, versionDe } from "./gsis_SaveMigration.js";
+// El bus no importa nada, asi que esto no es un ciclo: SaveManager puede emitir
+// `save:dirty` sin que el modulo que lo escucha entre en la cadena.
+import { emit } from "./gsis_EventBus.js";
 
 var GameState = {
     // El numero del ESQUEMA del save, no la del mod. Lo sube el modulo que cambia
@@ -169,8 +172,106 @@ function _b64Decode(str) {
 }
 
 // ============================================================================
-// SAVE / LOAD - JSON chunked via INI
+// SAVE / LOAD - JSON chunked via INI, con doble buffer
 // ============================================================================
+//
+// EL POR QUE DEL DOBLE BUFFER
+// ---------------------------------------------------------------------------
+// `WRITE_STRING_TO_INI_FILE` reescribe el archivo ENTERO en cada llamada, asi que un
+// guardado son N escrituras sobre el MISMO archivo. La version anterior escribia los
+// chunks `d0..dn` en su lugar y `n` al final, y el resultado era que una caida a
+// mitad dejaba el archivo con los chunks viejos y los nuevos mezclados: `n` ya no
+// describia lo que habia, `loadGame` abortaba con "chunk vacio", y el save bueno —
+// que estaba en el mismo archivo, en el mismo lugar— ya no existia. Todo el save
+// perdido por un corte de energia en el chunk 40 de 60.
+//
+// LA REGLA
+// ---------------------------------------------------------------------------
+// Un guardado NUNCA escribe en el namespace que esta vivo. Escribe en el otro, y al
+// final —y solo si se lee de vuelta y calza— escribe `commit`, que es lo unico que
+// dice cual de los dos es el bueno. El namespace muerto se pisa en el siguiente
+// guardado, asi que nunca hay mas de dos y no hay que limpiar nada.
+//
+// POR QUE SOLO DOS Y NO UN NUMERO DE GENERACION
+// ---------------------------------------------------------------------------
+// Un contador de generacion dejaria las claves muertas para siempre, y con el costo
+// de borrarlas despues: N escrituras extra por guardado, sobre un archivo que cada
+// escritura reescribe completo. Con dos namespaces el costo es el mismo que antes —
+// N escrituras— y el archivo no crece nunca.
+//
+// Y EL VERIFICADO, que es lo que hace que esto sea una garantia y no una esperanza
+// ---------------------------------------------------------------------------
+// Antes del `commit` se releen los N chunks y se comparan con lo que se acaba de
+// escribir. Si algo no calza —el INI trunco un valor, el disco fallo, el motor
+// escribio otra cosa— NO se escribe `commit`, y el namespace vivo sigue siendo el
+// viejo. Un guardado fallido se pierde; el guardado anterior no.
+//
+// Es N lecturas, que no reescriben el archivo, contra N escrituras que si. Cuesta
+// menos que el doble del guardado.
+//
+// LOS SAVES VIEJOS SIGUEN LEYENDOSE
+// ---------------------------------------------------------------------------
+// Un slot anterior a esto tiene `n` y `d0..dn`, sin `commit`. `loadGame` intenta el
+// `commit` primero y, si no esta o no parsea, cae al formato viejo. O sea que un save
+// hecho por la version anterior se carga sin tocarlo y se graba en el nuevo la
+// proxima vez. Los saves con base64 crudo, mas viejos aun, ya tenian su propio
+// fallback antes de esto y no cambian.
+
+// Los dos namespaces. El vivo lo dice `commit`; el otro es el que se puede pisar.
+var _NS_A = "a";
+var _NS_B = "b";
+
+// Leer el `commit` de un slot.
+//
+// DEVUELVE UN ESTADO, Y LA DISTINCION ENTRE LOS TRES CASOS ES EL PUNTO
+// ---------------------------------------------------------------------------
+//   ausente   no hay clave `commit`. O el slot es de la version anterior, y hay que
+//             leerlo por el camino viejo, o no hay slot. Es el unico caso en que
+//             tiene sentido caer al formato anterior.
+//   ok        el commit esta completo y dice namespace, cantidad y largo.
+//   roto      HAY clave `commit` pero no parsea. O sea: un archivo del formato
+//             nuevo con el commit a medias.
+//
+// Y EL CASO "ROTO" NO SE CAE AL FORMATO VIEJO, y esa es la parte que hay que
+// entender: caer seria leer un `n` y unos `d<i>` que en un archivo del formato nuevo
+// no existen, concluir "no hay chunks", y reportar un archivo que esta a medias como
+// si estuviera vacio. El save no se pierde —el namespace bueno sigue en el
+// archivo— pero el diagnostico pasa de "el commit se corto" a "este slot no tiene
+// nada", que es la clase de mentira que hace que un bug se busque en el lugar
+// equivocado.
+//
+// Los tres campos tienen que estar, y en ese orden. El largo no es una verificacion
+// de contenido —base64 podria dar el mismo largo con otros bytes—, es una
+// verificacion de INTEGRIDAD ESTRUCTURAL, que es lo que un commit trunco rompe.
+function _leerCommit(path) {
+    var raw = _rStr(path, "GSIS", "commit", "");
+    if (!raw) return { estado: "ausente" };
+
+    var p1 = raw.indexOf(" ");
+    if (p1 <= 0) return { estado: "roto", motivo: "no tiene separador" };
+    var ns = raw.substring(0, p1);
+    if (ns !== _NS_A && ns !== _NS_B) {
+        return { estado: "roto", motivo: "namespace '" + ns + "' desconocido" };
+    }
+
+    var resto = raw.substring(p1 + 1);
+    var p2 = resto.indexOf(" ");
+    if (p2 <= 0) return { estado: "roto", motivo: "falta el campo de largo" };
+
+    var n = parseInt(resto.substring(0, p2), 10);
+    if (isNaN(n) || n < 0) return { estado: "roto", motivo: "cantidad no numerica" };
+    var len = parseInt(resto.substring(p2 + 1), 10);
+    if (isNaN(len) || len < 0) return { estado: "roto", motivo: "largo no numerico" };
+
+    return { estado: "ok", ns: ns, n: n, len: len };
+}
+
+// Que namespace se puede pisar: el que no esta vivo.
+function _namespaceLibre(path) {
+    var c = _leerCommit(path);
+    if (c.estado !== "ok") return _NS_A;
+    return (c.ns === _NS_A) ? _NS_B : _NS_A;
+}
 
 function saveGame(slot) {
     if (!_initialized) { _log("Error: no inicializado"); return false; }  // Verifica inicializacion
@@ -195,26 +296,50 @@ function saveGame(slot) {
             _log("[Save] Vehiculo id=" + veh.id + " x=" + veh.x.toFixed(1) + " y=" + veh.y.toFixed(1) + " z=" + veh.z.toFixed(1));
         }
     }
-    var json = _b64Encode(JSON.stringify(GameState));  // Base64: el INI no puede danarlo
+
     var path = _getSavePath(slot);  // Obtiene ruta del archivo
+    var json = _b64Encode(JSON.stringify(GameState));  // Base64: el INI no puede danarlo
     var sec = "GSIS";  // Seccion INI
 
-    // Si el slot viejo tiene mas chunks que el nuevo, se pisa la clave "n" y las
-    // sobrantes quedan huerfanas. No molestan: la lectura usa n del encabezado.
-    _wStr(path, sec, "fmt", "b64");
+    // El namespace MUERTO. El vivo no se toca hasta el commit.
+    var ns = _namespaceLibre(path);
 
     var chunks = [];
     for (var i = 0; i < json.length; i += _chunkSize) {
         chunks.push(json.substring(i, i + _chunkSize));  // Divide JSON en chunks
     }
 
-    _wInt(path, sec, "n", chunks.length);  // Escribe numero de chunks
     for (var j = 0; j < chunks.length; j++) {
-        _wStr(path, sec, "d" + j, chunks[j]);  // Escribe cada chunk
+        _wStr(path, sec, ns + "d" + j, chunks[j]);  // Escribe cada chunk
     }
 
+    // VERIFICADO, y antes del commit a proposito. Lo que se relee tiene que calzar
+    // con lo que se escribio; si no calza, el `commit` no se escribe y el namespace
+    // vivo sigue siendo el anterior.
+    var mal = null;
+    for (var v = 0; v < chunks.length; v++) {
+        var leido = _rStr(path, sec, ns + "d" + v, "");
+        if (leido !== chunks[v]) {
+            mal = "d" + v + ": escritos " + chunks[v].length + ", leidos " + leido.length;
+            break;
+        }
+    }
+    if (mal !== null) {
+        _log("WARN guardado NO confirmado en el chunk " + mal +
+            ". No se escribe el commit: el slot conserva el guardado anterior.");
+        return false;
+    }
+
+    // Un solo _wStr. Esta es la unica escritura que decide cual de los dos
+    // namespaces es el bueno, y por eso es la unica que no tiene un antes y un
+    // despues que puedan quedar desiguales.
+    //
+    // El largo va en el commit y no en una clave aparte para que esta sea LA unica
+    // escritura atomica del guardado. Ver _leerCommit.
+    _wStr(path, sec, "commit", ns + " " + chunks.length + " " + json.length);
+
     _activeSlot = slot;  // Actualiza slot activo
-    _log("Guardado OK. " + chunks.length + " chunks. Slot " + slot);
+    _log("Guardado OK. " + chunks.length + " chunks. Namespace " + ns + ". Slot " + slot);
     return true;
 }
 
@@ -283,15 +408,39 @@ function loadGame(slot) {
     }
 
     var sec = "GSIS";
-    var n = _rInt(path, sec, "n", 0);
+
+    // El commit manda. Si esta y parsea, el payload vive en el namespace que dice
+    // el commit con el prefijo `<ns>d`. Si no esta —o esta pero no parsea, que es lo
+    // que deja una escritura a medias— se cae al formato viejo, con `n` y `d<i>`.
+    //
+    // La caida al formato viejo tambien es lo que hace que un slot escrito por la
+    // version anterior de este codigo siga cargando sin tocarlo.
+    var commit = _leerCommit(path);
+
+    // UN COMMIT ROTO NO SE LEE COMO UN SLOT VIEJO
+    // ---------------------------------------------------------------------------
+    // Hay clave `commit` y no parsea: el archivo es del formato nuevo y el commit se
+    // quedo a medias. Leerlo por el camino viejo daria "no hay chunks", que reporta
+    // un archivo a medias como vacio. Se dice lo que es y se conserva el estado.
+    if (commit.estado === "roto") {
+        _log("WARN el slot tiene un commit ilegible (" + commit.motivo + ").");
+        _log("No se carga nada de este slot — se conserva el estado actual.");
+        return false;
+    }
+
+    var hayCommit = commit.estado === "ok";
+    var ns = hayCommit ? commit.ns : "";
+    var n = hayCommit ? commit.n : _rInt(path, sec, "n", 0);
+    var prefijo = hayCommit ? (ns + "d") : "d";
+
     if (n <= 0) { _log("Sin chunks"); return false; }
 
     var raw = "";
     var _diag = "n=" + n + " ";
     for (var i = 0; i < n; i++) {
-        var chunk = _rStr(path, sec, "d" + i, "");
-        if (chunk === "") { _log("Chunk vacio: d" + i); return false; }
-        _diag += "d" + i + "=" + chunk.length + " ";
+        var chunk = _rStr(path, sec, prefijo + i, "");
+        if (chunk === "") { _log("Chunk vacio: " + prefijo + i); return false; }
+        _diag += prefijo + i + "=" + chunk.length + " ";
         raw += chunk;
     }
 
@@ -300,23 +449,68 @@ function loadGame(slot) {
     // se corto el save.
     _log("[diag] " + _diag + "total=" + raw.length);
 
-    // El slot puede estar en el formato viejo (JSON crudo) o en el nuevo
-    // (base64, marcado con fmt=b64). Se intentan los dos y gana el que de JSON
-    // valido, asi que un slot anterior al fix sigue cargando sin tocarlo.
-    var parsed = null;
-    var fmt = _rStr(path, sec, "fmt", "");
-    var b64 = (fmt === "b64") ? _b64Decode(raw) : null;
-    if (b64 !== null) {
-        try { parsed = JSON.parse(b64); _log("Formato: base64."); } catch (e) { parsed = null; }
+    // EL COMMIT DICHA QUE TANTO PESO, Y SI NO CALZA EL COMMIT MIENTE
+    // ---------------------------------------------------------------------------
+    // Es el unico caso en que el commit puede estar bien formado y aun asi no
+    // describir lo que hay en los chunks: un commit truncado, que parsea con un `n`
+    // mas chico. Se detecta aca y no mas abajo, porque mas abajo el sintoma seria un
+    // `JSON.parse` que muere sin decir por que.
+    //
+    // Y NO HAY REINTENTO con el otro namespace a proposito: el namespace muerto no
+    // tiene un `n` del que fiarse —no hay commit que lo diga—, y adivinarlo seria
+    // buscar un payload en un lugar que el propio formato dice que no es el bueno.
+    // Lo que corresponde es decir que el commit no calza y no cargar nada.
+    if (hayCommit && raw.length !== commit.len) {
+        _log("WARN el commit declara " + commit.len + " caracteres y se leyeron " +
+            raw.length + ". El commit esta incompleto o el slot esta roto.");
+        _log("No se carga nada de este slot — se conserva el estado actual.");
+        return false;
     }
-    if (!parsed) {
-        try { parsed = JSON.parse(raw); _log("Formato: JSON crudo (slot viejo)."); }
-        catch (e) {
-            _log("JSON parse error: " + e.message);
-            _log("No se carga nada de este slot — se conserva el estado actual.");
-            return false;
-        }
+
+    // QUE FORMATO ES, Y POR QUE NO HAY QUE ADIVINARLO
+// ---------------------------------------------------------------------------
+// Hay tres, y el que decide es la clave que ya se esta leyendo:
+//
+//   con commit        el formato nuevo, y es SIEMPRE base64. No hace falta ninguna
+//                     marca: es la unica forma en que este codigo escribe, y el
+//                     base64 es lo que hace falta porque el INI no round-trippea
+//                     texto con comillas, llaves ni dos puntos.
+//   con fmt=b64       la version anterior, que si marcaba el base64 con una clave.
+//   sin ninguna       lo mas viejo: JSON crudo, sin base64.
+//
+// Y el ultimo caso intenta las DOS cosas, en el orden que no puede equivocar:
+// primero crudo —que es lo que un slot viejo es de verdad—, y si no parsea,
+// base64. Un slot crudo nunca es base64 valido, asi que la confusion no produce un
+// save equivocado: produce, en el peor caso, un intento mas.
+var parsed = null;
+var fmt = hayCommit ? "b64" : _rStr(path, sec, "fmt", "");
+
+function _probarBase64() {
+    var b64 = _b64Decode(raw);
+    if (b64 === null) return null;
+    try { return JSON.parse(b64); } catch (e) { return null; }
+}
+function _probarCrudo() {
+    try { return JSON.parse(raw); } catch (e) { return null; }
+}
+
+if (fmt === "b64") {
+    parsed = _probarBase64();
+    if (parsed) _log("Formato: base64.");
+} else {
+    parsed = _probarCrudo();
+    if (parsed) _log("Formato: JSON crudo (slot viejo).");
+    else {
+        parsed = _probarBase64();
+        if (parsed) _log("Formato: base64 (sin marca).");
     }
+}
+
+if (!parsed) {
+    _log("No se pudo parsear este slot en ningun formato conocido.");
+    _log("No se carga nada de este slot — se conserva el estado actual.");
+    return false;
+}
 
     // Migracion ANTES de que GameState reciba nada. Si se hiciera despues de la
     // linea de abajo, el modulo de inventario ya habria desconocido los items
@@ -439,6 +633,39 @@ function setModuleData(name, data) {
     GameState[name] = JSON.parse(JSON.stringify(data));  // Guarda datos con deep clone
     _frameCache[name] = JSON.parse(JSON.stringify(data));  // Actualiza cache
     _cacheValid = true;
+
+    // TODO CAMBIO DE ESTADO MARCA EL GUARDADO SUCIO, y va ACA y NO en cada modulo
+    // ---------------------------------------------------------------------------
+    // `setModuleData` es el UNICO camino de escritura: el indice llama a
+    // `_invalidateCache()` cada frame, asi que la cache nunca sobrevive un frame y
+    // todo lo que llega aca o venia de `getModuleData` o es una mutacion de GameState
+    // que otro modulo todavia no persistio. Es el punto donde se sabe "algo cambio".
+    //
+    // POR QUE ESTO ERA UN AGUERO
+    // ---------------------------------------------------------------------------
+    // `save:dirty` solo lo emitian `gsis_Spawner` y `gsis_EngineLock`. Ni el modulo
+    // de armas ni el de inventario lo emitian nunca, asi que equipar, recargar,
+    // llenar un cargador, montar el silenciador o comprar no marcaban nada: el
+    // guardado con throttle de 2s no se enteraba, y la partida perdiase hasta el
+    // guardado automatico.
+    //
+    // Lo que AMORTIGUA es poco, y conviene decirlo: el entry tiene dos guardados
+    // mas que no dependen de este evento —el automatico cada `AUTO_SAVE_FRAMES` y el
+    // de entrar a un interior—, asi que la perdida maxima era la ventana entre
+    // esos dos, no la partida entera. Lo que se arregla es que la operacion que el
+    // jugador acaba de hacer llegue al disco en 2 segundos en vez de en 5 minutos.
+    //
+    // Y EMITIR EN `initState` NO MOLESTA: un modulo que normaliza su estado al
+    // arrancar marca sucio una vez, y dos segundos despues hay un guardado que no
+    // hacia falta. Es barato y es el precio de que la regla sea "escribio, se
+    // guardo" en vez de "el rememberba".
+    try {
+        emit("save:dirty", { modulo: name });
+    } catch (e) {
+        // El bus no puede impedir que un cambio se guarde. Un `emit` que falla
+        // significa que el modulo que escucha no esta, y sin el se pierde el
+        // guardado con throttle —no el guardado automatico.
+    }
     return true;
 }
 

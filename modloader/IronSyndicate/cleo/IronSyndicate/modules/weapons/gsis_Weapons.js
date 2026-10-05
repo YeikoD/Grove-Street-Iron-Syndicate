@@ -199,17 +199,22 @@ function initWeapons() {
     // se produce al CARGAR. Un give por frame Costaria un remove+give por frame en
     // el peor caso, y el modulo no tiene forma de saber si ya esta arreglado sin
     // volver a mirar. Ver "QUE GANA Y POR QUE" en reconciliar().
-    var reconciliadas = char ? reconciliar() : 0;
+    var reconciliadas = char ? reconciliar() : { reparadas: 0, recuperadas: 0 };
 
-    // Lo que quedo registrado de la partida anterior y el motor no tiene. Pasa
+    // Lo que quedo registrado de la partida anterior y que el motor no tiene. Pasa
     // cuando el save del juego no nos guardo un arma que el mod si.
-    var huerfanos = _entradasHuerfanas(char);
-
+    //
+    // NO se cuenta aca: `reconciliar()` ya lo resolvio y devuelve los conteos. La
+    // razon por la que antes se contaba aparte es que solo avisaba, y avisar no
+    // cambia el estado.
     log("[Weapons] Sin reserva. Tipos " + WEAPONS.PLUGIN_TYPE_MIN + ".." +
         WEAPONS.PLUGIN_TYPE_MAX + " | normalizadas al arrancar: " + corregidas +
         " | equipadas registradas: " + getEntries().length +
-        (reconciliadas ? " | reconciliadas al cargar: " + reconciliadas : "") +
-        (huerfanos ? " | sin arma en el ped: " + huerfanos : ""));
+        (reconciliadas.reparadas ?
+            " | reconciliadas al cargar: " + reconciliadas.reparadas : "") +
+        (reconciliadas.recuperadas ?
+            " | sin arma en el ped, devueltas a la mochila: " +
+            reconciliadas.recuperadas : ""));
 }
 
 function updateWeapons() {
@@ -316,12 +321,40 @@ function _tipoDeConfiguracion(slot) {
     return tipoDe(e.id, _clipDeConfiguracion(slot), silenciadorEnArma(slot)) || 0;
 }
 
-// Las balas que tiene un arma EN LA MANO, leidas del ped. 0 si no hay arma.
-function _municionEnLaMano(char) {
+// Las balas que tiene un arma EN UN SLOT, leidas del ped.
+//
+// POR QUE LLEVA SLOT Y NO USA EL SELECCIONADO
+// ---------------------------------------------------------------------------
+// `desequipar(slot)` recibe el slot y lo tiene que respetar. La fila que el jugador
+// toco en la UI puede no ser el arma que tiene en la mano —el modulo sabe equipar y
+// desequipar cualquier ranura, y `Engine.selectedSlot` puede ser otra— y con la
+// lectura del slot SELECCIONADO el cargador de una salia con la municion de la otra:
+// un numero plausible, de un arma real, que no daba ningun error. Lo que se perdia
+// era la bala, y la fila del inventario y el arma del ped acababan con dos
+// municiones distintas del MISMO cargador.
+//
+// LA GUARDA DE FAMILIA NO ESTA DE SOBRA
+// ---------------------------------------------------------------------------
+// `Engine.slotAddress` devuelve una direccion valida para cualquier slot de un ped
+// valido: no da 0 cuando no hay un arma ahi, porque no mira si la hay. Sin esta
+// guarda, un slot vacio devuelve el clip que la ultima pistola que estuvo ahi
+// dejo, que es un numero de una sesion anterior que el modulo no puede distinguir
+// de uno de ahora.
+//
+// Y compara contra la FAMILIA, no contra el tipo esperado: lo que importa es que lo
+// que hay en ese slot sea el arma de la que estamos sacando el cargador, y la
+// variante puede estar desfasada —para eso esta `reconciliar`.
+function _municionEnElSlot(char, slot, familiaId) {
     var ped = Engine.pedPointer(char);
-    if (!ped) return 0;
-    var addr = Engine.slotAddress(ped, Engine.selectedSlot(ped));
+    if (!ped || !slot) return 0;
+    var addr = Engine.slotAddress(ped, slot);
     if (!addr) return 0;
+    if (familiaId) {
+        var tipo = Engine.slotType(addr);
+        if (!tipo) return 0;
+        var delMod = familiaDeTipo(tipo);
+        if (!delMod || delMod.itemId !== familiaId) return 0;
+    }
     return Engine.slotClip(addr);
 }
 
@@ -681,13 +714,44 @@ export function desequipar(slot) {
     // el que hay que sacar, y si el modulo esta desfasado, sacar el que el modulo
     // cree deja al otro en la mano con un arma en el inventario.
     var magId = getCargadorEnArma(slot);
-    var ammo = _municionEnLaMano(char);
     var ped = Engine.pedPointer(char);
     var addr = ped ? Engine.slotAddress(ped, def.slot) : 0;
     var tipoReal = addr ? Engine.slotType(addr) : 0;
 
-    if (tipoReal) Engine.removeWeapon(char, tipoReal);
+    // La municion sale del MISMO slot que el tipo, y con la familia como guarda. El
+    // `slot` que llega por parametro y `def.slot` son el mismo numero hoy, pero la
+    // pregunta se hace sobre el slot que el modulo le prometio al jugador. Ver
+    // _municionEnElSlot.
+    var ammo = _municionEnElSlot(char, slot, entry.id);
 
+    // SI EL SLOT NO TIENE UN ARMA DE ESTA FAMILIA, NO HAY QUE SACAR NADA
+    // ---------------------------------------------------------------------------
+    // El modulo cree que tiene un arma equipada y el ped no la tiene. Es un estado
+    // real y no una defensa: el save del juego y el del mod son dos guardados, el del
+    // juego se carga antes, y si el jugador guardo en el juego sin que el modulo
+    // llegara a escribir su parte (o al reves) el slot queda con registro y sin arma.
+    //
+    // Con la guarda de familia de arriba, `ammo` es 0 en este caso —no hay clip que
+    // leer—, asi que el cargador vuelve vacio. Y el arma vuelve a la mochila igual que
+    // en el camino normal. Lo unico que cambia es que no se toca el motor: no hay
+    // nada que sacar de ahi.
+    //
+    // Y no se AVISA Y SE DEJA: antes este caso caia por el camino de abajo y metia un
+    // arma nueva al inventario con un cargador con la municion de otro slot. O sea
+    // que el remedio manual duplicaba el arma y perdia balas.
+    var delSlot = tipoReal ? familiaDeTipo(tipoReal) : null;
+    var estabaEnElPed = !!(delSlot && delSlot.itemId === entry.id);
+
+    if (estabaEnElPed && tipoReal) Engine.removeWeapon(char, tipoReal);
+
+    var detalle = estabaEnElPed
+        ? "vuelve al inventario desnuda"
+        : "vuelve al inventario | el ped no la tenia (tipo " + (tipoReal || 0) + ")";
+    detalle += entry.silenciador ? " | con el silenciador montado" : "";
+
+    // Un solo camino de salida para las dos situaciones, y por eso el flag del
+    // silenciador y el borrado del registro no se pueden olvidar en uno de los dos.
+    //
     // El silenciador se va CON el arma: la fila del inventario lo lleva, y por eso
     // vuelve a estar montado la proxima vez que se equipe. Sin este campo el arma
     // perderia el silenciador en cada viaje a la mochila.
@@ -700,8 +764,6 @@ export function desequipar(slot) {
     setEntry(slot, null);
     setCargadorEnArma(slot, null);
 
-    var detalle = "vuelve al inventario desnuda";
-    detalle += entry.silenciador ? " | con el silenciador montado" : "";
     if (magId) {
         detalle += " | su cargador (" + magId + ", " + ammo + ") -> " +
             soltarCargador(magId, ammo);
@@ -967,11 +1029,19 @@ function _clipDeConfiguracion(slot) {
 // Y en un caso NO se toca nada: si el slot no tiene entry en el modulo, lo que hay
 // en el ped es un arma que el mod no conoce, y se avisa. No es un arma que este
 // "mal": puede ser una pistola de vanilla que el jugador agarro de una mission.
+//
+// QUE DEVUELVE
+// ---------------------------------------------------------------------------
+// Un objeto con dos numeros, `reparadas` y `recuperadas`, y no un numero solo.
+// Antes devolvia `corregidas` y avisaba de las huerfanas por log. Devolver las dos
+// es lo que hace que el init pueda decir la verdad sin repetir el trabajo: las
+// huerfanas ya se resolvieron adentro, y un segundo `recuperarHuerfanas` en el init
+// seria una pasada que no encuentra nada y que hace pensar que el init las ignora.
 export function reconciliar() {
     var char = Engine.playerChar();
-    if (!char) return 0;
+    if (!char) return { reparadas: 0, recuperadas: 0 };
     var ped = Engine.pedPointer(char);
-    if (!ped) return 0;
+    if (!ped) return { reparadas: 0, recuperadas: 0 };
 
     var corregidas = 0;
     var entries = getEntries();
@@ -1007,13 +1077,89 @@ export function reconciliar() {
             " (" + nombreDeConfiguracion(e.id, esperado) + ")");
     }
 
-    var huerfanas = _entradasHuerfanas(char);
-    if (huerfanas > 0) {
-        log("[Weapons] reconciliar: quedan " + huerfanas +
-            " slot(s) del registro sin arma en el ped. No se tocan: un arma que el "
-            + "mod cree que tiene y el ped no, se devuelve a la mochila al desequipar.");
+    var recuperadas = recuperarHuerfanas(char);
+    if (recuperadas > 0) {
+        log("[Weapons] reconciliar: " + recuperadas +
+            " slot(s) del registro sin arma en el ped. Se devuelven a la mochila.");
     }
-    return corregidas;
+    return { reparadas: corregidas, recuperadas: recuperadas };
+}
+
+// ---------------------------------------------------------------------------
+// LAS ENTRADAS QUE EL PED NO CONFIRMA
+// ---------------------------------------------------------------------------
+// Una entrada es huerfana cuando el registro del modulo dice que hay un arma de esa
+// familia en ese slot y el ped no la tiene. No es un caso teorico: el save del juego
+// y el del mod son dos guardados y no se escriben con la misma tecla, asi que un
+// slot puede quedar con registro y sin arma.
+//
+// QUE HACIA ANTES, Y POR QUE NO ALCANZABA
+// ---------------------------------------------------------------------------
+// Contaba y avisaba, y decia que se resolvia "al desequipar". No se resolvia, por
+// dos razones:
+//
+//   una  el aviso solo va al log. Un log no arregla un estado, y el estado era un
+//        limbo: el modulo creia tener un arma que el ped no tiene, y el jugador no
+//        tenia forma de pedir que se la devolvieran.
+//   dos  aunque el jugador apretara "desequipar", el camino antiguo metia un arma
+//        nueva al inventario y un cargador con la municion de otro slot. O sea que
+//        el arreglo manual duplicaba el arma y perdia balas.
+//
+// QUE HACE, Y POR QUE ES SEGURO HACERLO EN EL INIT
+// ---------------------------------------------------------------------------
+// Corre DESPUES de reconciliar, y esa es la parte que lo hace seguro: si el give de
+// reconciliar funciono, la entrada ya no es huerfana y no se toca. Lo que queda es
+// el caso que el motor no pudo resolver —no hay arma, o el give fallo— y en el que
+// la unica salida coherente es devolver las piezas a la mochila.
+//
+// Y la municion del cargador vuelve en 0, y no "la que habia": el cargador puesto no
+// tiene balas propias —sus balas son el clip, que es del juego—, y si no hay arma en
+// el ped no hay clip que leer. Se pierde la municion de ese cargador, y es la unica
+// parte de la operacion que no se puede recuperar: estaba en el save del juego, en un
+// arma que ese save ya no tiene. Se avisa, que es lo que hace que la perdida sea
+// visible y no un numero sin explicacion.
+//
+// Idempotente: borra la entrada, asi que un segundo init no tiene nada que hacer.
+function recuperarHuerfanas(char) {
+    if (!char) return 0;
+    var ped = Engine.pedPointer(char);
+    if (!ped) return 0;
+
+    var entradas = getEntries();
+    var n = 0;
+    for (var i = 0; i < entradas.length; i++) {
+        var e = entradas[i];
+        var def = defDeFamilia(e.id);
+        if (!def) continue;   // lo descarta otra vez, en getEntries no entra
+
+        var addr = Engine.slotAddress(ped, e.slot);
+        var tipo = addr ? Engine.slotType(addr) : 0;
+        var delMod = tipo ? familiaDeTipo(tipo) : null;
+        if (delMod && delMod.itemId === e.id) continue;   // esta bien, no es huerfana
+
+        var magId = getCargadorEnArma(e.slot);
+        var detalle = magId
+            ? "cargador " + magId + " -> " + soltarCargador(magId, 0) +
+              " (VUELVE VACIO: sus balas eran el clip, que no esta)"
+            : "sin cargador puesto";
+
+        // El arma vuelve con su flag de silenciador, igual que en desequipar(): el
+        // silenciador viaja con el arma y si se pierde aqui se pierde para siempre.
+        query(ITEMS_STORE_WEAPON, {
+            id: e.id,
+            salud: e.salud,
+            ammo: 0,
+            silenciador: !!e.silenciador
+        });
+        setEntry(e.slot, null);
+        setCargadorEnArma(e.slot, null);
+        n++;
+
+        log("[Weapons] recuperarHuerfanas: slot " + e.slot + " | " + e.id +
+            " | el ped tiene el tipo " + (tipo || 0) + " | vuelve a la mochila | " +
+            detalle);
+    }
+    return n;
 }
 
 // ---------------------------------------------------------------------------
@@ -1451,30 +1597,6 @@ export function capacidadDeItem(itemId, tipo) {
     if (f) return tipo ? Engine.clipCapacityOf(tipo) : 0;
     var mag = defDeCargador(itemId);
     return mag ? mag.clipSize : 0;
-}
-
-// Las entradas del registro cuyo arma el ped NO tiene. El numero, no la lista: lo
-// usa el init para avisar, y no hay nada que hacer con el salvo avisar.
-//
-// Y la pregunta es por SLOT y por FAMILIA, no por tipo: con el tipo derivado, "el
-// ped tiene ESTA variante" no es la pregunta. "El ped tiene ALGUNA variante de
-// esta familia en este slot" si, y es la que evita dar por perdida un arma que esta
-// en la mano con otra configuracion puesta.
-function _entradasHuerfanas(char) {
-    if (!char) return 0;
-    var ped = Engine.pedPointer(char);
-    if (!ped) return 0;
-    var n = 0;
-    var entries = getEntries();
-    for (var i = 0; i < entries.length; i++) {
-        var def = defDeFamilia(entries[i].id);
-        if (!def) { n++; continue; }
-        var addr = Engine.slotAddress(ped, def.slot);
-        var tipo = addr ? Engine.slotType(addr) : 0;
-        var delMod = tipo ? familiaDeTipo(tipo) : null;
-        if (!delMod || delMod.itemId !== entries[i].id) n++;
-    }
-    return n;
 }
 
 // ---------------------------------------------------------------------------
