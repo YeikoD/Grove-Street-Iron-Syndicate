@@ -1192,6 +1192,7 @@ function setPanelVisible(visible) {
   if (!_panelInit) {
     _panelInit = true;
     panelEl.classList.toggle("hidden", !visible);
+    updateFpsMode();
     return;
   }
 
@@ -1201,6 +1202,7 @@ function setPanelVisible(visible) {
     // .hidden primero y .panel--closing despues, la de salida corria un frame
     // en el aire y el panel titilaba al abrir.
     panelEl.classList.remove("hidden", "panel--closing");
+    updateFpsMode();
     return;
   }
 
@@ -1215,6 +1217,7 @@ function setPanelVisible(visible) {
     _closeTimer = null;
     panelEl.classList.remove("panel--closing");
     panelEl.classList.add("hidden");
+    updateFpsMode();
   }, panelAnimMs());
 }
 
@@ -3444,6 +3447,12 @@ function hayMenuVisible() {
   return !!uiState.menu || !!uiState.flow;
 }
 
+function updateFpsMode() {
+  if (window.SAWeb && typeof window.SAWeb.setFps === "function") {
+    window.SAWeb.setFps(hayMenuVisible() ? 60 : 15);
+  }
+}
+
 document.addEventListener("keydown", (e) => {
   // Si el WndProc no esta mandando las teclas aca, este keydown no vino de una
   // pulsacion del jugador: es un evento del navegador sin contraparte. Antes el
@@ -4033,6 +4042,7 @@ if (window.SAWeb) {
         // regla y no como una preferencia: si flow y menu llegan con algo abierto,
         // el mod esta roto y esta pagina no lo puede arreglar.
         setPantalla(uiState.menu ? uiState.flow : "");
+        updateFpsMode();
 
         // La pagina reporta su estado al mod, que lo loguea.
         //
