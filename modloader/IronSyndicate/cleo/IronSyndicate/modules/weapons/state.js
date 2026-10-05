@@ -288,22 +288,85 @@ function _ammoEnRango(magId, ammo) {
 // distingue "sin cargador" de "descargado", para el los dos son cero balas. Por eso
 // vive aca, con el slot como clave, porque el arma vive en el slot del motor.
 //
+// SON DOS COSAS, NO UNA
+// ---------------------------------------------------------------------------
+// Antes era un string suelto —el id del cargador— y sus balas no se guardaban, con
+// el argumento de que "sus balas son el clip, que es del juego".
+//
+// EL ARGUMENTO ERA CORRECTO Y LA CONSECUENCIA NO. El clip del arma en la mano vive
+// en `m_aWeapons[]` del save del JUEGO, y el guardado del mod lo dispara una tecla
+// que es del mod: F5 escribe `saves\slot_N.ini` y no toca el save de GTA. O sea que
+// el unico guardado que el modulo controla no tocaba el archivo del que dependia su
+// estado, y el resultado era medible:
+//
+//   el modulo guardo:  slot 2 = colt45, enArma[2] = "mag_colt45_c15"
+//   el juego guardo:   m_aWeapons[2] = EMPTY
+//   al cargar:         el modulo sabe que hay un C15 puesto, da la variante 62, y
+//                      se lo entrega con 0 balas. Las quince se perdieron.
+//
+// O sea: el cargador persistia y las balas no, que es la peor forma de perder una
+// cosa — el estado dice que la tenes, y no la tenes.
+//
+// ASI QUE AHORA ES `{ id, ammo }`
+// ---------------------------------------------------------------------------
+// El modulo es el dueno de la municion del cargador puesto, y lo duena de punta a
+// punta: la escribe en el save desde el ped (`snapshotCargadoresPuestos`) y la
+// restaura desde el save al ped (`reconciliar`). El juego sigue teniendo el clip
+// mientras se juega —el HUD lo necesita y el disparo lo lee—, pero el archivo del
+// que se reconstruye la partida es el que el modulo controla.
+//
+// Y no es una segunda copia con dos duenos: es la misma regla de las otras tres
+// formas de la municion. La caja y el cargador de la mochila viven en `items[]`, el
+// cargador equipado en `cargadores[].ammo`, y el puesto aca. Cada una en el
+// contenedor de su dueno. Ver "LA NORMALIZACION DE CARGA" para el recorte de
+// capacidad, que aplica a las dos ultimas igual que a esta.
+//
+// LOS DOS FORMATOS SE LEEN
+// ---------------------------------------------------------------------------
+// Un save anterior tiene el string. `getCargadorEnArmaEntero` lo acepta y lo
+// devuelve como `{ id, ammo: 0 }`, que es la lectura honesta de un cargador cuyo
+// ammunition nunca se guardo: hay cargador, no hay balas. `initState` sube el string
+// a objeto, asi que la conversion queda hecha una vez y no en cada lectura.
+//
 // `setCargadorEnArma(slot, null)` deja el arma desnuda.
-export function getCargadorEnArma(slot) {
+
+// El cargador puesto como objeto, o null si el slot no tiene.
+// Acepta las dos formas: un objeto { id, ammo } y el string de los saves viejos.
+export function getCargadorEnArmaEntero(slot) {
     var data = getModuleData(SAVE_KEY);
     if (!data || !data.enArma) return null;
-    var id = data.enArma[slot];
+    var v = data.enArma[slot];
+    if (!v) return null;
+
+    var id = null, ammo = 0;
+    if (typeof v === "string") {
+        id = v;                       // save viejo: no habia ammo, y no hay de donde sacarlo
+    } else if (typeof v === "object") {
+        id = v.id;
+        ammo = v.ammo || 0;
+    }
+
     // Un id que el catalogo ya no tiene se trata como desnudo: el arma no puede
     // devolver un cargador que no existe, y dejarlo puesto bloquearia la recarga.
     if (!id || !defDeCargador(id)) return null;
-    return id;
+    return { id: id, ammo: _ammoEnRango(id, ammo) };
 }
 
-export function setCargadorEnArma(slot, id) {
+// El id del cargador puesto, o null. Es la forma que usa todo el mundo.
+export function getCargadorEnArma(slot) {
+    var e = getCargadorEnArmaEntero(slot);
+    return e ? e.id : null;
+}
+
+// Poner un cargador en el arma. `ammo` es cuantas balas tiene AL PONERLO.
+export function setCargadorEnArma(slot, id, ammo) {
     var data = getModuleData(SAVE_KEY) || { equipped: {}, cargadores: [], enArma: {} };
     if (!data.enArma) data.enArma = {};
-    if (id && defDeCargador(id)) data.enArma[slot] = id;
-    else delete data.enArma[slot];
+    if (id && defDeCargador(id)) {
+        data.enArma[slot] = { id: id, ammo: _ammoEnRango(id, ammo) };
+    } else {
+        delete data.enArma[slot];
+    }
     setModuleData(SAVE_KEY, data);
     return id || null;
 }
@@ -353,6 +416,60 @@ function _normalizarCargadores() {
     return cambiados;
 }
 
+// EL MAPA DE LOS CARGADORES PUESTOS, Y POR QUE TAMBIEN SE NORMALIZA
+// ---------------------------------------------------------------------------
+// `_migrarCargadoresPuestos` en SaveMigration.js renombra los ids viejos de este
+// mapa, y tiene su propio pase porque `_migrarNodo` no baja a strings sueltos. Ese
+// renombre ocurre una vez, en la migracion.
+//
+// Lo que se hace aca es la otra mitad de lo mismo y no se puede hacer alla: subir el
+// string a `{ id, ammo }`. Es una conversion de FORMA, y la migracion es de
+// SIGNIFICADO —traducir un id viejo a uno que existe—, asi que no le corresponde.
+//
+// Y no se puede hacer en la lectura, porque la lectura es de solo lectura: si
+// `getCargadorEnArmaEntero` recibiera un string y escribiera el objeto, la primera
+// lectura despues de cargar estaria backing el save viejo con un objeto nuevo que no
+// llega a `GameState` hasta el proximo `setModuleData`. O sea: el save se arreglaria
+// por accidente, un guardado que no debia existir, y no en el lugar donde se decide
+// que un save es un save.
+//
+// SE NORMALIZA JUNTO CON LOS CARGADORES por la misma razon: las dos cosas son
+// "un contenedor que el catalogo puede haber cambiado bajo los pies", y normalizar
+// una vez al arrancar deja la lectura libre de casos raros.
+function _normalizarEnArma() {
+    var data = getModuleData(SAVE_KEY);
+    if (!data || !data.enArma) return 0;
+    var cambiados = 0;
+    for (var slot in data.enArma) {
+        if (!Object.prototype.hasOwnProperty.call(data.enArma, slot)) continue;
+        var v = data.enArma[slot];
+        if (!v) { delete data.enArma[slot]; cambiados++; continue; }
+
+        if (typeof v === "string") {
+            // Un cargador viejo: hay cargador, no hay balas registradas. Se sube
+            // con 0 y no se inventa un numero — un cargador lleno que el jugador
+            // nunca lleno seria peoral que uno vacio que puede rellenar.
+            data.enArma[slot] = { id: v, ammo: 0 };
+            cambiados++;
+            log("[Weapons] carga: el cargador puesto del slot " + slot + " (" + v +
+                ") venia sin municion registrada. Arranca en 0.");
+        } else if (typeof v === "object") {
+            var acotado = _ammoEnRango(v.id, v.ammo);
+            if (acotado !== (v.ammo || 0)) {
+                log("[Weapons] carga: el cargador puesto del slot " + slot + " (" +
+                    v.id + ") tenia " + (v.ammo || 0) + " balas y su capacidad es " +
+                    acotado + ". Se recorta.");
+                cambiados++;
+            }
+            data.enArma[slot] = { id: v.id, ammo: acotado };
+        } else {
+            delete data.enArma[slot];
+            cambiados++;
+        }
+    }
+    return cambiados;
+}
+
 // ---------------------------------------------------------------------------
 // EL INIT DEL MODULO
 // ---------------------------------------------------------------------------
@@ -361,7 +478,7 @@ function _normalizarCargadores() {
 // ModuleRegistry.
 export function initState() {
     registerModule(SAVE_KEY, { equipped: {}, cargadores: [], enArma: {} });
-    var corregidos = _normalizarCargadores();
+    var corregidos = _normalizarCargadores() + _normalizarEnArma();
     log("[Weapons] Registro de equipadas inicializado | cargadores: max " +
         maxCargadores() +
         (corregidos ? " | normalizados al cargar: " + corregidos : ""));

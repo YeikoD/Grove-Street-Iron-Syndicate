@@ -164,8 +164,9 @@ import { normalizarSinReserva } from "./ammo.js";
 import {
     initState, getEntry, getEntries, setEntry, silenciadorEnArma,
     getCargadores, setCargador, ranuraLibre, maxCargadores,
-    getCargadorEnArma, setCargadorEnArma
+    getCargadorEnArma, getCargadorEnArmaEntero, setCargadorEnArma
 } from "./state.js";
+import { on } from "../../core/gsis_EventBus.js";
 
 var NOMBRE_MODULO = "Weapons";
 
@@ -177,6 +178,63 @@ register({
     init: initWeapons,
     update: updateWeapons
 });
+
+// ---------------------------------------------------------------------------
+// EL SNAPSHOT DEL CARGADOR PUESTO
+// ---------------------------------------------------------------------------
+// Al guardar, la municion del cargador que esta en el arma se copia del ped al save.
+//
+// POR QUE ESTE Y NO CUALQUIER OTRO DATO
+// ---------------------------------------------------------------------------
+// El cargador puesto es el unico estado del modulo cuya municion NO esta en ningun
+// contenedor del save: mientras esta en el arma, sus balas son el clip, que es del
+// juego. Y el juego tiene su save aparte, que el guardado del modulo no escribe —F5
+// es una tecla del mod—. O sea que el unico archivo del que el modulo puede
+// depender era el unico del que no copiaba las balas, y al cargar la partida el arma
+// volvia con la variante correcta y cero balas.
+//
+// QUE COPIA Y QUE NO
+// ---------------------------------------------------------------------------
+// Solo `enArma[slot].ammo`, y solo de los slots que tienen un cargador puesto. El
+// resto del estado del modulo ya esta en GameState y se serializa solo.
+//
+// Y LA GUARDA DE FAMILIA ES LO QUE IMPIDE EL DAÑO
+// ---------------------------------------------------------------------------
+// `Engine.slotClip` devuelve el clip del slot, y el slot puede no tener un arma nossa:
+// puede tener una pistola de vanilla, o nada. Sin la guarda, un slot desincronizado
+// escribiria 0 y DESTRUIRIA la municion que el save tenia bien guardada — el
+// remedio seria la perdida. Con la guarda, un slot que no es de la familia se deja
+// como estaba: no hay dato nuevo, y el viejo sigue siendo el mejor dato que hay.
+//
+// Y si no hay ped —una partida nueva, el momento entre frame y spawn— no se toca
+// nada, por la misma razon.
+on("save:preSync", function () {
+    _snapshotCargadoresPuestos();
+});
+
+function _snapshotCargadoresPuestos() {
+    var char = Engine.playerChar();
+    if (!char) return 0;
+
+    var entradas = getEntries();
+    var escritos = 0;
+    for (var i = 0; i < entradas.length; i++) {
+        var e = entradas[i];
+        var puesto = getCargadorEnArmaEntero(e.slot);
+        if (!puesto) continue;
+
+        var ammo = _municionEnElSlot(char, e.slot, e.id);
+        // 0 con un cargador montado es un estado legitimo —el jugador disparo las
+        // quince—, asi que no se puede usar el cero para decidir. Lo decide si el
+        // slot tiene un arma de la familia, que es lo que devuelve el -1 de abajo.
+        if (ammo < 0) continue;      // el slot no tiene un arma nuestra: no se toca
+        if (ammo === puesto.ammo) continue;   // ya estaba al dia
+
+        setCargadorEnArma(e.slot, puesto.id, ammo);
+        escritos++;
+    }
+    return escritos;
+}
 
 // ---------------------------------------------------------------------------
 // EL CICLO DE VIDA
@@ -344,16 +402,29 @@ function _tipoDeConfiguracion(slot) {
 // Y compara contra la FAMILIA, no contra el tipo esperado: lo que importa es que lo
 // que hay en ese slot sea el arma de la que estamos sacando el cargador, y la
 // variante puede estar desfasada —para eso esta `reconciliar`.
+// Y DEVUELVE -1, NO 0, CUANDO EL SLOT NO TIENE UN ARMA DE LA FAMILIA
+// ---------------------------------------------------------------------------
+// Porque 0 y "no hay" son dos cosas distintas y las dos importan:
+//
+//   0 balas     el jugador disparo todas. Es un estado real y se guarda.
+//   -1          el slot no tiene un arma de esta familia. No hay clip que leer, y
+//               el numero que se lea es de otra sesion.
+//
+// Quien tiene que distinguir entre las dos es el snapshot del guardado: si no
+// distingue, escribe 0 sobre una municion que el save tenia bien y la destruye. El
+// remedio seria la perdida. Por eso el -1 es un valor de salida explicito y no un 0
+// con significado aparte: quien lo llama tiene que decidir que hacer con el caso
+// que no es una lectura.
 function _municionEnElSlot(char, slot, familiaId) {
     var ped = Engine.pedPointer(char);
-    if (!ped || !slot) return 0;
+    if (!ped || !slot) return -1;
     var addr = Engine.slotAddress(ped, slot);
-    if (!addr) return 0;
+    if (!addr) return -1;
     if (familiaId) {
         var tipo = Engine.slotType(addr);
-        if (!tipo) return 0;
+        if (!tipo) return -1;
         var delMod = familiaDeTipo(tipo);
-        if (!delMod || delMod.itemId !== familiaId) return 0;
+        if (!delMod || delMod.itemId !== familiaId) return -1;
     }
     return Engine.slotClip(addr);
 }
@@ -721,8 +792,11 @@ export function desequipar(slot) {
     // La municion sale del MISMO slot que el tipo, y con la familia como guarda. El
     // `slot` que llega por parametro y `def.slot` son el mismo numero hoy, pero la
     // pregunta se hace sobre el slot que el modulo le prometio al jugador. Ver
-    // _municionEnElSlot.
-    var ammo = _municionEnElSlot(char, slot, entry.id);
+    // _municionEnElSlot, que devuelve -1 cuando el slot no tiene un arma de la
+    // familia; aca ese caso se traduce a 0 porque un cargador sin arma vuelve vacio
+    // de todos modos, y no hay de donde leer otra cosa.
+    var ammoLeido = _municionEnElSlot(char, slot, entry.id);
+    var ammo = ammoLeido < 0 ? 0 : ammoLeido;
 
     // SI EL SLOT NO TIENE UN ARMA DE ESTA FAMILIA, NO HAY QUE SACAR NADA
     // ---------------------------------------------------------------------------
@@ -1037,6 +1111,30 @@ function _clipDeConfiguracion(slot) {
 // es lo que hace que el init pueda decir la verdad sin repetir el trabajo: las
 // huerfanas ya se resolvieron adentro, y un segundo `recuperarHuerfanas` en el init
 // seria una pasada que no encuentra nada y que hace pensar que el init las ignora.
+// QUE BOLAS USA, Y POR QUE NO SON SIEMPRE LAS DEL PED
+// ---------------------------------------------------------------------------
+// Al restituir hay dos fuentes posibles y la que manda depende de si el ped trae el
+// arma:
+//
+//   el ped tiene el arma   el clip del ped. Es el dato mas fresco que hay, y el
+//                          del juego, que es el dueno del arma en la mano.
+//   el ped NO tiene el arma   no hay clip que leer. Aca el save del modulo es la
+//                          unica fuente, y es el caso que arregla el bug: el
+//                          cargador puesto con sus 15 balas guardadas y el save del
+//                          juego sin arma.
+//
+// Y NO SE USA `Math.max` NI "el que sea mayor": si el ped tiene un arma con menos
+// balas que el save, el ped manda. Puede ser que el jugador haya disparado y el
+// guardado automatico todavia no haya corrido, y en ese caso la respuesta correcta
+// es la del ped. El save se corrige en el proximo guardado por el snapshot.
+function _balasParaRestituir(char, e, addr) {
+    var delPed = addr ? Engine.slotClip(addr) : 0;
+    if (delPed > 0) return delPed;
+    var puesto = getCargadorEnArmaEntero(e.slot);
+    if (puesto) return puesto.ammo;
+    return delPed;
+}
+
 export function reconciliar() {
     var char = Engine.playerChar();
     if (!char) return { reparadas: 0, recuperadas: 0 };
@@ -1066,7 +1164,10 @@ export function reconciliar() {
             continue;
         }
 
-        if (!_darTipo(char, addr, esperado, addr ? Engine.slotClip(addr) : 0)) {
+        // La cuenta se hace UNA vez: el give la consume, el log la muestra, y dos
+        // llamadas Podrian no dar lo mismo si el motor Tocara el clip entre una y otra.
+        var balas = _balasParaRestituir(char, e, addr);
+        if (!_darTipo(char, addr, esperado, balas)) {
             log("[Weapons] reconciliar: el motor no acepto el tipo " + esperado +
                 " en el slot " + e.slot + ". Queda como estaba.");
             continue;
@@ -1074,7 +1175,8 @@ export function reconciliar() {
         corregidas++;
         log("[Weapons] reconciliar: slot " + e.slot + " | " + e.id +
             " | tipo " + tipoReal + " -> " + esperado +
-            " (" + nombreDeConfiguracion(e.id, esperado) + ")");
+            " (" + nombreDeConfiguracion(e.id, esperado) + ") | " +
+            balas + " balas");
     }
 
     var recuperadas = recuperarHuerfanas(char);
@@ -1136,6 +1238,27 @@ function recuperarHuerfanas(char) {
         var tipo = addr ? Engine.slotType(addr) : 0;
         var delMod = tipo ? familiaDeTipo(tipo) : null;
         if (delMod && delMod.itemId === e.id) continue;   // esta bien, no es huerfana
+
+        // UN ARMA AJENA EN EL SLOT NO ES UNA ENTRADA HUERFANA
+        // ---------------------------------------------------------------------------
+        // `reconciliar` deja los tipos que no son del mod tal cual, y avisa: "puede ser
+        // una pistola de vanilla que el jugador agarro de una mission".Este caso
+        // tiene que hacer lo mismo, y por eso NO se recupera.
+        //
+        // La razon es que un arma ajena en el slot NO prueba que el arma del modulo
+        // este perdida: prueba que el jugador tiene otra cosa en la mano. Borrar el
+        // registro en ese caso le quita al jugador un arma que puede volver a pedir,
+        // y ademas contradice el `continue` de reconciliar —las dos funciones
+        // preguntaban lo mismo y contestaban distinto.
+        //
+        // Lo que SI es recuperable es el slot VACIO, o con un arma del mod de otra
+        // familia: ahi no hay nada nuestro, y las piezas no están en ningun lado.
+        if (tipo && !delMod) {
+            log("[Weapons] recuperarHuerfanas: slot " + e.slot + " | " + e.id +
+                " | el ped tiene el tipo " + tipo + ", que no es del mod. Se deja " +
+                "el registro: el jugador tiene otra cosa en ese slot.");
+            continue;
+        }
 
         var magId = getCargadorEnArma(e.slot);
         var detalle = magId
@@ -1342,7 +1465,11 @@ export function recargar() {
             soltarCargador(puestoId, enClip);
 
         setCargador(elegido, null);
-        setCargadorEnArma(slot, mag.id);
+        // `n`, y no `mag.ammo`: lo que entra al arma es `n` —el minimo entre lo que
+        // traia el cargador y la capacidad de la variante nueva—, y eso es lo que
+        // tiene que quedar guardado. Lo que sobro vive en el cargador que sale por
+        // soltarCargador, con su propia cuenta.
+        setCargadorEnArma(slot, mag.id, n);
         _empezarRecarga(addr, tipoNuevo, n, specNuevo.ms);
 
         // El sonido NO se pide aca. Lo pide el .asi: el motor tiene

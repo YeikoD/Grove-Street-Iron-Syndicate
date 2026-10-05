@@ -132,25 +132,40 @@ export var ITEM_RENAMES = {
 // ============================================================================
 // EL MAPA DE LOS CARGADORES PUESTOS
 // ============================================================================
-// `GameState.Weapons.enArma` es el unico mapa del save cuyos valores son strings
-// sueltos, y es el unico que `_migrarNodo` no puede ver.
+// `GameState.Weapons.enArma` es el unico mapa del save que `_migrarNodo` no puede
+// ver por su forma, y por eso tiene un pase propio.
 //
-// EL POR QUE DE QUE SEA UN STRING, Y NO UN OBJETO CON `id`
+// QUE HACE, EN DOS PARTES QUE NO SON LA MISMA COSA
 // ---------------------------------------------------------------------------
-// El cargador montado es el MISMO cargador que uno de los cargadores, pero metido en
-// el arma, y por eso no guarda `ammo`: sus balas son el clip, que es del juego. Lo
-// que hace falta guardar es la IDENTIDAD, y para eso un string basta. Guardar
-// `{ id, ammo }` seria una segunda copia de la municion con dos dueñas.
+//   renombrar el id     `renameItemId`, el mismo de todos los items. Un save viejo
+//                       puede tener `mag_colt45_silenced` puesto en el arma.
+//   subir el string     los saves anteriores tienen `"mag_colt45"` —un string— y el
+//                       formato de hoy tiene `{ id, ammo }`. Ver abajo.
 //
-// El costo de ese "basta" es este: un string suelto no es un item, y el recorrido
-// de la migracion esta hecho para items.
-//
-// Y POR QUE NO SE CAMBIA A OBJETO PARA ARREGLAR ESTO
+// POR QUE EL RENOMBRE SIGUE SIENDO UN CASO ESPECIAL
 // ---------------------------------------------------------------------------
-// Porque seria cambiar el FORMATO del save para tapar un caso de la migracion, y el
-// caso se tapa en una linea. Ademas el recorrido en profundidad tiene que seguir
-// bajando a mapas por clave: `trunks` esta indexado por vehicleId, y el mismo bug
-// vuelve a aparecer si el recorrido solo baja a los arrays.
+// Porque `_migrarNodo` arranca con `if (typeof nodo.id === "string")`, y esa linea
+// es la que decide que es un item: un objeto con `id` string. Un objeto `{ id, ammo }`
+// SI lo ve. Un string suelto NO: no es un objeto, asi que el recorrido no baja.
+//
+// O sea que el renombre del mapa es necesario para el formato NUEVO y no lo era para
+// el viejo. Se conserva igual, porque el recorrido en profundidad tiene que seguir
+// bajando por mapas indexados por clave —`trunks` esta indexado por vehicleId— y
+// sacar el caso ahora dejaria el mapa sin cubrir para la proxima vez que aparezca uno.
+//
+// Y EL `ammo` DEL FORMATO NUEVO NO LO TOCA ESTE PASE
+// ---------------------------------------------------------------------------
+// Porque `_migrarNodo` no lo bajaria: si `enArma[slot]` es un objeto con `id`, el
+// recorrido entra, renombra el id, y sale SIN mirar los demas campos —que es lo
+// correcto, porque `qty`, `ammo` y `salud` no contienen items. O sea que `ammo` ya
+// esta a salvo de la migracion por construccion. Lo que hay que hacer con el es
+// recortarlo a la capacidad, y eso es del modulo de armas, no de aca.
+//
+// QUE HACE CON LA MUNICION QUE LOS SAVES VIEJOS NO TIENEN
+// ---------------------------------------------------------------------------
+// Un string no tiene ammo. Se sube a `{ id, ammo: 0 }` y no a un numero inventado:
+// un cargador lleno que el jugador nunca lleno seria peor que uno vacio que puede
+// rellenar. El modulo de armas lo dice tambien en su init, en `_normalizarEnArma`.
 export function _migrarCargadoresPuestos(parsed) {
     var w = parsed && parsed.Weapons;
     if (!w || !w.enArma || typeof w.enArma !== "object") return 0;
@@ -158,9 +173,21 @@ export function _migrarCargadoresPuestos(parsed) {
     for (var slot in w.enArma) {
         if (!Object.prototype.hasOwnProperty.call(w.enArma, slot)) continue;
         var antes = w.enArma[slot];
-        var despues = renameItemId(antes);
-        if (despues !== antes) {
-            w.enArma[slot] = despues;
+
+        if (typeof antes === "string") {
+            w.enArma[slot] = { id: renameItemId(antes), ammo: 0 };
+            n++;
+            continue;
+        }
+        if (!antes || typeof antes !== "object") {
+            delete w.enArma[slot];
+            n++;
+            continue;
+        }
+
+var despues = renameItemId(antes.id);
+        if (despues !== antes.id) {
+            antes.id = despues;
             n++;
         }
     }

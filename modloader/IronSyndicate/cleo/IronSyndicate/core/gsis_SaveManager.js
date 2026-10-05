@@ -273,6 +273,37 @@ function _namespaceLibre(path) {
     return (c.ns === _NS_A) ? _NS_B : _NS_A;
 }
 
+// SINCRONIZAR ANTES DE SERIALIZAR
+// ---------------------------------------------------------------------------
+// Algunos datos que el mod persiste NO estan en `GameState`: estan en el juego, y el
+// juego tiene su save aparte. El ejemplo es la municion del cargador que esta montado
+// en el arma, que vive en `m_aWeapons[]` del ped. Sin esto, el modulo guardaria "hay
+// un cargador de 15 montado" sin las quince balas, que es el estado que hace que al
+// cargar la partida el arma aparezca vacia.
+//
+// ESTA EN `saveGame` Y NO EN F5, Y ESO ES LO IMPORTANTE
+// ---------------------------------------------------------------------------
+// Hay tres caminos de guardado —F5, el automatico y el de entrar a un interior— y el
+// de F5 ya hacia `emit("vehicle:syncForSave")` desde `gsis_Vehicles.js`. Poner el
+// enganche aca es lo que hace que los TRES quede cubiertos: un modulo que se engancha
+// a un camino de guardado y no a los demas se comporta bien en el que se probo y mal
+// en los otros dos, sin ningun sintoma que lo delate.
+//
+// Y es idempotente de a proposito: volver a leer el ped y volver a escribir el mismo
+// numero no cambia nada, asi que engancharse dos veces al mismo guardado no rompe
+// nada. Es la unica manera de que un enganche sea seguro de agregar.
+function _sincronizarAntesDeGuardar() {
+    try {
+        emit("save:preSync", {});
+    } catch (e) {
+        // Un modulo que no esta no puede impedir el guardado. Se loguea porque un
+        // modulo que se sale a Hookear y despues tira es exactamente el caso que
+        // hay que ver, y no algo que se deba tragarse en silencio.
+        _log("WARN save:preSync lanzo (" + (e && e.message ? e.message : e) +
+            "). Se guarda igual.");
+    }
+}
+
 function saveGame(slot) {
     if (!_initialized) { _log("Error: no inicializado"); return false; }  // Verifica inicializacion
     if (slot < 1 || slot > _totalSlots) { _log("Error: slot invalido"); return false; }  // Valida slot
@@ -290,6 +321,10 @@ function saveGame(slot) {
     // una version nueva y nunca recargado no tendria forma de decir cual es su
     // esquema, y la unica forma de averiguarlo seria abrir el archivo a mano.
     GameState.version = SAVE_FORMAT_VERSION;
+
+    // Los datos que estan en el juego y no en GameState se copian antes de que se
+    // serialice. Ver _sincronizarAntesDeGuardar.
+    _sincronizarAntesDeGuardar();
     if (GameState.VehicleModule && GameState.VehicleModule.vehicles) {
         for (var vi = 0; vi < GameState.VehicleModule.vehicles.length; vi++) {
             var veh = GameState.VehicleModule.vehicles[vi];
