@@ -50,12 +50,18 @@
 // existir como send() en modules/ui/index.js: al reves se declara un
 // listener que nunca se dispara.
 //
+// "x" es el unico que NO es un snapshot: son las dos mitades de la pulsacion de
+// la X, porque el runtime no le deja ver esa tecla a la pagina (ver
+// "LA X NO LA VE LA PAGINA" en modules/ui/index.js del mod). Es el unico canal
+// que va sin trocear —`{fase:"up", ms:600}` entra de sobra en los 255 chars del
+// comando— y el unico cuya pagina ejecuta por evento y no por reensamblado.
+//
 // "uistate" reemplaza a los dos que estaban antes ("input" y "panels"). Antes la
-// pagina recibia "el menu esta visible" y armaba sola las otras dos banderas —
-// si el teclado estaba prendido, y si tenia el foco — y las dos veces se
+// pagina recibia "el menu esta visible" y armaba sola las otras dos banderas -
+// si el teclado estaba prendido, y si tenia el foco - y las dos veces se
 // equivocaba: no hay forma de que la pagina sepa si el WndProc le esta
 // mandando las teclas. Ese dato llega, con la fuente etiquetada.
-const INBOUND = ["uistate", "inv", "catalog", "screen"];
+const INBOUND = ["uistate", "inv", "catalog", "screen", "x"];
 
 // EL CONTRATO DE TECLAS, en una sola linea, para los CINCO menus. Vive en la
 // pagina y no viaja en el snapshot porque es el mismo para todos: el mod lo decide
@@ -1104,6 +1110,26 @@ const ACCIONES = [
 ];
 
 
+// La ACCION PRINCIPAL de una fila: la primera del registro ACCIONES que le
+// sirve. Es la misma regla del menu contextual —el primer renglon es la
+// principal— y corre por la misma funcion (`runAccion`), asi que la X y el menu
+// no pueden divergir sin que nada lo note.
+//
+// "drop" queda EXCLUIDA, y es lo mas importante de esta funcion. "Tirar" es la
+// unica accion del panel que no se puede deshacer, asi que no puede ser la que
+// dispara un toque. Si lo fuera, una fila que solo ofrece tirar —el caso de un
+// material, que no se equipa ni se monta— borraria el item con un click, y el
+// gesto de mantener la X dejaria de ser la unica forma de hacerlo.
+//
+// Por eso una fila que solo tiene "Tirar" NO tiene principal: la X no hace nada
+// con un toque y hay que mantenerla, que es lo que el pie y el doc prometen. No
+// es una falta: es el unico item que no se puede usar con un toque, y por eso es
+// el unico que hay que mantener apretado.
+function principalDeFila(r) {
+  if (!r) return null;
+  return ACCIONES.find((a) => a.id !== "drop" && a.aplica(r)) || null;
+}
+
 // Dispara una accion sobre una fila. Devuelve true si llego a mandarse.
 // Las acciones con id propio (las que no pasan por actionFor) se enchufan aca.
 //
@@ -1822,6 +1848,24 @@ const _paneles = {};
 // Que pantalla se esta mostrando ahora: "" es el inventario, o el id del flujo.
 function pantallaActual() {
   return uiState.flow || "";
+}
+
+// EL INVENTARIO ESTA A LA VISTA. No es lo mismo que `pantallaActual()`: esa
+// devuelve "" para el inventario Y para "no hay nada en pantalla", asi que no
+// puede decir "hay algo abierto" — y el menu contextual es exactamente lo que
+// no debe abrirse con el inventario cerrado.
+//
+// Las dos condiciones van juntas porque son las dos mitades de REGLA 1, y el mod
+// las manda en el mismo `uistate`: `menu` es "hay algo en pantalla" y `flow` es
+// cual de los cuatro menus de esfera. Con el inventario a la vista, `menu` es
+// true y `flow` es ""; con un menu de esfera, `flow` trae el id; con nada, las
+// dos son falsy.
+//
+// Ojo con `menu` solo: es true tambien con un menu de esfera abierto, y por eso
+// `flow` va. Y al reves: `flow` sin `menu` no describe nada visible, asi que la
+// pareja se mira junta y no por partes.
+function inventarioVisible() {
+  return uiState.menu === true && !uiState.flow;
 }
 
 function cfgDe(id) {
@@ -3113,6 +3157,15 @@ tabsBox.addEventListener("click", (e) => {
 // un frame.
 const HOLD_MS = 600;
 let _xDownAt = 0;
+// Si hay una pulsacion en curso. NO se deduce de `_xDownAt !== 0`: ese era el
+// centinela antes, y `performance.now()` puede valer 0 —en el frame en que se
+// carga la pagina, y con un reloj redondeado— y entonces la pulsacion se tomaba
+// por inexistente y la X no hacia NADA. Con el reloj en cero el gesto entero se
+// pierde en silencio, y es justo el gesto que borra un item.
+//
+// El reloj se mide igual; lo que no depende de el es la pregunta de si hay
+// pulsacion. Las dos cosas se limpian juntas.
+let _xArmada = false;
 let _xFired = false;
 
 // La fila elegida es la de la vista que se esta mirando: con un flujo abierto
@@ -3173,6 +3226,22 @@ function wireKeycaps() {
 const ctxEl = document.getElementById("ctxmenu");
 let _ctxRow = null;
 
+// Los botones del menu, en orden, y cual esta elegido. Los separadores NO
+// entran: son <div>, no acciones, y saltarselos es lo que hace que W/S
+// recorran solo verbos en vez de pararse en una linea en blanco.
+//
+// Se guardan los ELEMENTOS y no los ids a proposito: el click usa el cierre del
+// handler y el teclado usa el indice, pero ninguno de los dos DOS caminos
+// distintos al mismo verbo — por eso el teclado dispara `b.click()` y no
+// `runAccion()` con el id reconstruido.
+//
+// Declarados aca, arriba de `cerrarCtxMenu` que los escribe, y no junto a las
+// funciones que los usan: `_ctxSel` es `let`, y si `cerrarCtxMenu` llegara a
+// correr antes de su declaracion seria un ReferenceError en vez de un `false`.
+// Los tres estan juntos porque los tres son el estado del mismo menu.
+var _ctxItems = [];
+let _ctxSel = -1;
+
 // Busca la fila a la que pertenece un elemento del DOM. La tabla se rearma
 // seguido, asi que no conviene guardar el elemento: se sube hasta el
 // .table__row del evento y se lo localiza dentro de la vista filtrada por
@@ -3188,20 +3257,44 @@ function cerrarCtxMenu() {
   ctxEl.hidden = true;
   ctxEl.innerHTML = "";
   _ctxRow = null;
+  _ctxItems = [];
+  _ctxSel = -1;
+}
+
+// Pinta la eleccion. Una clase propia y no `focus()`: el `:focus-visible` del
+// hover depende de como el navegador decide el foco, y con foco programatico
+// Chrome no lo aplica siempre — o sea que con `focus()` el renglon elegido por
+// teclado se veria sin marcar en la mitad de los casos.
+function pintarCtxSel() {
+  for (let i = 0; i < _ctxItems.length; i++) {
+    _ctxItems[i].classList.toggle("is-sel", i === _ctxSel);
+  }
+  // La eleccion tiene que estar a la vista cuando el menu es mas alto que la
+  // pantalla y se corrige contra el borde.
+  const b = _ctxItems[_ctxSel];
+  if (b && b.scrollIntoView) b.scrollIntoView({ block: "nearest" });
+}
+
+function moverCtxSel(dir) {
+  if (_ctxItems.length === 0) return false;
+  _ctxSel = (_ctxSel + dir + _ctxItems.length) % _ctxItems.length;
+  pintarCtxSel();
+  return true;
 }
 
 function abrirCtxMenu(x, y, r) {
-  if (!ctxEl) return;
+  if (!ctxEl) return false;
   const items = ACCIONES.filter((a) => a.aplica(r));
 
   // Sin acciones para esta fila no se abre nada. Un menu con un solo renglon
   // "-- Sin acciones --" es ruido: la X tampoco hace nada en ese caso.
   if (items.length === 0) {
     _diag(r.name + ": no tiene acciones");
-    return;
+    return false;
   }
 
   ctxEl.innerHTML = "";
+  _ctxItems = [];
 
   const head = document.createElement("div");
   head.className = "ctxmenu__head";
@@ -3224,13 +3317,27 @@ function abrirCtxMenu(x, y, r) {
       cerrarCtxMenu();
       if (fila) runAccion(a.id, fila);
     });
+    // El puntero encima deja de ser decorativo: mover el mouse elige, y el
+    // INTRO que venga despues corre lo que esta DEBAJO del cursor, no lo que
+    // estaba elegido cuando se abrio. Sin esto, abrir con la ESPACIO, pasar el
+    // mouse por encima y apretar INTRO ejecuta otra accion que la vista.
+    b.addEventListener("mouseenter", () => {
+      const i = _ctxItems.indexOf(b);
+      if (i !== -1 && i !== _ctxSel) {
+        _ctxSel = i;
+        pintarCtxSel();
+      }
+    });
     ctxEl.appendChild(b);
+    _ctxItems.push(b);
   }
 
   _ctxRow = r;
+  _ctxSel = 0;
   // hidden=false ANTES de medir: offsetWidth es 0 con el menu oculto, y sin las
   // medidas no se puede saber si hay que corrido.
   ctxEl.hidden = false;
+  pintarCtxSel();
 
   // Ajuste al borde. Se mide recien insertado y se corre lo que sobre, primero
   // en horizontal y despues en vertical. El menu pegado al borde se ve mejor que
@@ -3245,6 +3352,49 @@ function abrirCtxMenu(x, y, r) {
   if (py + mh > vh) py = Math.max(0, y - mh);
   ctxEl.style.left = px + "px";
   ctxEl.style.top = py + "px";
+  return true;
+}
+
+// Abrir el menu de la fila ELEGIDA sin que haya un cursor que hacer clic.
+//
+// La ESPACIO no tiene coordenadas: sale del teclado, y el menu se pegaba al
+// puntero. Se ancla a la fila, que es justo lo que el resto de los caminos de
+// teclado miran (la X y el INTRO), y no al centro del panel: asi el menu
+// aparece al lado de lo que describe y el jugador puede ver las dos cosas.
+//
+// Abajo de la fila y no encima: el menu es mas alto que una fila, y arriba se
+// taparia la que se esta leyendo. `abrirCtxMenu` corrige contra el borde, asi
+// que en una fila del final la caja sube solo.
+//
+// La guarda va ACa y no solo en la tecla: el menu contextual sin inventario no
+// tiene sentido —es el menu de las filas de la lista de inventario, y sin
+// lista no hay fila que mirar— y `abrirCtxMenu` es la unica que construye el
+// menu. Con la guarda en el llamador, el otro llamador (el click derecho, que
+// solo puede venir de #rows) tiene que confiar en que el panel esta a la vista.
+function abrirCtxMenuEnFila() {
+  if (!inventarioVisible()) {
+    _diag("ESPACIO: el inventario no esta a la vista");
+    return false;
+  }
+  const r = selectedRow();
+  if (!r) {
+    _diag("ESPACIO: no hay fila elegida");
+    return false;
+  }
+  let x;
+  let y;
+  const el = r.el;
+  if (el && el.getBoundingClientRect) {
+    const rc = el.getBoundingClientRect();
+    x = rc.left;
+    y = rc.bottom;
+  } else {
+    // Fila sin elemento: solo pasa en el preview antes del primer render.
+    const caja = rowsBox && rowsBox.getBoundingClientRect ? rowsBox.getBoundingClientRect() : null;
+    x = caja ? caja.left + 24 : 24;
+    y = caja ? caja.top + 24 : 24;
+  }
+  return abrirCtxMenu(x, y, r);
 }
 
 if (rowsBox) {
@@ -3317,6 +3467,98 @@ document.addEventListener("keydown", (e) => {
   if (!bridgeReady && e.ctrlKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
     e.preventDefault();
     previewSaltar(e.key === "ArrowRight" ? 1 : -1);
+    return;
+  }
+
+  // ==========================================================================
+  // EL MENU CONTEXTUAL, CON TECLADO
+  // ==========================================================================
+  // Esta rama va ANTES de la I, la ESPACIO y la del return de mas abajo, y ese
+  // orden no es cosmetico. El menu vive en body, FUERA de #panel, asi que no se
+  // apaga con el panel: si la I o el F llegaran a su rama con el menu abierto,
+  // cerrarian el panel de abajo y dejarian el menu flotando solo en pantalla, sin
+  // nada detras. El ESC de arriba ya lo hacia bien por su cuenta —desarma el
+  // contexto y recien despues cierra el menu de fondo— y estas cuatro hacen lo
+  // mismo: con el contexto abierto, la tecla se lo lleva el contexto.
+  //
+  // W y S son las que el jugador ya usa para las flechas —el alias vive mas
+  // abajo, en `nav`— y son las unicas dos letras que el menu contextual toma. Se
+  // anotan aca y no en el `nav` de mas abajo porque la tabla de alias traduce
+  // W/S a flechas para mover la FILA, y con el menu abierto la fila esta detrás
+  // del menu: es la eleccion del menu la que se mueve.
+  if (ctxEl && !ctxEl.hidden) {
+    const kc = e.key.toLowerCase();
+
+    // El ESC cierra el contexto. La rama de ESC que hay mas abajo ya lo hacia,
+    // pero esta va ANTES —por el orden de arriba— asi que sin esta linea el ESC
+    // caeria en el `return` de abajito y se comeria sin cerrar nada. El menu
+    // sigue siendo un overlay: ESC lo desarma y recien despues, con el menu ya
+    // cerrado, otro ESC cerraria el panel.
+    if (e.key === "Escape") {
+      e.preventDefault();
+      cerrarCtxMenu();
+      return;
+    }
+
+    // LA ESPACIO CORRE LO ELEGIDO. Es la tecla de ACEPTAR del menu, y por eso la
+    // ESPACIO abre el menu y tambien lo ejecuta: es el mismo gesto de "darle
+    // enter a esta fila", en dos pasos —abrir, y aceptar el renglon marcado—.
+    // Antes la ESPACIO lo cerraba, y con eso el menu con teclado solo servia para
+    // mirar la lista: para ejecutar habia que apretar INTRO.
+    //
+    // Que no lo cierre no deja el menu sin salida: lo cierran el ESC y la I/F, que
+    // estan mas arriba en esta misma rama y estan probadas.
+    //
+    // El INTRO hace exactamente lo mismo y por la misma funcion. No es
+    // redundancia gratuita: son las dos teclas de "aceptar" que el panel ya
+    // tenia, y el menu no tiene porque elegir una sola.
+    if (e.key === " " || e.key === "Enter") {
+      e.preventDefault();
+      const b = _ctxItems[_ctxSel];
+      if (b) b.click();
+      else cerrarCtxMenu();
+      return;
+    }
+
+    // La I y el F cierran el CONTEXTO, no el panel. Es la razon de que esta rama
+    // este antes que las suyas: el menu vive en body, fuera de #panel, asi que no
+    // se apaga con el. Si la I llegara a su rama de abajo, cerraria el panel y
+    // dejaria el menu flotando solo en pantalla, sin nada detras — el menu
+    // quedando huerfano es el fallo que esta rama existe para que no pase.
+    if (kc === "i" || kc === "f") {
+      e.preventDefault();
+      cerrarCtxMenu();
+      return;
+    }
+
+    // El INTRO ya esta arriba, junto a la ESPACIO: los dos corren lo elegido con
+    // `b.click()` y no con `runAccion()` y el id reconstruido. El click del boton
+    // ya sabe que la fila es `_ctxRow` —la que estaba abierta, no la que quedo
+    // elegida despues— y esa distincion es justamente la que evita que la accion
+    // caiga sobre otra fila.
+
+    // Alta y baja. Con el menu abierto el `return` de mas abajo frenaria el
+    // teclado de fila, y sin esto la W no tendria a que hacer: el menu tiene
+    // que recibir las mismas teclas con las que se recorre una lista.
+    //
+    // Sin modificador, como el resto de la navegacion: Ctrl es del navegador.
+    if (!e.ctrlKey && !e.metaKey && !e.altKey &&
+      (kc === "w" || e.key === "ArrowUp")) {
+      e.preventDefault();
+      moverCtxSel(-1);
+      return;
+    }
+    if (!e.ctrlKey && !e.metaKey && !e.altKey &&
+      (kc === "s" || e.key === "ArrowDown")) {
+      e.preventDefault();
+      moverCtxSel(1);
+      return;
+    }
+
+    // Cualquier otra tecla se come aca. El return de mas abajo (el que hoy
+    // frena el teclado de fila con el menu abierto) queda como red de seguridad
+    // para las teclas que no son del contrato —Q, E, la X, las letras del pie—:
+    // no hacen nada con el menu abierto, y no pueden caer a la fila de atras.
     return;
   }
 
@@ -3396,11 +3638,6 @@ document.addEventListener("keydown", (e) => {
   // dos reglas para una tecla y que un F recien pulsado cerrara el menu que el
   // F anterior acababa de abrir.
   //
-  // Con el menu YA ABIERTO no se mandan: el INTRO lo resuelve la pagina con la
-  // fila enfocada (abajo, en la rama del Enter) y la ESPACIO no tiene nada que
-  // hacer. Mandar "flow:open" con el menu abierto no abriria nada —abrirFlujo()
-  // sale por REGLA 1— pero gastaria un comando por pulsacion.
-  //
   // El preventDefault no es cosmetico: sin el, el navegador scrollea la caja de
   // scroll con el ESPACIO. Y el comando va con el debounce de abrirFlujo del lado
   // del mod, que es lo que evita que esta pulsacion y la que leyo el mod por
@@ -3411,10 +3648,34 @@ document.addEventListener("keydown", (e) => {
     return;
   }
 
-  // Con el menu abierto el teclado de fila no corre: se eligio una accion
-  // apuntando, no moviendo la seleccion. Sin este return, abrir el menu con el
-  // click derecho y despues mover las flechas cambiaba la fila escondida detras
-  // del menu y la accion iba a caer sobre otra.
+  // La ESPACIO en el INVENTARIO abre el menu contextual de la fila elegida, y lo
+  // mismo con el menu abierto la cierra (arriba, en la rama del contexto).
+  //
+  // La guarda es `inventarioVisible()`, no `!pantallaActual()`. Se parecen y no
+  // son lo mismo: `pantallaActual()` devuelve "" para el inventario y tambien
+  // para "no hay nada en pantalla", asi que `!pantallaActual()` es true en los
+  // dos casos y la unica razon por la que el menu no se abria con el inventario
+  // cerrado era que la rama de "abrir esfera" (que pide `!hayMenuVisible()`)
+  // esta antes y secome la ESPACIO. Eso es un accidento del orden: cambiar el
+  // orden de las dos ramas abria el menu con el panel cerrado, sin que nada lo
+  // pidiera. Preguntando por el estado no hay orden que pueda romperlo.
+  //
+  // Con un menu de esfera tampoco, y por lo mismo: ese tiene su barra de accion,
+  // que ya tiene su navegacion con ↑↓ y su INTRO (ver correrPrincipal), y un
+  // segundo menu contextual encima seria dos respuestas a la misma tecla.
+  if (e.key === " " && inventarioVisible()) {
+    e.preventDefault();
+    abrirCtxMenuEnFila();
+    return;
+  }
+
+  // RED DE SEGURIDAD DEL CONTEXTO. La rama de arriba ya se comio TODAS las teclas
+  // con el menu abierto, asi que hoy esto no se puede alcanzar: el `ctxEl.hidden`
+  // no cambia entre las dos lineas. Se deja igual a proposito, porque es la
+  // garantia de que la fila escondida detras del menu no se mueve si manana se
+  // agrega una tecla nueva al handler y la rama de arriba no la mira — el fallo
+  // que el return viejo tapaba, y que vuelve a quedar tapado por una linea que no
+  // depende de quantas teclas haya.
   if (ctxEl && !ctxEl.hidden) return;
 
   // Que pantalla es la que esta tomando las teclas. Aca se decide todo lo que
@@ -3527,20 +3788,26 @@ document.addEventListener("keydown", (e) => {
       correrPrincipal(cfg);
       return;
     }
-    const r = selectedRow();
+const r = selectedRow();
     if (!r) return;
     e.preventDefault();
-    _xDownAt = performance.now();
-    _xFired = false;
 
-    // La X al apretar ya no hace "equipar": esa accion se fue con el sistema de
-    // armas. Asi que la X se reserva ENTERA para "tirar al soltar", que es lo
-    // que el comentario de arriba decia que pasaba cuando no habia accion al
-    // apretar — y ahora es siempre el caso.
+    // Al apretar la X no se ejecuta NADA: solo se arma el reloj. Lo que se
+    // ejecute lo decide el soltar, segun cuanto se mantuvo — toque = accion
+    // principal, mantenida = tirar una unidad.
     //
-    // `_xFired` queda en false al apretar y solo pasa a true si el soltar encuentra
-    // una fila valida. Ver el keyup de mas abajo.
-    _diag("X: armar para tirar " + r.name);
+    // Este comentario antes decia que "equipar se fue con el sistema de armas" y
+    // que la X quedaba entera para el tirar. Era falso: el sistema de armas esta
+    // entero (data/gsis_item_data.js tiene colt45, y el registro ACCIONES tiene
+    // equip, equipMag, attach, detach...). Lo que se habia ido era la fila de
+    // ITEMS, y con ella el comentario que la describia — y el comentario se leia
+    // como si dijera del codigo.
+    //
+    // OJO: en el juego esta rama NO se ejecuta. El runtime manda la X al juego en
+    // vez de a la pagina, asi que el keydown de la X no llega nunca aca; la entrada
+    // real es el canal "x" del mod. Ver armarX / resolverX mas abajo, y
+    // "LA X NO LA VE LA PAGINA" en modules/ui/index.js del mod.
+    armarX();
   }
 });
 
@@ -3629,27 +3896,86 @@ document.addEventListener("keyup", (e) => {
   // el jugador ya no esta pidiendo.
   if (ctxEl && !ctxEl.hidden) {
     _xFired = true;
+    _xArmada = false;
     return;
   }
-  // Solo hay que decidir tirar si la X se mantuvo y todavia no se uso.
+  // La guarda de "hay pulsacion en curso" esta dentro de resolverX y es la que
+  // evita que un keyup sin keydown borre un item. Con la X ya mantenida al abrir el
+  // menu, todos los keydown llegan con repeat y el !e.repeat del keydown los
+  // descarta: sin armar, la cuenta seria "ahora menos 0" —el tiempo de vida de la
+  // pagina, siempre mayor que HOLD_MS— y al soltar la X se borraba un item. Es la
+  // unica accion del panel que no se puede deshacer.
   //
-  // La guarda de _xDownAt es lo que evita que un keyup sin keydown borre un item.
-  // El que decide tirar es el keyup, asi que si llega uno solo, no hay nada que
-  // decidir. Sin guarda, el 0 inicial de _xDownAt hacia que la cuenta fuera
-  // "ahora menos 0" — el tiempo de vida de la pagina, siempre mayor que
-  // HOLD_MS. Con la X ya mantenida al abrir el menu, todos los keydown llegan con
-  // repeat y el !e.repeat del keydown los descarta, con lo que _xDownAt queda en
-  // ese 0 y al soltar la X se borraba un item. Es la unica accion del panel que
-  // no se puede deshacer.
-  if (_xDownAt === 0) {
-    return;
-  }
-  if (performance.now() - _xDownAt >= HOLD_MS) {
-    _xFired = true;
-    _xDownAt = 0;
-    doAction("drop");
-  }
+  // -1: el tiempo lo decide el reloj de la pagina.
+  resolverX(-1);
 });
+
+// Las DOS MITADES de la X, en funciones aparte, porque tiene DOS entradas: el
+// teclado de esta pagina y el canal "x" que le manda el mod (modloader/IronSyndicate/
+// cleo/IronSyndicate/modules/ui/index.js, "LA X NO LA VE LA PAGINA"). El runtime
+// manda la X al juego en vez de a la pagina, asi que en el juego la unica entrada
+// real es el canal; en el preview —sin puente— la unica es el teclado.
+//
+// Una sola copia de la logica es lo que hace que no puedan divergir, y ademas las
+// dos entradas son idempotentes: la segunda llamada encuentra `_xDownAt` en 0 o
+// `_xFired` en true y no hace nada. Si las dos llegaran —que es lo unico que
+// haria falta para que la accion corra dos veces— no corre dos veces.
+//
+// NINGUNA DE LAS DOS EJECUTA AL APRETAR. Solo se arma el reloj.
+function armarX() {
+    const r = selectedRow();
+    if (!r) {
+        _diag("X: no hay fila elegida");
+        return false;
+    }
+    _xArmada = true;
+    _xFired = false;
+    _xDownAt = performance.now();
+    _diag("X: armar (" + r.name + ")");
+    return true;
+}
+
+// QUE SE EJECUTA LO DECIDE EL SOLTAR, y es lo unico que decide el tiempo:
+//   mantener (>= HOLD_MS) -> "tirar" una unidad
+//   toque                  -> la accion PRINCIPAL de la fila (equipar, llenar, ...)
+//
+// Las dos cosas en el mismo gesto, porque el soltar es el unico momento en que se
+// sabe si fue un toque o una mantenida — y decidir al apretar es lo que hacia que
+// un click que se lingeriera un frame tirara un item. Con las dos en el soltar, un
+// item solo se borra si el jugador lo estuvo apretando 600 ms.
+//
+// `msHandled` es el tiempo que el mod midio. Viene -1 cuando lacision la decide el
+// teclado de la pagina: entonces se usa el reloj de la pagina. No se puede usar el
+// del mod siempre porque en el preview no hay mod, y no se puede usar el de la
+// pagina siempre porque en el juego no hay keyup.
+function resolverX(msHandled) {
+    if (_xFired) return false;
+    // Sin la bandera, un keyup suelto —sin keydown— resolveria con el reloj: la
+    // cuenta daria "ahora menos 0", siempre mayor que HOLD_MS, y borraria un item.
+    if (!_xArmada) return false;
+    const ms = msHandled >= 0 ? msHandled : performance.now() - _xDownAt;
+    _xFired = true;
+    _xArmada = false;
+    _xDownAt = 0;
+
+    if (ms >= HOLD_MS) {
+        doAction("drop");
+        return true;
+    }
+
+    // El toque. Corre por `runAccion`, la misma funcion del menu contextual, asi
+    // que equipar con la X y equipar con ESPACIO + INTRO son el mismo camino y no
+    // pueden dar resultados distintos.
+    const r = selectedRow();
+    const a = principalDeFila(r);
+    if (!a) {
+      _diag("X: " + (r ? r.name + " no tiene accion principal (solo Tirar)"
+        : "no hay fila seleccionada"));
+      return false;
+    }
+    runAccion(a.id, r);
+    return true;
+}
 
 // El click ya no marca foco: no hay nada que marcar. Antes ponia `focused = true`
 // y eso alimentaba un aviso que pedia hacer click, sobre una bandera que la
@@ -3738,6 +4064,41 @@ if (window.SAWeb) {
       // scripts JS no reciben eventos).
       if (name === "inv") {
         armarInventario(data);
+      }
+
+      // LA X. Llega en dos partes, "down" y "up", con el tiempo que el mod midio
+      // entre una y otra. No es un snapshot y no va troceado.
+      //
+      // El mod la lee porque es el dueno de las teclas de menu (gsis_INPUT.md 4.1)
+      // y la reenvia porque el runtime se la manda al juego en vez de a la pagina.
+      // La razon larga esta en "LA X NO LA VE LA PAGINA", en modules/ui/index.js del
+      // mod, que es donde esta el dato de por que hace falta este canal.
+      //
+      // Con un menu de esfera abierto la corre la pagina enteramente: el `ms` es lo
+      // que decide si fue un toque (la accion principal, que en un flujo es la de la
+      // barra de accion) o una mantenida (tirar). Y con el menu contextual abierto
+      // se cancela, igual que en el keyup del teclado: si el menu se abrio entre el
+      // apretar y el soltar, la accion que el jugador quiere ya no es esa.
+      if (name === "x") {
+        if (!data) return;
+        if (data.fase === "down") {
+          armarX();
+          return;
+        }
+        if (data.fase === "up") {
+          if (ctxEl && !ctxEl.hidden) {
+            _xFired = true;
+            _xArmada = false;
+            return;
+          }
+          const ms = typeof data.ms === "number" ? data.ms : -1;
+          resolverX(ms);
+          // No se pide nada acá: la pagina no empuja, el mod empuja. Lo que si
+          // hace falta es que el proximo push del mod no espere su throttle — el
+          // mod limpia el latch al mandar el "up" (ver reenviarX), asi que sale
+          // con los datos frescos en el frame siguiente en vez de 400 ms después.
+        }
+        return;
       }
 
       // El panel de flujo llega en "screen", tambien troceado. Va aparte del

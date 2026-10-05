@@ -30,6 +30,12 @@ export var KEYS = {
     // recarga de verdad, y consume un cargador del inventario.
     RELOAD: 82,
     ESC: 27,            // ESC — cierra cualquier menu de la UI web (modules/ui/index.js)
+    // X - la accion principal de la fila. Al soltar, ejecuta la principal de la
+    // fila elegida (equipar, llenar, quitar, montar); mantenida 600 ms, tira una
+    // unidad. modules/ui/index.js la lee y se la REENVIA a la pagina, porque el
+    // runtime no se la deja ver. Ver "LA X NO LA VE LA PAGINA" en ese archivo.
+    // El 88 es su codigo de teclado virtual.
+    ACTION: 88,
 
     // ============================================================================
     // EL CONTRATO DE TECLAS DE LOS CINCO MENUS

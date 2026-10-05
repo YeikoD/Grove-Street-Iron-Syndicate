@@ -170,6 +170,68 @@ Tres razones, y las tres importan:
    jugador tiene adelante. Que el abrir y el cerrar esten en la misma funcion
    (`toggleFlow`) es lo que evita que una pulsacion haga las dos cosas.
 
+### La X: una tecla que la página no ve, y por qué
+
+`I`, `ESPACIO` y `ESC` se leen en el puente y la página los espeja como comandos. La
+`X` —la acción principal de la fila— **no sigue ese camino**, porque **la página no
+la recibe**.
+
+El runtime de la página tiene una lista de teclas que manda al juego en vez de a la
+página. Se ve en `SAWebUICef.log`:
+
+```
+SAWeb tecla UI abierta: VK=88 bajada (passthrough)
+```
+
+**Y no es una lista que el mod pueda vaciar.** `setMenuKeyPassthrough(null)` se llama
+todos los frames desde `broadcast()` y el runtime lo aplica —`SAWeb key passthrough:
+0 tecla(s)`, 348 veces en el log— y las teclas siguen yendo al juego. El comando
+escribe una lista y el log lista de otra, y manda la segunda.
+
+Medido sobre una sesión completa, las teclas que la página **no** ve:
+
+| No llega | Vk | Sí llega |
+|---|---|---|
+| `X` | 88 | `W` `S` `A` |
+| `R` | 82 | `ESPACIO` (32) |
+| `D` | 68 | `I` (73) |
+| `T` `H` `N` `F` `Z` | 84/72/78/70/90 | `ESC` (27), `INTRO` (13) |
+| `←` `↑` `↓` | 37/38/40 | `E` (69), `Q` (81) |
+| `F1` `F3` `F5` `F6` `F8` `F11`, `4` `8` `9` | — | |
+
+La asimetría es lo que la delata: de la fila de WASD solo la `D` se va al juego. No es
+una lista de teclas de juego —la `D` no es de juego—, es una lista interna de la ASI.
+
+**Qué se hace con esto.** El puente, que es el dueño de las teclas de menú (§4.1) y las
+lee con `rawKeyDown`, lee la `X` también y **se la reenvía a la página** por un canal
+`x` con las dos mitades de la pulsación:
+
+```
+mod reenviarX()  ──send("x", {fase:"down"})──▶  pagina: armarX()
+               ──send("x", {fase:"up", ms})──▶  pagina: resolverX(ms)
+```
+
+Las dos mitades viven en la página (`app.js`), que es donde está el registro `ACCIONES`
+y la fila elegida. El mod solo dice "bajo" y "subo tras N ms"; no mira el inventario ni
+decide qué hacer.
+
+**Las dos entradas no pueden correr la acción dos veces.** En el juego la página no ve
+la `X`, así que la entrada real es el canal; en el preview no hay runtime que la retenga
+y la entrada real es el teclado. Si las dos llegaran, `armarX`/`resolverX` son
+idempotentes —la segunda llamada encuentra la bandera de "hay pulsación" en false o
+`_xFired` en true y no hace nada—, y hay una prueba que manda las cuatro cosas y
+comprueba que sale **una** acción.
+
+**Consecuencia, y es la menor:** `F` tampoco la ve la pagina, asi que la atiende el
+puente. Con el menu contextual abierto, eso significa que la `F` cierra el menu **y el
+panel de atras** en la misma pulsacion, en vez de cerrar primero el contexto y despues
+el panel con un segundo toque. `Escape` e `I` cierran solo el contexto porque si llegan
+a la pagina.
+
+No se nota: los tres borran el menu de la pantalla. Lo que no se puede es usar la `F`
+como cierre en dos niveles, y para eso haria falta un handshake —el puente manda, la
+pagina contesta si lo tenia, el puente solo cierra el panel si la respuesta fue "no"—,
+
 ## 5. La regla de los modulos
 
 **Un modulo lee teclas solo con `keyJustPressed`.** No hay excepciones ni

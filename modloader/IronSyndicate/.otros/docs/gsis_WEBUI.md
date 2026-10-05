@@ -479,8 +479,10 @@ inventario abierto**, en cuyo caso no hace nada. Con las dos funciones así, el 
 `I` no abre el inventario con un flujo abierto, y la `ESPACIO` no abre un flujo con el
 inventario abierto. Antes ese estado sí se daba, y el flujo esperaba turno.
 
-`inv:belt:off` va por **slot de casilla**, no por id, porque en el cinturón puede
-haber dos cargadores del mismo tipo y la casilla es lo único que los distingue.
+`inv:unequipMag` va por **índice de ranura**, no por id, porque puede haber dos
+cargadores del mismo tipo —el vacío y el lleno— y la ranura es lo único que los
+distingue. Antes esto era `inv:belt:off` y hablaba de "casilla del cinturón"; el
+cinturón de dos casillas es ahora las dos ranuras de equipados.
 
 Los dos de `ui:` existen por el consumo de teclas. Cuando la página se queda con
 el teclado, el WndProc hace `return 0` y el juego nunca ve ese `WM_KEYDOWN`: el
@@ -511,16 +513,152 @@ nunca el snapshot. Para datos grandes esta el otro sentido (`ui.send`), que troc
 
 | Superficie | Como |
 |---|---|
-| Tecla `X` | Apretar: `inv:equip` o `inv:belt` segun el tipo. Mantener 600 ms y soltar: `inv:drop` de 1 unidad |
-| Tecla `Enter` | Igual que la `X` al apretar. **No** dispara `inv:drop` |
+| Tecla `X` | **Al soltar**: un toque (menos de 600 ms) corre la acción **principal** de la fila —equipar un arma, equipar un cargador, llenar, quitar, montar el silenciador—; mantenerla 600 ms y soltar tira **una** unidad |
+| Tecla `Enter` | Con un menú de proximidad, la acción principal de la fila. **En el inventario no hace nada** |
 | Tecla `I` | `ui:toggle` (ignorado con un flujo abierto) |
 | `Escape` | Con el menú contextual abierto lo cierra; si no, `ui:close` |
 | Flechas | Mueven la selección, con `scrollIntoView` para que no se salga de la caja |
+| `W` `S` | **Alias de las flechas**, arriba y abajo. Son de las teclas que sí ve la página |
 | `Home` / `End` | Primera / última fila |
 | `PageUp` / `PageDown` | Una caja de alto |
 | `←` `→` o `Q` `E` | Cambio de banda (inventario) o de lista (baúl) |
+| `ESPACIO` | Abre el menú contextual de la fila elegida (solo en el inventario) |
+| `ESPACIO` / `Enter` / `W` `S` | Con el menú contextual abierto: `ESPACIO` e `INTRO` ejecutan el renglón, `W` `S` y las flechas lo recorren |
 | Keycaps del pie | Los dos `<button data-action>` del pie hacen lo mismo con un click |
 | Click en fila | Selecciona. La ventana de detalle ya no existe: el detalle esta en el `title` de la celda |
+
+> **`X` y las flechas no las ve la página: las reenvía el puente.** En el juego la `X`
+> y las flechas llegan al juego, no a la página (lista y evidencia en
+> [gsis_INPUT.md §4.2](./gsis_INPUT.md)). Por eso la `X` va por un canal del puente y
+> las flechas horizontalmente no sirven para recorrer el menú contextual — `W` `S` sí,
+> y `↑` `↓` tampoco llegan. Para el inventario y los menús de esfera, `Q` `E` cambian
+> de banda y no hay alternativa de teclado.
+
+### La `X`: dos acciones en un gesto
+
+La `X` **no ejecuta nada al apretar**: solo arma el reloj. Lo que se ejecute lo
+decide el **soltar**, y el tiempo es lo único que decide:
+
+| Mantenida | Ejecuta |
+|---|---|
+| < 600 ms (toque) | La acción **principal** de la fila |
+| ≥ 600 ms | `inv:drop` de **una** unidad |
+
+Decidir al soltar no es un detalle: decidir al apretar es lo que hacía que un click
+que se lingeriera un frame tirara un item. Con las dos cosas en el soltar, un item
+solo se borra si el jugador lo estuvo apretando 600 ms.
+
+La principal es `principalDeFila()`: **la primera acción del registro `ACCIONES` que
+le sirve a la fila** — la misma regla del menú contextual, cuyo primer renglón es la
+principal — y corre por `runAccion()`, o sea el mismo camino que el menú. La `X` y
+`ESPACIO` + `INTRO` no pueden divergir.
+
+**`drop` queda excluida de la principal, a propósito.** "Tirar" es la única acción
+del panel que no se puede deshacer, así que no puede ser la que dispara un toque. Si
+lo fuera, una fila que solo ofrece tirar —un material, que no se equipa ni se monta—
+borraría el item con un click, y el gesto de mantener la `X` dejaría de ser la única
+forma de hacerlo. Por eso una fila que solo tiene "Tirar" **no tiene principal**: la
+`X` no hace nada con un toque y hay que mantenerla.
+
+> **Lo que esta fila de la tabla antes decía, y por qué se corrigió:** decía que la
+> `X` al apretar "ya no hace equipar, porque esa acción se fue con el sistema de
+> armas". Era falso —el sistema de armas está entero, y `data/gsis_item_data.js`
+> tiene `colt45`— y el código cumplía la frase equivocada. El `Enter` del inventario
+> **sigue** sin hacer nada, que es otra cosa: ese sí es un hueco real, y está
+> anotado acá para que no se confunda con el de la `X`.
+
+### El menú contextual con teclado
+
+El menú contextual de la fila —el del click derecho— se abre y se recorre entero
+desde el teclado. No es un camino nuevo a las acciones: es el **mismo** `#ctxmenu`,
+armado por `abrirCtxMenu()` desde las dos entradas.
+
+| Tecla | Que hace |
+|---|---|
+| `ESPACIO` | **Abre** el menú de la fila elegida, anclado a la fila |
+| `W` / `↑` | Renglón anterior |
+| `S` / `↓` | Renglón siguiente |
+| `ESPACIO` o `Enter` | **Corre** el renglón elegido —equipar, llenar, quitar, montar, tirar— y cierra el menú |
+| `Escape`, `I`, `F` | Lo cierran |
+
+La `F` cierra el menú de opciones como cierra cualquier otra cosa del panel, y por
+el camino del puente: la lee `cerrarVisible()` en `pollKeys()`, que ve que hay algo
+en pantalla y lo cierra. No pasa por la página —el runtime no le deja ver la `F`, y
+tampoco la `X`, la `R` o la `D`; la lista y la evidencia están en
+[gsis_INPUT.md §4.2](./gsis_INPUT.md)—, así que no es la rama del contexto de
+`app.js` la que la atiende, sino el puente.
+
+Eso significa que la `F` cierra el menú contextual **y el panel que está detrás**, en
+la misma pulsación, en vez de primero el contexto y después el panel con un segundo
+toque. `Escape` e `I` sí cierran solo el contexto, porque esas dos sí llegan a la
+página. No es una diferencia que se note: los tres borran el menú de la pantalla.
+
+La `ESPACIO` es la tecla de **aceptar** del menú, y hace las dos mitades del mismo
+gesto: abre la lista y ejecuta el renglón marcado. `Enter` hace exactamente lo
+mismo, por la misma función —no es redundancia: son las dos teclas de "aceptar" que
+el panel ya tenía, y el menú no tiene por qué elegir una sola.
+
+> **La `ESPACIO` antes cerraba el menú en vez de ejecutarlo.** Con eso el menú se
+> podía recorrer con el teclado pero no accionar: había que abrir con `ESPACIO`,
+> bajar con `S` y apretar `Enter`. El `Enter` funcionaba; la `ESPACIO` no hacía
+> nada útil. Ahora las dos hacen lo mismo, y cerrar quedó en `Escape`, `I` y `F`.
+
+La `F` tiene doble sentido en el contrato —abre esfera con la pantalla cerrada y
+cierra el panel con la abierta—, así que la fila de arriba es una de las dos: con
+el menú abierto cierra **el menú**, y con el inventario abierto y sin menú sigue
+mandando `ui:close`, y con nada en pantalla sigue mandando `flow:open`. Las tres
+están probadas.
+
+Las seis reglas que sostienen esto:
+
+- **`inventarioVisible()` es la guarda, y no `!pantallaActual()`.**
+  `pantallaActual()` devuelve `uiState.flow || ""`: `""` para el inventario **y**
+  para "no hay nada en pantalla". O sea que `!pantallaActual()` es verdadero en los
+  dos casos, y lo único que impedía que el menú se abriera con el inventario
+  cerrado era que la rama de "abrir esfera" está antes en el handler y se come la
+  `ESPACIO` primero. Eso es un accidente del orden de ramas: reorderarlas abría el
+  menú con el panel cerrado sin que nada lo pidiera. La guarda mira el estado, así
+  que ningún orden la puede romper.
+- **`inventarioVisible()` son las dos mitades de REGLA 1 a la vez:**
+  `uiState.menu === true && !uiState.flow`. `menu` sola no alcanza —es `true`
+  también con un menú de esfera abierto—, y `flow` sola no describe nada visible.
+- **La guarda está también dentro de `abrirCtxMenuEnFila()`,** no solo en la tecla:
+  es la única que construye el menú, y con la guarda solo en el llamador el otro
+  llamador —el click derecho, que solo puede venir de `#rows`— tendría que
+  confiar en que el panel está a la vista.
+- **Solo en el inventario.** Los cuatro menús de esfera ya tienen su equivalente —
+  la barra de acción, con `↑↓` y su `Enter` (`correrPrincipal`) —, y poner un
+  segundo menú contextual arriba sería dos respuestas a la misma tecla.
+- **`ESC`, `I` y `F` cierran el contexto antes que el panel, y la `ESPACIO` ya no
+  lo cierra.** El menú vive en `body`, **fuera** de `#panel`, así que no se apaga
+  con él: si la `I` llegara a su rama, cerraría el panel de atrás y dejaría el
+  menú flotando solo en pantalla. Por eso la rama del contexto va **antes** que las
+  de `I` y `F`. Y las tres están explícitas en esa rama, no en un `return` genérico:
+  como la rama va antes que la de `Escape`, un `return` al final se come el `ESC` y
+  el menú no cierra. El `return` final es solo para las teclas que no son del
+  contrato.
+- **La `W`/`S` se anotan aparte y no en el alias de `nav`.** El alias de más abajo
+  traduce `W`/`S` a flechas para mover la **fila**; con el menú abierto la fila
+  está detrás del menú, y la que se mueve es la elección del menú. Misma tecla,
+  distinto destino, y por eso dos ramas y no una.
+
+El `Enter` dispara `b.click()` y no `runAccion()` con el id reconstruido: el click
+ya sabe que la fila es `_ctxRow` —la que estaba abierta, no la que quedó elegida
+después—, y esa es la distinción que evita que la acción caiga sobre otra.
+
+Y el renglón elegido se marca con `.is-sel`, no con `focus()`: `:focus-visible`
+depende de cómo el navegador decide el foco, y con foco programático —que es lo
+único que hay acá, la `ESPACIO` abre sin que el puntero se mueva— Chrome no lo
+aplica siempre. El puntero encima también mueve la elección, para que el `Enter`
+que venga después ejecute lo que está **debajo del cursor** y no lo que estaba
+elegido al abrir.
+
+> **Lo que NO se cambió, a propósito:** el pie (`HINT_TECLAS`) sigue siendo la misma
+> línea en los cinco menús. Anunciar "ESPACIO: menú de la fila" solo en el
+> inventario rompería la regla de que el contrato sea idéntico en los cinco, que es
+> lo que evita que el jugador tenga que reaprender al cambiar de panel. El menú
+> contextual es un overlay modal: cuando está abierto tapa el pie igual que el
+> click derecho lo tapaba.
 
 En los menús de proximidad el mapa es otro, y lo declara cada pantalla en
 `PANTALLAS[id].teclas` (el pie lo anuncia, así que no hay una tecla fija escrita

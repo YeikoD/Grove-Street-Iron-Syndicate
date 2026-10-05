@@ -702,6 +702,85 @@ function _flanco(vk) {
     return down && !prev;
 }
 
+// ============================================================ LA X NO LA VE LA PAGINA ==
+//
+// POR QUE ESTA FUNCION EXISTE
+// ----------------------------
+// La X es la accion principal de la fila, y la decides en la PAGINA: el registro
+// ACCIONES, `actionFor` y la fila elegida son todos de app.js. Si la X llegara
+// hasta alla, no haria falta nada de esto.
+//
+// No llega. El runtime de la pagina tiene una lista de teclas que manda al JUEGO
+// en vez de a la pagina, y la X esta en ella. Se ve en el log del CEF:
+//
+//   SAWeb tecla UI abierta: VK=88 bajada (passthrough)
+//
+// Y no es una lista que el mod pueda vaciar: `setMenuKeyPassthrough(null)` se
+// llama todos los frames desde broadcast() y el runtime lo aplica —"SAWeb key
+// passthrough: 0 tecla(s)", 348 veces en el log— y las teclas siguen yendo al
+// juego. O sea que el comando escribe una lista y el log lista de otra, y la que
+// manda es la segunda. Las que manda al juego incluyen la X, la R, la D, la T y
+// las flechas; las que si ve la pagina incluyen W, S, A, ESPACIO, I, ESC, INTRO.
+//
+// Por eso la X va por el camino del puente, que es el dueno de las teclas de menu
+// (ver gsis_INPUT.md 4.1) y las lee con `rawKeyDown`, igual que I, ESPACIO y ESC:
+// el mod la ve, y se la reenvia a la pagina con el tiempo que estuvo apretada.
+//
+// QUE NO HACE ESTO
+// -----------------
+// No decide que hacer con la X, no mira el inventario, y no sabe si lo que hay a la
+// vista es el panel o un menu de esfera. Todo eso lo decide la pagina, que es
+// donde vive ACCIONES. Este archivo solo dice "la X bajo" y "la X subo tras N ms".
+//
+// LAS DOS MEDIDAS NO SE DUPLICAN
+// ------------------------------
+// La pagina puede ver la X en el preview —sin puente no hay runtime que la
+// retenga— y en el juego no la ve. Si las dos llegaran, la accion se correria dos
+// veces. No puede: `armarX`/`resolverX` son idempotentes, la segunda llamada
+// encuentra `_xDownAt` en 0 o `_xFired` en true y no hace nada. Por eso la pagina
+// comparte las dos mitades entre su teclado y este canal, en vez de tener dos
+// copias de la logica.
+//
+// Cuando no hay nada en pantalla no se reenvia: la X no es de este mod con los
+// menus cerrados, y el `ms` de un reenvia con el panel cerrado haria que la pagina
+// resolviera una fila que no esta a la vista.
+var _xAbajo = false;
+var _xDesde = 0;
+
+function reenviarX(now) {
+    var down = rawKeyDown(KEYS.ACTION);
+
+    if (down !== _xAbajo) {
+        _xAbajo = down;
+        if (!(_uiState.menuVisible || currentFlow())) {
+            // Bajo o subio, pero no hay nada a la vista: se olvida el reloj y no
+            // se manda nada. Sin esto, abrir el panel con la X todavia apretada
+            // mandaria un "up" con el tiempo de la pulsacion anterior.
+            _xDesde = 0;
+            return;
+        }
+        if (down) {
+            _xDesde = now;
+            send("x", { fase: "down" });
+        } else {
+            var ms = _xDesde ? now - _xDesde : 0;
+            _xDesde = 0;
+            send("x", { fase: "up", ms: ms });
+            // La pagina va a ejecutar algo —equipar, llenar, tirar— y eso cambia el
+            // inventario. El latch de "solo si cambio" compararia el JSON nuevo
+            // contra el viejo y lo mandaria, pero el THROTTLE lo comeria: el cambio
+            // se veria hasta 400 ms despues, y para una accion que el jugador acaba
+            // de hacer se siente roto.
+            //
+            // Por eso el throttle es lo unico que se limpia. El `_lastJson` no se
+            // toca a proposito: limpiarlo haria que se mande un snapshot aunque la
+            // accion no haya movido nada —el caso de un "Tirar" que el modulo
+            // rechaza— y se veria el panel redibujarse sin motivo.
+            _lastPush = 0;
+        }
+    }
+}
+
 // ------------------------------------------------------------------ TECLADO --
 //
 // Estas teclas son las unicas que se leen SIN supresion, y a proposito: son
@@ -732,6 +811,13 @@ function pollKeys() {
     refreshInput();
 
     resolverTecla(now);
+
+    // La X se lee fuera del despacho de arriba a proposito: `resolverTecla` decide
+    // abrir y cerrar, y su unica decision con un menu abierto es CERRAR —con F o
+    // ESC—. Si la X estuviera en esa tabla, alcanzaria para cerrar el panel, que es
+    // lo contrario de lo que tiene que hacer. Ademas necesita los dos flancos —bajo
+    // y subo— y el umbral de 600 ms se mide con el reloj del mod.
+    reenviarX(now);
 
     // El estado se propaga TODOS los frames, no solo cuando cambia la tecla.
     // broadcast() esta latcheado por firma, asi que solo manda cuando algo del

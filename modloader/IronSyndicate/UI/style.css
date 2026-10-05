@@ -2272,8 +2272,9 @@ body {
 }
 
 /* =================================================== RECETA: .ctxmenu --
-   Menu contextual de la fila, el que sale pegado al cursor con el click
-   derecho. Es la MISMA accion que la tecla X y los keycaps del pie, escrita
+   menu contextual de la fila, el que sale pegado al cursor con el click
+   derecho y pegado a la fila con la ESPACIO. Es la MISMA accion que la tecla X
+   y los keycaps del pie, escrita
    de una tercera forma: los tres caminos leen el registro ACCIONES de app.js,
    asi que agregar una accion nueva no toca ni el menu ni el cableado.
 
@@ -2310,8 +2311,18 @@ body {
   transition: background var(--dur-fast) ease, color var(--dur-fast) ease;
 }
 
+/* El renglon ELEGIDO con el teclado. Va con el hover en la misma regla y no
+   aparte: son el mismo estado —"este es el que se ejecuta" — y partirlo deja
+   el menu con dos definiciones que se pueden desincronizar.
+
+   Es una clase y no `focus()` porque `:focus-visible` depende de como el
+   navegador decide el foco, y con foco programatico (que es lo unico que hay
+   aca: la ESPACIO abre el menu sin que el puntero se mueva) Chrome no lo
+   aplica siempre. Con :focus el renglon elegido se ve sin marcar en la mitad
+   de los casos, que es peor que no marcarlo nunca. */
 .ctxmenu__item:hover,
-.ctxmenu__item:focus-visible {
+.ctxmenu__item:focus-visible,
+.ctxmenu__item.is-sel {
   background: var(--surface-hover);
   color: var(--text-inverse);
   outline: none;
