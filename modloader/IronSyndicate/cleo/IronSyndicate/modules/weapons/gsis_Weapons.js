@@ -43,6 +43,69 @@
 //   gsis_Weapons.js   esto. Las operaciones y el camino al motor.
 //
 // ============================================================================
+// LO QUE ESTA MEDIDO QUE NO ANDA, Y NO SE VE
+// ============================================================================
+// MEDIDO el 04/10/2026 sobre gsis_limiter.txt, y sigue asi: los DOS MODELOS PROPIOS
+// no terminan de cargar, y el .asi cae al modelo del padre. O sea que el tipo 62 y
+// el tipo 61 —las dos variantes de 15 balas— SE VEN COMO UNA PISTOLA NORMAL.
+//
+// No es un arma invisible, que es el fallo que el header de gsis_weapons.dat
+// describe y del que avisa `PedirModelosVanilla()`: el arma aparece, dispara, tiene
+// las 15 balas y suena bien. Lo que no esta es la FORMA. Y por eso es peor que un
+// arma invisible: el jugador ve una pistola, cree que tiene la C15, y no hay ni un
+// error en ningun log.
+//
+// LO QUE DICE EL LOG
+// ---------------------------------------------------------------------------
+//   [15065] loadState 0 con cdSize 0x6 y txdIndex 3609: streaming solto la peticion.
+//          Reintento 1 en el frame 31.
+//   [62] SE ENTREGA CON EL MODELO DEL PADRE (22): el modelo propio 15065 no esta
+//        cargado.
+//
+// 52 lineas de "streaming solto la peticion" en 779 tramas, y `m_pRwObject` con un
+// puntero distinto de cero solo 2 veces. O sea: el .asi pide el modelo, CStreaming
+// lo suelta, el .asi reintenta, y el ciclo se repite sin cerrarse.
+//
+// LO QUE SI FUNCIONA, Y DICE QUE EL FALLO ES DEL STREAMING Y NO DEL .ASI
+// ---------------------------------------------------------------------------
+// El tipo 60 —que usa el 347 de vanilla— si se ve, y el log lo cuenta con las dos
+// lineas justas:
+//
+//   [60] el modelo de vanilla 347 NO ESTA CARGADO (...). Se pide.
+//   [60] modelo de vanilla 347 CARGADO: el arma se ve.
+//
+// O sea que la machinery del .asi anda: AddWeaponModel cruza contra
+// ms_modelInfoPtrs, el chequeo cruzado da OK, y la pedido de un modelo de vanilla
+// entra. Lo que no entra es un RequestSpecialModel de un .dff propio.
+//
+// Y los 8 parches del arranque dan el patron esperado, y las 4 filas del .dat se
+// dieron de alta. El problema es UNO y es de streaming, no de configuracion.
+//
+// DONDE ESTA EL RANGO 15025..15099
+// ---------------------------------------------------------------------------
+// El log lo dice: `modelos propios declarados: 2 (15025+)`. Los dos estan
+// declarados. Y `[SALIMITS] WeaponModels = 200` esta puesto en el .ini del Open
+// Limit Adjuster, que es la precondicion real — con el pool de vanilla de 51 slots
+// el segundo modelo propio CRASHEA, y `unlimited` no agranda nada.
+//
+// O sea: la precondicion esta puesta y el fallo no es la precondicion. Es que
+// CStreaming suelta el modelo. Y ESO NO SE ARREGLA DESDE ACAS: el .asi es la otra
+// mitad del acuerdo y su fuente (limiter.cpp) NO esta en este repositorio, asi que
+// no se puede tocar. Lo que si se puede es no fingir que el arma se ve.
+//
+// LO QUE HAY QUE MIRAR ANTES DE DECIR QUE UN TIPO FUNCIONA
+// ---------------------------------------------------------------------------
+// Que `dado de alta: tipo 62` este en el log NO dice que el 62 se vea. El log del
+// .asi es el unico lugar donde se ve, y la linea que decide es la del modelo, no la
+// del alta. `node .IronSyndicate\tools\check-dat.mjs` tampoco lo dice, y lo
+// recuerda al final: "esto NO dice si el modelo se ve".
+//
+// As que el orden de la comprovacion es: el check dice que la configuracion es
+// coherente, el log dice que el .asi dio de alta el tipo, y SOLO el log dice si el
+// modelo entra. Los tres son cosas distintas y hoy el segundo dice que si y el
+// tercero que no.
+//
+// ============================================================================
 // LA RECARGA: DE DONDE SALE LA SECUENCIA
 // ============================================================================
 // La animacion es la del .cs de "Reload Mod" (Junior_Djjr), que es el mod del que
@@ -63,10 +126,21 @@
 // LA FILA DEL CARGADOR SE CONSUME ENTERA
 // ---------------------------------------------------------------------------
 // Las balas del cargador pasan al arma y la fila desaparece del inventario. Un
-// cargador con 3 balas monta 3. La parte que no entra en el arma NO vuelve al
-// cargador: con una capacidad de 8 y un cargador de 15, las 7 de mas se pierden. Es
-// una decision de este paso y esta escrita en ammo.js tambien, donde el pickup es
-// el otro caso de municion que se descarta.
+// cargador con 3 balas monta 3, y lo que meto es `Math.min(capNuevo, mag.ammo)`.
+//
+// CORREGIDO el 04/10/2026: este bloque decia antes que "con una capacidad de 8 y
+// un cargador de 15, las 7 de mas se pierden". ESO YA NO PASA, y el ejemplo era
+// una prueba de que el comentario estaba viejo: un cargador de 15 en un arma de 8
+// no deja 7 balas afuera, porque al entrar el cargador el arma DEJA de ser de 8.
+// Se resuelve la variante nueva primero —`tipoDe(familia, 15, silenciador)`— y el
+// motor ya la dice de 15, y ahi las 15 entran.
+//
+// Lo que si se descarta, entonces, es otra cosa y es la que hay que decir: un
+// cargador con MAS balas que las que le entran al arma DESPUES del cambio de
+// variante. Hoy no es alcanzable —la capacidad del arma es exactamente el clipSize
+// del cargador que se monto, porque la variante se eligio por ese numero—, pero
+// el `Math.min` esta ahi por si deja de serlo. El otro caso de municion que se
+// descarta es el pickup, y ese lo prohibe el invariante de ammo.js.
 // ============================================================================
 
 import { register } from "../../core/gsis_ModuleRegistry.js";
@@ -685,6 +759,12 @@ export function montarSilenciador(slot, silenciadorId) {
         return false;
     }
 
+    // El slot sale del REGISTRO y no del parametro `slot`, y con una familia es lo
+    // mismo. Ojo si se agrega una segunda: `_slotDeFamilia(entry.id)` lee el slot
+    // que declara FAMILIAS, y el `slot` que recibe la funcion es el que el caller
+    // cree. Hoy coinciden porque `equipar` guardo la entry en `def.slot` y no en
+    // otro lado; si dejaran de coincidir, esta funcion leeria el arma de otra fila
+    // y montaria el silenciador en el sitio equivocado sin decir nada.
     var addr = Engine.slotAddress(ped, entry.id ? _slotDeFamilia(entry.id) : 0);
     if (!addr) {
         log("[Weapons] montarSilenciador: el ped no tiene el arma del slot " + slot);
@@ -747,6 +827,9 @@ export function quitarSilenciador(slot) {
         return false;
     }
 
+    // El slot sale del REGISTRO y no del parametro `slot`. Misma nota que en
+    // `montarSilenciador`, y por la misma razon: con una familia coinciden, y con
+    // dos hay que decidir cual de las dos manda.
     var addr = Engine.slotAddress(ped, _slotDeFamilia(entry.id));
     if (!addr) {
         log("[Weapons] quitarSilenciador: el ped no tiene el arma del slot " + slot);
@@ -814,6 +897,19 @@ function _slotDeFamilia(familiaId) {
 // Y sale del catalogo y no de la fila del arma a proposito: en la fila esta el
 // BOOLEANO ("tiene silenciador"), no la pieza. Que pieza es, se decide cuando se
 // monta, y el flag despues solo recuerda que hay una.
+//
+// QUE EL PARAMETRO NO SE USE, Y POR QUE HOY ESTA BIEN
+// ---------------------------------------------------------------------------
+// `entry` no se lee: la funcion devuelve el primer id de SILENCIADORES, y punto.
+// Es correcto HOY porque hay un solo silenciador en la tabla y toda arma con el
+// flag puesto lo tiene montado. Es incorrecto en cuanto haya un segundo, y la
+// falla es de las que no se ven: el arma devuelve un silenciador que no es el que
+// tenia, y el original no aparece por ningun lado.
+//
+// O sea: el dia que la tabla tenga dos entradas, esto tiene que pasar a buscar el
+// que le sirve al arma —y ahi `entry` deja de sobra—, y el que se tenga que
+// guardar en el save es el ID de la pieza, no un booleano. Ver AGREGAR_ARMAS.md,
+// "el tercer tipo de accesorio", que es el cambio mas caro del sistema.
 function defSilenciadorDe(entry) {
     for (var id in SILENCIADORES) {
         if (Object.prototype.hasOwnProperty.call(SILENCIADORES, id)) return id;

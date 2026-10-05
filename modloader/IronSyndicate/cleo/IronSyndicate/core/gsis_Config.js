@@ -209,21 +209,10 @@ export var WEAPONS = {
     PLUGIN_TYPE_MIN: 60,
     PLUGIN_TYPE_MAX: 79,
 
-    // El arma de pruebas del paso 1: la fila 63 de gsis_weapons.dat, la Colt .45
-    // pelada —padre 22, modelo 346 de vanilla, cargador de 8—. Se elige esa y no
-    // otra porque es la unica del rango que se ve exactamente igual que una arma
-    // de vanilla: si algo sale mal, no se sabe si fallo el modelo o fallo el arma.
-    //
-    // El numero no esta en el catalogo a proposito. El catalogo de armas del mod
-    // —familias, accesorios, variantes— es un paso siguiente, y esta fila esta
-    // escrita en el .dat desde antes: repetirla aca seria la segunda copia de un
-    // dato, que es la clase de bug que produjo el tambor de 75 recortado a 30.
-    ARMA_PRUEBA_TIPO: 63,
-
-    // Cuantos cargadores se pueden llevar equipped a la vez.
+    // Cuantos cargadores se pueden llevar equipado a la vez.
     //
     // No es un numero de UI: es una REGLA del inventario, y vive con los demas
-    // numeros de armas por la misma razon que el rango de tipos. El masalto es
+    // numeros de armas por la misma razon que el rango de tipos. El mas alto es
     // aca porque el que decide si un cargador entra es state.js, y el que decide
     // si la UI muestra el "no hay lugar" es el modulo de armas. Los dos leen de
     // aca.
@@ -250,11 +239,33 @@ export var WEAPONS = {
 // Por eso el mod "Mantener armas sin balas" trae su .wav junto al script.
 // Por que el martillo trae su .wav y la recarga no.
 //
+// Y VIVO.
 // El martillo es un sonido que NO existe en el juego: es un invento del mod, asi
 // que tiene que ser un archivo. La recarga si existe, y la tiene el motor con el
-// banco del juego: va por Engine.playWeaponReload, que llama a
-// CAEWeaponAudioEntity::WeaponReload y deja que el juego elija el sfx del arma. Por
-// eso las rutas de sounds\weapons\reload*.wav ya no estan aca.
+// banco del juego, asi que NO hay archivo: la pone el .asi.
+//
+// CORREGIDO el 04/10/2026. Este comentario decia que la recarga "va por
+// Engine.playWeaponReload, que llama a CAEWeaponAudioEntity::WeaponReload". ESA
+// FUNCION NO EXISTE: no hay ningun playWeaponReload en el mod, y este archivo es
+// el unico lugar donde se mencionaba. El nombre de la funcion nativa del juego es
+// correcto —CAEWeaponAudioEntity::WeaponReload existe en el ejecutable, con su
+// tabla en 0x503838— pero no es una funcion de este modulo.
+//
+// Quien la pone, y por que no puede ser el script:
+//
+//   el motor no tiene una operacion "recargar" a la que llamar. La recarga ES
+//   parte del disparo (CWeapon::Fire, 0x73FA20): el arma dispara, y si el cargador
+//   quedo vacio y hay reserva, el motor se recarga solo. Como este mod NO tiene
+//   reserva —el invariante de modules/weapons/ammo.js lo prohibe— el motor no
+//   tiene nada que recargar, y su recarga nunca arranca.
+//
+//   asi que el script pone RECARGANDO y las balas, y el .asi ve el estado y
+//   llama al juego por el lado del padre, que es lo que el motor exige para elegir
+//   el sfx. Ver "El sonido NO se pide aca" en modules/weapons/gsis_Weapons.js.
+//
+// MEDIDO el 04/10/2026, y funciona: en gsis_limiter.txt el rastro del .asi cuenta
+// StubSndReload en 301 de 779 trazas de audio. Si el .asi no esta o esta viejo, las
+// armas recargan igual pero mudas.
 //
 // Y el factor: el volumen general del juego (0xB67A50) se multiplica por este
 // numero. Es el criterio del mod "Mantener armas sin balas", que leia ese global
@@ -305,7 +316,7 @@ export var SPECIAL_MODELS = {
     RANGE_END: 15024,             // Fin del rango de IDs disponibles
     FILES: ["fam5"],              // Archivos DFF custom (solo seller)
 
-    // EL RANGO DE MODELOS DE ARMA SE FUE CON EL SISTEMA DE ARMAS.
+// EL RANGO DE MODELOS DE ARMA SE FUE CON EL SISTEMA DE ARMAS QUE SE BORRO.
     //
     // Este bloque SON los personajes (Emmet y los NPC): RANGE_START/END y FILES
     // son suyos y gsis_Actors.js los lee. NO se tocan.
@@ -319,30 +330,44 @@ export var SPECIAL_MODELS = {
     //                          estaba en false desde el 30/09
     //   WEAPON_MODELS          el mapa nombre -> .dff/.txd de colt45_c15
     //
+    // PLUGIN_WEAPON_RANGE, al final del archivo, era el rango de weaponId —no de
+    // modelId— que el .asi daba de alta. Tambien se fue, y ahora vive en WEAPONS,
+    // arriba, como PLUGIN_TYPE_MIN/PLUGIN_TYPE_MAX.
+    //
     // La confusion entre los dos niveles ya costo un crash una vez —el ENABLED de
     // los personajes apagado dejaba a los dealers sin modelo—, asi que la
     // separacion de las dos ramas esta escrita aca y no se fusionan nunca.
     //
-    // Y PLUGIN_WEAPON_RANGE, al final del archivo, era el rango de weaponId —no de
-    // modelId— que el .asi daba de alta. Tambien se fue, por lo mismo.
+    // ============================================================================
+    // LO QUE ESTA EN EL DISCO, Y NO SE BORRA
+    // ============================================================================
+    // gsis_weapons.dat, gsisWeaponLimiter.asi y models\weapons\ SIGUEN VIVOS.
     //
-    // LO QUE NO SE BORRA, Y POR QUE ESTA EN EL DISCO
-    // ------------------------------------------------
-    // gsis_weapons.dat, gsisWeaponLimiter.asi y models\weapons\ siguen en el disco,
-    // sin tocar y sin usar. No es un olvido: son la otra mitad de un acuerdo con
-    // el .asi, y el .asi los lee en su DllMain antes de que exista un solo script
-    // de CLEO.
+    // CORREGIDO el 04/10/2026. Este bloque decia que estaban "sin tocar y sin
+    // usar", que "nada les pide los tipos 60..66", que quedaban "13 slots del rango
+    // ocupados por armas que nadie puede pedir", y dejaba escrita la orden de
+    // borrarlos. TODO ESO ERA FALSO, y la orden era el problema: seguirla borra
+    // media capacidad del mod y no da ningun error al arrancar, porque el .asi
+    // sigue cargando y solo deja de dar de alta los tipos.
     //
-    // Con el sistema de armas borrado, nada les pide los tipos 60..66, asi que el
-    // .asi los registra igual y quedan 13 slots del rango ocupados por armas que
-    // nadie puede pedir. Es inerte: registrar un tipo no lo hace aparecer, y GTA
-    // usa sus propias armas de vanilla.
+    // Que es lo que hay, MEDIDO en gsis_limiter.txt el 04/10/2026:
     //
-    // Borrarlos es una operacion de un comando y se deja escrita, porque el .dat y
-    // el .asi son lo primero que hay que volver a poner si el armament regresa, y
-    // lo segundo que hay que entender si no: son el mismo commit.
+    //   el .dat tiene 4 filas, y las 4 estan dadas de alta:
+    //     60  padre 23  modelId 347    clip 8   colt45 silenciada
+    //     61  padre 23  modelId 15066  clip 15  silenciada + cargador de 15
+    //     62  padre 22  modelId 15065  clip 15  colt45 + cargador de 15
+    //     63  padre 22  modelId 346    clip 8   colt45 pelada
     //
-    //   Remove-Item modloader\IronSyndicate\gsis_weapons.dat
-    //   Remove-Item modloader\IronSyndicate\gsisWeaponLimiter.asi
-    //   Remove-Item -Recurse modloader\IronSyndicate\models\weapons
+    //   o sea 4 tipos del rango 60..79, no 7 ni 13. Quedan 16 libres.
+    //
+    // Y los dos modelId propios —15065 y 15066— NO son opcionales: son los unicos
+    // que hacen que el arma se vea con la forma de la C15. Sin ellos el .asi cae al
+    // modelo del padre y el jugador ve una pistola normal creyendo que tiene la
+    // C15. Ver AGREGAR_ARMAS.md, paso 1.
+    //
+    // NO HAY NADA QUE BORRAR ACA. Si alguna vez se decide sacar el sistema de armas
+    // del mod —y no se ha decidido— lo que se borra es el modulo de CLEO, y el
+    // .dat y el .asi se dejan, porque son la otra mitad del acuerdo y el .asi los
+    // lee en su DllMain antes de que exista un solo script. Borrarlos es lo que
+    // hay que pensar dos veces, no lo que hay que dejar anotado como tarea.
 };

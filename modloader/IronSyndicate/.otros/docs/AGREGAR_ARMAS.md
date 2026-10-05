@@ -308,6 +308,49 @@ Las dos líneas que importan: la del **registro** y la del **`LISTO`**. Si apare
 `SE ENTREGA CON EL MODELO DEL PADRE`, el `.asi` lo está degradando y hay que buscar
 el `***` de arriba.
 
+> ### 🚨 ESTO HOY NO PASA. LOS DOS MODELOS PROPIOS NO CARGAN.
+>
+> **Medido el 04/10/2026 sobre `gsis_limiter.txt`.** El bloque de arriba describe lo
+> que habría que ver, y lo que hay es otra cosa:
+>
+> ```
+> [15065] loadState 0 con cdSize 0x6 y txdIndex 3609: streaming solto la peticion.
+>          Reintento 1 en el frame 31.
+> [62] SE ENTREGA CON EL MODELO DEL PADRE (22): el modelo propio 15065 no esta cargado.
+> ```
+>
+> - **52 líneas** de `streaming solto la peticion` en 779 tramas.
+> - `m_pRwObject` con puntero distinto de cero **2 veces** en 779.
+> - El `LISTO en frame N` que dice este documento **no aparece ni una vez**.
+>
+> O sea que **hoy los tipos 62 y 61 se ven como una pistola normal**: el arma aparece,
+> dispara, tiene las 15 balas y suena bien, pero no tiene la forma de la C15. Y como
+> no hay error en ningún log, el jugador ve una pistola y cree que tiene la C15.
+>
+> **Lo que NO es el culpable**, para no perder tiempo:
+>
+> - No es la precondición del pool. `[SALIMITS] WeaponModels = 200` **está puesto**.
+> - No es la tabla `g_modelos[]`. Las dos entradas están y el chequeo cruzado da OK.
+> - No es el hook de `AddWeaponModel`. Los 8 parches dan el patrón esperado.
+> - No es el fallback: el fallback es lo que **tapa** el fallo.
+>
+> Lo que sí funciona y lo demuestra: el modelo **de vanilla** 347 del tipo 60 entra sin
+> problema, y el log lo cuenta con sus dos líneas —`[60] el modelo de vanilla 347 NO
+> ESTA CARGADO ... Se pide.` y `[60] modelo de vanilla 347 CARGADO: el arma se ve.`—.
+> O sea que la machinery anda, y lo que no entra es un `RequestSpecialModel` de un
+> `.dff` propio.
+>
+> **Dónde se arregla:** en el `.asi`, y el `.asi` **no está en este repositorio** — su
+> fuente es `C:\Dev\gsis-armory\limiter.cpp`. Desde acá no se puede tocar. Lo que se
+> puede es no dar por hecho que el paso 1 está hecho: por eso la sección de
+> verificación del `.dat` (§"COMO SE COMPRUEBA QUE UNA FILA NUEVA SIRVE") pide las
+> líneas del modelo y no solo el `dado de alta`.
+>
+> **Y si se agrega un tercer modelo propio**, la precondición del pool vuelve a
+> aplicar y hay que volver a probar: con el pool de vanilla (51 slots) el segundo
+> modelo **crasha**. Ese límite es real y sigue valiendo, es independiente de este
+> fallo.
+
 ---
 
 ## Paso 2 — La fila del `.dat`
@@ -500,7 +543,7 @@ mochila no está en ninguna.
 
 ### El cargador: se EQUIPA en una ranura
 
-Va a una de las dos ranuras (`MISC.CARGADORES_EQUIPADOS = 2`) y lo gasta la `R`. Ver
+Va a una de las dos ranuras (`WEAPONS.CARGADORES_EQUIPADOS = 2`) y lo gasta la `R`. Ver
 [Paso 3](#un-cargador-es-de-una-capacidad-no-de-un-arma).
 
 ### Agregar un accesorio nuevo
@@ -676,6 +719,25 @@ pool          WeaponModels = 200
 - [ ] `fastman92limitAdjuster.asi.off` — FLA apagado
 - [ ] `node .IronSyndicate\tools\check-dat.mjs` dice **TODO OK**
 - [ ] El `.asi` compilado está en `C:\Program Files\GTA SA\gsisWeaponLimiter.asi`, **no** en `modloader\IronSyndicate\`
+- [ ] **En `gsis_limiter.txt` el modelo de la variante nueva aparece `LISTO`**, y **no** aparece `SE ENTREGA CON EL MODELO DEL PADRE`
+
+> **Corregido el 04/10/2026. La última línea del checklist es la que importa, y hoy
+> no se puede marcar.**
+>
+> Este checklist termina en `check-dat.mjs` dice TODO OK, y eso da la impresión de que
+> el paso quedó verificado. **No.** El check no mira el `.asi`: cruza `.dat ↔ variantes
+> ↔ ITEMS ↔ WEB_ICONS ↔ PNG` y su propio recordatorio lo dice —"esto NO dice si el
+> modelo se ve"—.
+>
+> El estado real: `check-dat.mjs` pasa, el `.asi` da de alta los 4 tipos, los clones
+> salen bien, **y los dos modelos propios no cargan**. O sea que la mitad del checklist
+> es verificable a maquina y la otra mitad es manual, y la parte manual es la que
+> falla hoy.
+>
+> También: de las herramientas de `tools/`, **solo `check-dat.mjs` corre**.
+> `inventario.mjs` y `smoke.mjs` existen pero mueren con `ERR_MODULE_NOT_FOUND` porque
+> hacen `import "./fake-engine.mjs"` y ese archivo no está; `check-migration.mjs` y
+> `check-ui-flow.mjs` no existen. No cuentes con ellos para verificar nada.
 
 ---
 

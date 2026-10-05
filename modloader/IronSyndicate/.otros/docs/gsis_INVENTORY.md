@@ -248,7 +248,8 @@ reconciliar();                           // el tipo del ped = el de los accesori
 > `equipWeapon(id, attachments)` / `attachAccessory()` / `detachAccessory()` /
 > `tryReload()`, con el cinturon como contenedor y los accesorios como una **lista en
 > la fila**. **Ninguna de esas seis existe hoy.** Lo que hay son dos ranuras de
-> cargador (`MISC.CARGADORES_EQUIPADOS`), un item por familia, y el silenciador como
+> cargador (`WEAPONS.CARGADORES_EQUIPADOS`, en `core/gsis_Config.js` — no era
+> `MISC.CARGADORES_EQUIPADOS`), un item por familia, y el silenciador como
 > **booleano en la fila del arma** — ver [`gsis_WEAPONS.md`](./gsis_WEAPONS.md) y
 > la sección "POR QUÉ NO SE VOLVIERON LOS ACCESORIOS POR INSTANCIA" de
 > [`gsis_VARIANTES.md`](./gsis_VARIANTES.md).

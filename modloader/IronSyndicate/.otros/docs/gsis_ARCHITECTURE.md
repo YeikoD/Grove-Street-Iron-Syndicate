@@ -361,20 +361,41 @@ export var LANG = {
 };
 ```
 
-> **Deuda conocida en Config**: `TIMERS.RELOAD_GRACE` no lo lee nadie. Quedo del
-> watchdog de recarga (`_watchdogReload`), que se fue entero con el cambio de
-> cargador por cambio de `weaponType`: ahora no hay animacion que esperar y por lo
-> tanto no hay margen que darle. Se puede borrar en el mismo cambio que la
-> mencion a "cargador montado" desaparezca de otro archivo.
+> **Deuda conocida en Config**: `TIMERS.RELOAD_GRACE` no lo lee nadie.
+>
+> > **CORREGIDO el 04/10/2026.** Este parrafo decia que el watchdog de recarga
+> > "se fue entero con el cambio de cargador por cambio de `weaponType`: ahora no
+> > hay animacion que esperar y por lo tanto no hay margen que darle". **Es
+> > FALSO, y describe un estado transitorio que ya no es el de hoy.** El watchdog
+> > existe y se llama `_watchdogRecarga` (`modules/weapons/gsis_Weapons.js`), corre
+> > por frame desde `updateWeapons()`, y **si hay animacion que esperar** — la que
+> > devuelve `Engine.reloadSpec(tipo).ms`. El "margen" que `_empezarRecarga` le
+> > pasa es exactamente ese `ms`, y el watchdog compara `timerNow()` contra el.
+> >
+> > Lo que SIGUE en pie es la primera linea: `RELOAD_GRACE` no lo lee nadie, y eso
+> > si es deuda. La razon de por que quedo sin consumidor cambio —el watchdog
+> > nuevo toma el plazo del animgroup, no un margen fijo— pero el hecho no
+> > cambio. O sea: se puede borrar igual, y la justificacion de este parrafo hay
+> > que cambiarla antes de borrarlo, porque hoy explica mal por que existe.
+> >
+> > Y la razon de que sobre: el modulo delega el reloj en el motor justamente para
+> > no tener un margen propio. Ver "La animación y el watchdog" en
+> > `gsis_WEAPONS.md`.
 >
 > `MOVE_KEYS` sigue viva porque `core/gsis_Input.js` la usa para leer el teclado
 > **real** (`GetAsyncKeyState`), que es de donde salen los flancos de la I, la
 > ESPACIO y el ESC del bridge. Lo que ya no se hace es pasarsela a la pagina con
 > `setMenuKeyPassthrough`: ningun menu se cierra alejandose, todos congelan.
 >
-> `PLUGIN_WEAPON_RANGE = { FIRST: 60, LAST: 79 }` esta en Config, pero **la fuente
-> de verdad son `PLUGIN_TYPE_MIN` / `PLUGIN_TYPE_MAX` de `data/gsis_weapons.js`**,
-> que son los que usa `weapons/index.js` para validar. Ver
+> `PLUGIN_TYPE_MIN` / `PLUGIN_TYPE_MAX` viven en **`WEAPONS` dentro de
+> `core/gsis_Config.js`**, no en `data/gsis_weapons.js`.
+>
+> > **CORREGIDO el 04/10/2026.** Este texto decia dos cosas que ya no son ciertas:
+> > que `PLUGIN_WEAPON_RANGE = { FIRST: 60, LAST: 79 }` "esta en Config" — **esa
+> > constante ya no existe**, se fue con el sistema de armas viejo y la sustituyeron
+> > `PLUGIN_TYPE_MIN`/`PLUGIN_TYPE_MAX` — y que la fuente de verdad estaba en
+> > `data/gsis_weapons.js` — **esta en el Config**. Las dos mitades estaban
+> > invertidas, que es la forma mas dificil de leer de una frase asi.
 > [gsis_WEAPONS.md §0](./gsis_WEAPONS.md).
 
 > `KEYS` declara **que tecla es que**. Quien decide si esa tecla actua o no es
@@ -423,7 +444,7 @@ export var ACTOR_ANIMS = {
 };
 
 export var AUDIO = {
-    DRYFIRE_PATH: "sounds/dryfire.wav",   // click seco (modloader)
+    DRYFIRE_PATH: "modloader/IronSyndicate/sounds/dryfire.wav",   // click seco (modloader)
     DRYFIRE_VOLUME: 0.8
 };
 

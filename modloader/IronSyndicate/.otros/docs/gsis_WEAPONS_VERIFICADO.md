@@ -62,6 +62,18 @@
 
 ## 1. La matriz verificada
 
+> **ESTA MATRIZ ES HISTORICA. El sistema que verifico ya no existe.**
+>
+> Describe un modelo de "una configuracion es un item" con `ak47`, `mag_ak47_drum` de
+> 75 balas y los tipos 64 y 30. **Hoy hay una sola familia** —`colt45`, con sus cuatro
+> variantes 60/61/62/63— y no hay `ak47` ni ningun tambor. Los ids tampoco coinciden:
+> aqui aparece `mag_colt45_15`, y el id real es **`mag_colt45_c15`**.
+>
+> Los log citados no se pueden volver a obtener: ese codigo no esta. La seccion 5.1
+> explica que parte de la evidencia sobrevive y cual no. Lo que sobrevive de esta
+> matriz no son las filas sino el **metodo**: agrupar los bugs por como se detectaron.
+> Ver §5.1.
+
 **6 de 7 tipos declarados pasaron por el motor real.** Cada fila se ejecuto en
 partida, mirando el log y la pantalla.
 
@@ -303,10 +315,25 @@ el `*` del `.gitignore`), por decision: son salidas de instrumentacion, no codig
 
 | Que afirma este doc | Evidencia cruda | Sobrevive |
 |---|---|---|
-| El `.asi` carga **7 tipos** y los **7 parches** están en su sitio | `gsis_limiter.txt`, **ultima corrida** (L995-1056) | **Si.** Y es la corrida vigente: los 7 tipos con los valores del `.dat` de hoy |
-| Los **modelos** de las variantes (346, 347, 355, 356) | `gsis_modelprobe.txt` (10.417 lineas, FASE 6) | **Si.** Corrida de solo observacion: "ESTA CORRIDA NO ESCRIBE NADA" |
-| Las **7 filas del `.dat`** y que el clon del padre sale bien | `check-dat.mjs`, sin necesidad de GTA | **Si, y en git** |
+| El `.asi` carga **4 tipos** (60, 61, 62, 63) y los **8 parches** están en su sitio | `gsis_limiter.txt`, **ultima corrida** | **Parcialmente.** Los 4 tipos y los 8 parches: **Si**, y el log lo dice hoy. Lo que **no** se sostiene es lo de la fila siguiente |
+| Los **modelos** de las variantes | `gsis_limiter.txt`, linea de `modelo de vanilla` | **Solo el 347.** El `[60] modelo de vanilla 347 CARGADO` esta. Los **dos propios NO**: `[62] SE ENTREGA CON EL MODELO DEL PADRE (22)`, 52 reintentos de streaming, `m_pRwObject` nulo casi siempre |
+| Las **4 filas del `.dat`** y que el clon del padre sale bien | `check-dat.mjs`, sin necesidad de GTA | **Si, y en git.** Ejecutado el 04/10/2026: `TODO OK`, exit 0 |
 | **La matriz de la §1**: los `-> tipo 63`, el `75/75`, el `[mag_colt45_15, suppressor]` | `cleo_redux.log` | **No.** Ver abajo |
+
+> **CORREGIDO el 04/10/2026.** Esta tabla decia "7 tipos", "7 parches" y "las 7 filas
+> del `.dat`". Hoy son **4 tipos, 8 parches y 4 filas**, y la afirmacion de que la
+> corrida del log es "la vigente, con los 7 tipos y los valores del `.dat` de hoy"
+> era directamente falsa: el `.dat` de hoy tiene 4 filas. Los 7 tipos y el
+> `mag_ak47_drum` de 75/75 de la matriz de la §1 son de un sistema que ya no existe.
+>
+> La fila de los modelos es la que mas importa, porque es la unica que **cambio de
+> "Si" a "no"** sin que cambiara el codigo: el `.asi` sigue dando de alta los 4 tipos y
+> los clones salen bien, pero los `.dff` propios no terminan de entrar. Ver "Lo que
+> esta medido que no anda" en `modules/weapons/gsis_Weapons.js`.
+>
+> Y el log **si** dice que el sonido de recarga funciona: `StubSndReload` en 301 de
+> 779 trazas. La afirmacion de que la recarga suena la sostiene el `.asi`, no el
+> script.
 
 **Lo que hay que saber de `gsis_limiter.txt`:** son **37 corridas pegadas**, no
 una. Las primeras 20 cargaban 2 tipos y las siguientes 4; a partir de la corrida 21
@@ -338,13 +365,35 @@ estimaciones, y menos ahora que 65 y 66 serian las dos primeras filas sin regist
 
 ### 5.2 Las tres suites
 
-Las tres, en orden. Ninguna necesita GTA:
-
-```powershell
-node .IronSyndicate/tools/check-dat.mjs          # .asi <-> weapons.js, 7 filas
-node .IronSyndicate/tools/check-migration.mjs     # 104/104  saves v1 -> v2
-node .IronSyndicate/tools/check-ui-flow.mjs       # 147/147  flujo con motor falso
-```
+> **CORREGIDO el 04/10/2026. De las tres suites, solo una corre.**
+>
+> Esto decia "Las tres, en orden. Ninguna necesita GTA" y daba tres comandos. Los
+> tres estan mal:
+>
+> | comando | estado real |
+> |---|---|
+> | `node .IronSyndicate/tools/check-dat.mjs` | **Corre.** Ejecutado el 04/10/2026: `TODO OK`, exit 0 |
+> | `node .IronSyndicate/tools/check-migration.mjs` | **No existe.** El archivo no esta |
+> | `node .IronSyndicate/tools/check-ui-flow.mjs` | **No existe.** Lo remplace `inventario.mjs`, que es su heredero |
+>
+> Y hay dos herramientas mas en `tools/` que **existen pero no corren**: `smoke.mjs` e
+> `inventario.mjs` hacen `import "./fake-engine.mjs"`, y ese archivo no esta, asi que
+> las dos mueren con `ERR_MODULE_NOT_FOUND` en la linea 32 y la 42 respectivamente.
+>
+> O sea: el unico check ejecutable del repositorio es `check-dat.mjs`, y es
+> exactamente el que **no** dice si el modelo se ve. La brecha que VARIANTES §8
+> resumia como "es una verificacion manual y se dice" es mas grande de lo que ahi
+> decia: la verificacion que hay no cubre el `.asi`, y las que la cubrian estan
+> rotas.
+>
+> Los comandos que sí funcionan:
+>
+> ```powershell
+> node .IronSyndicate\tools\check-dat.mjs    # .asi <-> weapons.js, 4 filas. TODO OK
+> ```
+>
+> Y para lo demeno, la comprobacion es manual y su registro es `gsis_limiter.txt`.
+> Ver "Lo que esta medido que no anda" en `modules/weapons/gsis_Weapons.js`.
 
 Y para una verificacion en partida:
 
@@ -359,8 +408,8 @@ Y para una verificacion en partida:
 Lo que se busca, por variante:
 
 ```
-60  montar Silenciador: colt45 -> tipo 60 (era 63) | 8/8 balas | [suppressor]
-61  recarga: monta mag_colt45_15: colt45 -> tipo 61 (era 60) | 8/15 | [mag_colt45_15, suppressor]
+60  montarSilenciador: colt45 -> tipo 60 (era 63) | 8/8 balas | [suppressor]
+61  recargar: CAMBIO | mag_colt45_c15 de la ranura 1 -> tipo 61 | 15/15 | el mag_colt45_c15 (0) -> ranura 1 | Colt .45 Silenced -> Colt .45 Silenced C15 (tipo 61)
 64  recarga: tipo 64 con 75/75 balas
 ```
 

@@ -21,11 +21,25 @@
 
 # Los checks de verificacion, dentro de .IronSyndicate/tools/.
 # ESTOS SI VAN A GIT, y no por descarte: son la red de seguridad del sistema.
-#   check-dat.mjs        cruza el .dat contra weapons.js y simula el clon del .asi
-#   check-migration.mjs SAVE_FORMAT_VERSION y los migradores por version
-#   check-ui-flow.mjs    los contratos entre modulos, incluido el assert de que
-#                        weapons/ e inventory/ NO se importan entre si
-#   fake-engine.mjs      el motor falso con el que se prueba toda la logica
+#
+#   check-dat.mjs   cruza el .dat contra weapons.js y simula el clon del .asi.
+#                   Es el UNICO que corre hoy. Ejecutado el 04/10/2026: TODO OK.
+#   inventario.mjs  heredo de check-ui-flow.mjs: el inventario y la fila de la UI
+#   smoke.mjs       que TODOS los modulos del mod importen sin imports rotos
+#
+# CORREGIDO el 04/10/2026. Este bloque listaba cuatro archivos y tres no existen:
+# check-migration.mjs, check-ui-flow.mjs y fake-engine.mjs. Y los dos que si
+# existen —inventario.mjs y smoke.mjs— hacen `import "./fake-engine.mjs"`, asi que
+# los dos mueren con ERR_MODULE_NOT_FOUND y no se pueden correr. O sea que la red
+# de seguridad es de un archivo, y es el que no mira el .asi.
+#
+# Los que falten, en el orden en que mas falta hacen:
+#   fake-engine.mjs      sin el no corren inventario.mjs ni smoke.mjs. Es el
+#                        primero: desbloquea los dos
+#   check-migration.mjs  SAVE_FORMAT_VERSION (=3) y los migradores por version
+#   check-ui-flow.mjs    ya no hace falta como tal: su cobertura esta en
+#                        inventario.mjs, que es su heredero
+#
 # Sin estos, los docs que dicen "147/147" y "el desacoplamiento es un assert, no
 # una convencion" no son verificables por nadie, y perdemos justo lo que protege
 # el refactor. El resto de .IronSyndicate/ (docs/, y las copias de Sanny Builder

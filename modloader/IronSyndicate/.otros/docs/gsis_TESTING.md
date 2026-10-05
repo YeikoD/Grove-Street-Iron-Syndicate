@@ -106,14 +106,21 @@ Los tres del repo:
 | Check | Que cubre |
 |---|---|
 | `check-dat.mjs` | Que las variantes, el `.dat` y el `.asi` digan lo mismo. Cruza `FAMILIAS[].variantes` y `CARGADORES` de `data/gsis_weapons.js` contra el archivo real: que cada variante tenga fila, que el `clip` coincida, que la derivación de `tipoDe()` sea **reversible**, que toda combinación de (balas, silenciador) tenga variante, y que **todo item tenga icono y el PNG exista** |
-| `check-migration.mjs` | Que los migradores del save sigan funcionando: corre `migrateSave()` sobre saves de cada version y verifica que el resultado sea el de la version actual |
-| `check-ui-flow.mjs` | **Las cuatro configuraciones de un arma desde el flujo real**: pagina → `ui/commands.js` → `weapons/logic.js` → bus → motor, con `fake-engine.mjs` en lugar de GTA. Y que `weapons/` e `inventory/` no se importen entre si |
+| `check-migration.mjs` | **NO EXISTE.** Que los migradores del save sigan funcionando: corre `migrateSave()` sobre saves de cada version y verifica que el resultado sea el de la version actual |
+| `check-ui-flow.mjs` | **NO EXISTE.** Lo reemplazó `inventario.mjs`, que es su heredero declarado |
+| `inventario.mjs` | El inventario y la fila de la UI, con el catálogo de una fila. **No corre:** hace `import "./fake-engine.mjs"` y ese archivo no está |
+| `smoke.mjs` | Que todos los módulos del mod importen sin imports rotos. **No corre:** mismo `fake-engine.mjs` faltante |
+
+> **CORREGIDO el 04/10/2026.** Esta tabla daba tres checks y los tres comandos, y
+> **solo uno funciona**. Uno no existe, el otro fue reemplazado por su heredero, y el
+> heredero tampoco corre porque depende de `fake-engine.mjs`, que no está en el repo.
+> La misma corrección aplica a la columna "Que ejercita de verdad" de §9.
 
 ```powershell
 cd <gta>\.IronSyndicate
-node tools\check-dat.mjs
-node tools\check-migration.mjs
-node tools\check-ui-flow.mjs
+node tools\check-dat.mjs      # el unico que corre. 4 filas. TODO OK
+# node tools\check-migration.mjs   <- no existe
+# node tools\check-ui-flow.mjs     <- no existe; su heredario es inventario.mjs
 ```
 
 Los tres de **`prueba-*.mjs` y `check-chamber.mjs`**, que son los del
@@ -965,7 +972,8 @@ lugar del motor:
 |---|---|
 | `check-ui-flow.mjs` | `data/gsis_weapons.js` + `modules/inventory/` + `modules/weapons/` + `modules/ui/views/` en el camino completo del click. Incluye el motor falso dando el arma y **tirando despues**, que es el bug de la sesion real |
 | `check-dat.mjs` | La coherencia entre la tabla, el `.dat` y el `.asi` |
-| `check-migration.mjs` | Los migradores del save, sobre saves de cada version |
+| `check-migration.mjs` | Los migradores del save, sobre saves de cada version — **no existe** |
+| `check-ui-flow.mjs` | `data/gsis_weapons.js` + inventory + weapons + ui/views en el camino del click, con el motor falso dando el arma y tirando despues — **no existe**; su heredero es `inventario.mjs`, que tampoco corre por `fake-engine.mjs` |
 
 Lo que **no** existe todavia: una suite que corra `modules/ui/index.js` frame a
 frame con stubs (lo hacia `check_smoke_mod.mjs`, que ahora no arranca — ver §2), y

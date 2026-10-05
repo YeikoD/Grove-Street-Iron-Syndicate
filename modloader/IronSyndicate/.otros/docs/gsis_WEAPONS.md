@@ -91,7 +91,7 @@ export var MUNICION = {
 ### La misma clave `familias` en las tres
 
 `CARGADORES` y `MUNICION` usan **el mismo campo** para decir a qué familia sirven, y
-por eso el casamiento es un solo código: `cargarSirveA` y `balaSirveA` son la misma
+por eso el casamiento es un solo código: `cargadorSirveA` y `balaSirveA` son la misma
 función con otro nombre.
 
 Que sea el mismo campo y no uno de calibre es lo que hace que agregar una familia
@@ -124,8 +124,23 @@ sin red, el error se ve en pantalla y no en el log — por eso existe
 - Las variantes con modelo **propio** necesitan padre de la **misma clase de arma**.
   El 62 y el 61 usan modelos propios, así que el 62 clona del 22 (pistola) y el 61
   del 23 (silenciada).
-- Un modelo propio encima de un padre de otra clase deja la animación del modelo que
-  ya no está, y apuntar con esa arma tira el juego. **Medido el 30/09.**
+- ~~Un modelo propio encima de un padre de otra clase deja la animación del modelo
+  que ya no está, y apuntar con esa arma tira el juego. **Medido el 30/09.**~~
+
+> **CORREGIDO el 03/10/2026, y esta corrección importa.** El crash **no era la
+> animación**. Con `[SALIMITS] WeaponModels = 200` puesto, `61 23 15066 2 15 -1`
+> **funciona**: clona del `23` y conserva su `animGroup 18`, el de la silenciada. Lo
+> que se había medido el 30/09 era el **crash del pool de modelos**, que coincidió en
+> el tiempo y se confundió con un problema de animación.
+>
+> La **precondición real es `WeaponModels = 200`**, no el padre. Y la regla de "misma
+> clase" que queda en el primer punto es **media verdad**: es cierta para modelos
+> propios y falsa para los de vanilla — el `61` estuvo un rato con padre `22` y un
+> modelo propio, y lo único que consiguió fue perder la animación y el sonido de la
+> silenciada.
+>
+> La fuente es `AGREGAR_ARMAS.md`, sección "SI EL MODELO ES PROPIO…", que ya lo
+> corregía. Este documento era el que quedaba con la versión vieja.
 
 ## Cómo se deriva el tipo
 
@@ -154,7 +169,19 @@ Tres registros, y **el `weaponType` no está en ninguno**:
 | qué arma está en cada slot | `GameState.Weapons.equipped[slot]` | `equipar` / `desequipar` |
 | qué cargador está en cada arma | `GameState.Weapons.enArma[slot]` | `recargar` |
 | qué cargador está en las ranuras | `GameState.Weapons.cargadores[]` | `equiparCargador` |
-| si el silenciador está montado | `equipped[slot].silenciador` | `montar` / `quitar` |
+
+Y un **campo** del primero, que va en la tabla aparte porque no es un registro:
+
+| qué | dónde | quién lo escribe |
+|---|---|---|
+| si el silenciador está montado | `equipped[slot].silenciador` | `montarSilenciador` / `quitarSilenciador` |
+
+La fila del silenciador estaba en la tabla de los tres registros, y por eso la cuenta
+no cerraba: son cuatro filas y tres registros. `modules\weapons\state.js` lo dice bien
+—"lo único que el módulo persiste, y son TRES registros"— y esta tabla era la que no.
+
+> **Corregido el 04/10/2026.** También los nombres: las funciones reales son
+> `montarSilenciador` y `quitarSilenciador`, no `montar` y `quitar`.
 
 El `weaponType` **no se guarda** por una razón concreta: es la representación que
 ejecuta el motor y sale de los accesorios. Un save que guarda el número queda con un
@@ -218,6 +245,41 @@ desajuste es de tipo, y no se arregla solo.
 
 Un tipo en el slot que **no es del mod** no se toca: puede ser una pistola de vanilla
 que el jugador agarró de una misión.
+
+## La animación y el watchdog
+
+> **AGREGADO el 04/10/2026.** Esta sección no estaba en ningún documento de armas, y
+> es la que sostiene la recarga: sin el watchdog, el arma nunca termina de recargar.
+
+El motor **no puede** recargar en este mod, y no es una limitación del mod: es la
+consecuencia de la regla de "sin reserva". La recarga del juego mueve la **reserva**
+del total al clip (`CWeapon::Fire`, `0x73FA20`: dispara, y si el cargador quedó vacío y
+hay reserva, se recarga). Como el invariante de `ammo.js` obliga a `total == clip`, la
+reserva es **cero**, y la recarga del motor no tiene nada que mover.
+
+Por eso el módulo es dueño de la recarga y no solo de las balas. Son **tres
+escrituras** al motor y un pendiente:
+
+```
+m_nTimeForNextShot = ahora + GetWeaponReloadTime(del animgroup)
+m_nState           = RECARGANDO          (2)
+clip = total = 0
+```
+
+- **Las balas NO se escriben antes de tiempo.** Si se escribieran, el arma se vería
+  llena durante la animación. Se deposits cuando vence el plazo.
+- **El plazo es lo único que el motor sí cumple.** El watchdog corre por frame desde
+  `updateWeapons()` y, cuando `timerNow() >= hasta`, escribe `clip`, `total` y `READY`.
+- **No se espera a que el motor termine**, porque no las pone: cuando el motor cierra la
+  recarga mueve el total al clip, y el total está en cero. "Esperar al motor" es
+  "esperar a que el arma quede vacía".
+- **Si el estado dejó de ser `RELOADING` antes del plazo, el pendiente se descarta** en
+  vez de escribir: escribirle encima a un arma que el jugador ya volvió a usar es peor
+  que dejar el cargador consumido.
+
+El **sonido** no lo pide el script: el módulo solo pone `RELOCOADING`, y el `.asi` ve
+el estado y llama al juego por el lado del padre. Medido el 04/10/2026: `StubSndReload`
+aparece en 301 de 779 trazas de audio en `gsis_limiter.txt`.
 
 ## Lo que la UI muestra, y por qué
 

@@ -42,27 +42,40 @@
 // lugar y ese lugar se llama".
 //
 // ============================================================================
-// LO QUE HABIA ACA Y YA NO ESTA
+// LO QUE SE FUE Y NO VOLVIO
 // ============================================================================
 // Para que el que vuelva a necesitarlo sepa que existia y de donde salia, y no
-// tenga que buscarlo en un commit. Lo que VOLVIO esta escrito arriba; lo que sigue
-// es lo que todavia no volvio:
+// tenga que buscarlo en un commit.
 //
-//   la recarga              reloadSpec(), con sus TRES guardas —la lista de tipos
-//                           sin anim, WEAPON_RELOAD (0x1000) en m_nFlags, y
-//                           m_nAmmo > 1— y el plazo de GetWeaponReloadTime en
+// CORREGIDO el 04/10/2026: esta lista declaraba AUSENTES cinco cosas que estan en
+// este mismo archivo, y las declaraba ausentes dos veces —una aca y otra en el
+// bloque de arriba, que las daba por DEVUELTAS—. Con las dos listas en el mismo
+// header, la pregunta "¿existe reloadSpec?" tenia dos respuestas y las dos
+// embrace:
+//
+//   la recarga              reloadSpec() y reloadTimeOf() SIGUEN ACA, lineas
+//                           558 y 575. Con sus TRES guardas —la lista de tipos
+//                           sin anim, WEAPON_RELOAD (0x1000) en m_nFlags, y el
+//                           clip > 1— y el plazo de GetWeaponReloadTime en
 //                           0x743D70, verificado contra gta_sa.exe
-//   el reloj del motor      timerNow(), CTimer::m_snTimeInMilliseconds en
-//                           0xB7CB84. Volveria con la animacion de recarga, que
-//                           necesita el plazo del motor y no uno del mod
-//   el final de la recarga  setSlotNextShotTime, unloadSlot
-//   la ficha por (tipo, skill)  weaponInfoAddress(), que la necesita el que lea
-//                           flags de anim: hoy solo se pide la ficha STD y solo
-//                           por GET_WEAPONINFO_TOTAL_CLIP
+//   el reloj del motor      timerNow() SIGUE ACA, linea 314, con
+//                           CTimer::m_snTimeInMilliseconds en 0xB7CB84
+//   el final de la recarga  setSlotNextShotTime() SIGUE ACA, linea 307
+//
+// Y lo que si se fue, y que sigue sin volver:
+//
+//   unloadSlot              no quedo nadie que lo quitara: el modulo no descarga
+//                           slots, el motor lo hace con su propia recarga
+//   la ficha por (tipo, skill)  weaponInfoAddress(), que solo haria falta si
+//                           alguien leyera flags de anim de una skill que no sea
+//                           STD. Hoy se pide la STD y solo, via infoDeTipo()
 //   los modelos propios      requestModel, loadModelsNow, loadSpecialModel,
 //                            hasModelLoaded, isModelAvailableByName,
-//                            writeModelId. El rango 15025..15099 que los
-//                            alimentaba estaba en el Config y se borro con esto
+//                            writeModelId. No los necesita el mod: los modelos
+//                            propios de arma los carga el .asi, con
+//                            AddWeaponModel + RequestSpecialModel. El rango
+//                            15025..15099 que los alimentaba estaba en el Config
+//                            y se borro con esto
 //
 // Los offsets salen de WeaponLimits.h y de una sonda contra el binario, no de un
 // SDK. Cada uno decia de donde venia, y esa es la parte que no se tira.
@@ -88,13 +101,24 @@ export var W_CLIP = 0x8;                  // m_nAmmoInClip: los tiros en el carg
 export var W_AMMO = 0xC;                  // m_nAmmoTotal: el total, clip incluido
 export var W_TIME = 0x10;                 // m_nTimeForNextShot: el reloj de la recarga
 
-// CWeaponInfo. Los offsets salen de WeaponLimits.h y estan verificados contra el
-// binario. De los dos que el mod lee, m_nFlags es el flag WEAPON_RELOAD y m_nAmmo
-// es el TAMANO DEL CARGADOR.
+// CWeaponInfo. De los offsets que el mod lee, m_nFlags es el flag WEAPON_RELOAD y
+// m_nAmmo es el TAMANO DEL CARGADOR.
+//
+// m_nFlags en 0x18 es el unico de los dos con la procedencia DURA, y no por
+// opinion: los bytes de GetWeaponReloadTime en 0x743D70 son `mov eax,[ecx+18h]`,
+// o sea que el propio motor lee m_nFlags en 0x18 sobre ESTA ficha. Ver RELOAD_TIME_FN.
 //
 // m_nAmmo NO es lo que el mod le pone al arma: es la capacidad que escribio el
 // .asi. Por eso la capacidad se LEE (clipCapacityOf) y no se escribe.
 export var INFO_FLAGS = 0x18;             // m_nFlags
+
+// m_nAmmo: el tamaño del cargador, en 0x20.
+//
+// ESTE OFFSET NO ESTA VERIFICADO, y por eso NO es la fuente de la capacidad. La
+// fuente es clipCapacityOf(), que va por el native GET_WEAPONINFO_TOTAL_CLIP
+// sobre la MISMA ficha. Ver "LA DUALIDAD DE LA CAPACIDAD" mas abajo, que explica
+// por que las dos conviven sin que sea un error, y por que esta no puede pasar a
+// ser la autoridad.
 export var INFO_AMMO = 0x20;              // m_nAmmo: el tamaño del cargador
 
 // WEAPON_RELOAD de m_nFlags. Es la forma de saber si el motor tiene anim de
@@ -153,7 +177,7 @@ export var WEAPONSTATE_OUT_OF_AMMO = 3;
 // filas no tenga que saber el nombre.
 var SKILL_STD = 1;
 
-// m_eWeaponFire dentro de CWeaponInfo.
+// m_eWeaponFire dentro de CWeaponInfo. 0x00.
 //
 // MEDIDO: el struct de CWeaponInfo que usa el .asi (limiter.cpp, y el volcado
 // del probe) tiene m_eFireType en 0x00 y m_animGroup en 0x1C.
@@ -166,6 +190,25 @@ var SKILL_STD = 1;
 // no loguea nada.
 //
 // El .cs de "Mantener armas sin balas" lo lee en info + 0 y compara con 1.
+//
+// CERRADO CONTRA EL LOG el 04/10/2026, y era la duda que quedaba: si 0x00 fuese
+// m_nWeaponType, el valor seria el numero del arma y la comparacion con 1 daria
+// falsa en todas, o sea el mismo fallo invisible del 0x1C. NO es asi, y el log lo
+// descarta en una linea. gsis_limiter.txt, en las filas que el .asi imprime al
+// clonar cada tipo:
+//
+//   [63] FUENTE skill 1 <- fila vanilla 22 (STD) = fireType 1 | ...
+//   [60] FUENTE skill 1 <- fila vanilla 23 (STD) = fireType 1 | ...
+//   [60] FUENTE skill 3 <- fila vanilla 70 (SPECIAL) = fireType 0 | ...
+//
+// Si 0x00 fuera el tipo, esas filas dirian 22, 23 y 70. Dicen 1, 1 y 0, que es
+// justo lo que distinguisha un arma de disparo directo de una que no lo tiene. Y
+// el 70 (LAUNCHER, sin anim de disparo) en 0 es el contraejemplo limpio: un
+// m_nWeaponType nunca seria 0.
+//
+// La misma linea confirma ademas el 0x1C, porque 23 tiene animGroup 18 y 22
+// animGroup 13, que son los grupos de animacion conocidos de esa pistola y esa
+// silenciada.
 var INFO_FIRE_TYPE = 0x00;
 
 // Toda lectura de memoria cruda pasa por un try/catch, y TODA escritura tambien.
@@ -507,15 +550,71 @@ export function setCurrentWeapon(char, weaponType) {
 // 0 significa "no se pudo preguntar", y NO "no tiene cargador": la distincion
 // importa porque quien la lee tiene que avisar en un caso y seguir en el otro.
 // Ver modules/weapons/gsis_Weapons.js.
-
+//
+// ============================================================================
+// LA DUALIDAD DE LA CAPACIDAD, Y CUAL DE LAS DOS ES LA REAL
+// ============================================================================
+// Hay dos caminos para preguntarle a una ficha el tamaño del cargador, y durante
+// un tiempo se leyeron como una contradiccion. NO lo son: uno es la autoridad y el
+// otro es una guarda. Decidido el 04/10/2026, con el sistema funcionando.
+//
+//   LA AUTORIDAD   clipCapacityOf() — native GET_WEAPONINFO_TOTAL_CLIP sobre la
+//                  ficha. Es la que usa el resto del mod: el guard de
+//                  modules/weapons/ammo.js, el recorte de la recarga
+//                  (n = Math.min(capNuevo, mag.ammo)) y el `cap` de las filas
+//                  de la UI. El valor que sale de aca es el que ve el jugador.
+//
+//   LA GUARDA      reloadSpec() — readI16(info + INFO_AMMO). No devuelve un
+//                  numero a nadie: solo contesta `> 1`, o sea "esta ficha tiene
+//                  un cargador de mas de un tiro". Es el TERCER chequeo del .cs de
+//                  referencia, y por eso esta copiado tal cual.
+//
+// POR QUE NO ES UNA SEGUNDA FUENTE DE VERDAD
+// ---------------------------------------------------------------------------
+// Las dos reciben EXACTAMENTE la misma ficha: las dos piden GET_WEAPONINFO con la
+// skill STD, y las dos pasan por infoAddress(). No son dosObjetos ni dos vistas
+// del mismo dato: son el mismo objeto, ibo por dos verbs distintos. Por eso no
+// pueden divergir sobre una capacidad distinta, y por eso el invariante de
+// modules/weapons/ammo.js y la guarda de la recarga nunca se contradicen.
+//
+// Y ADEMAS la guarda no PODRIA ser la autoridad, por dos razones que la hacen
+// insustituible como lo que es:
+//
+//   1. Solo devuelve un booleano, no el numero. El `cap` de la UI, el recorte
+//      `Math.min(capNuevo, mag.ammo)` y el "N/cap" de la fila necesitan el numero,
+//      y none lo sacaria de un `<= 1`.
+//   2. INFO_AMMO = 0x20 no esta verificado. La procedencia que se le conoce es
+//      "WeaponLimits.h", que describe la ficha de vanilla, y la ficha que
+//      contesta GET_WEAPONINFO con un tipo 60..79 es la fila propia que escribio el
+//      .asi. Que el campo caiga en el mismo sitio en las dos cosas es lo que hace
+//      que la guarda sea correcta, y no esta medido.
+//
+// O sea: la guarda es correcta por copia de una referencia que se medicionara una
+// vez, y la autoridad es correcta porque es la que usa todo lo demas y sus valores
+// son los que el HUD del juego y la mochila dan.
+//
+// ASI QUE NO SE TOCA, Y ESTO SE ESCRIBE PARA QUE NO SE TOQUE
+// ---------------------------------------------------------------------------
+// La tentacion de borrar la linea 566 —"que sobran dos fuentes"— es lo que NO hay
+// que hacer: dejaria una recarga sin el tercer chequeo del .cs, y ese chequeo
+// tiene un motivo documentado (una arma de un tiro no tiene nada que recargar).
+// Lo que hay que hacer es no promotionarla a autoridad, y es lo que dice el
+// comentario de INFO_AMMO.
+//
+// Y si algun dia INFO_AMMO se verifica contra el volcado que el .asi ya escribe en
+// el log, la guarda se puede quedar como esta. Si se verifica que esta MAL, la
+// linea 566 se borra y no se toca clipCapacityOf: el orden de esos dos cambios es
 // La DIRECCION de la ficha de un tipo (CWeaponInfo*), o 0.
 //
 // Pasa por infoAddress() y no por el HANDLE crudo que devuelve el native, porque
 // el native no siempre da un numero: en unos es number, en otros un objeto con
 // .address, en otros algo que solo responde a valueOf(). Y lo que necesita
-//_memory_ es un numero: un handle, sumarle INFO_FLAGS da "[object Object]24", que
+// _memory_ es un numero: un handle, sumarle INFO_FLAGS da "[object Object]24", que
 // es una direccion invalida, y el 0 que vuelve de una lectura fallida se parece
 // muchisimo a "el arma no tiene anim de recarga".
+//
+// Y es la MISMA ficha que recibe clipCapacityOf(): las dos piden GET_WEAPONINFO
+// con la STD y las dos pasan por aca. Ver "LA DUALIDAD DE LA CAPACIDAD".
 function infoDeTipo(weaponType) {
     if (!weaponType) return 0;
     try {
@@ -525,6 +624,7 @@ function infoDeTipo(weaponType) {
     }
 }
 
+// La capacidad que ve el resto del mod. LA AUTORIDAD. Ver arriba.
 export function clipCapacityOf(weaponType) {
     if (!weaponType) return 0;
     try {
@@ -555,6 +655,17 @@ export function clipCapacityOf(weaponType) {
 // Y una cuarta, que no es una guarda sino la razon de leer la ficha: el PLAZO.
 // GetWeaponReloadTime dice cuantos ms tarda, y sin el no hay animacion: el arma
 // pasa de RECARGANDO a READY en un frame y no se ve nada.
+//
+// LA TERCERA GUARDA NO ES UNA FUENTE DE LA CAPACIDAD, Y NO DEBE CONVERTIRSE EN UNA
+// ---------------------------------------------------------------------------
+// `readI16(info + INFO_AMMO) <= 1` lee el mismo dato que clipCapacityOf() —la
+// ficha es la misma— pero por un offset sin verificar y devolviendo un booleano en
+// vez del numero. Quien necesite el NUMERO de balas, va a clipCapacityOf: este
+// returns no lo tiene y no puede tenerlo.
+//
+// O sea que esto no es una segunda fuente de verdad: es el tercer chequeo del .cs
+// de referencia, que se copio tal cual, y cumple lo que cumple. Ver "LA DUALIDAD
+// DE LA CAPACIDAD" arriba. La linea no se borra.
 export function reloadSpec(weaponType) {
     if (!weaponType) return null;
     if (NO_RELOAD_ANIM.indexOf(weaponType) >= 0) return null;

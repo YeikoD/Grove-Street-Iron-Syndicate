@@ -17,7 +17,7 @@ motor y no en el mod— esta en el proyecto del `.asi`:
 ## Recargar
 
 Se recarga con **R**, y el cargador tiene que estar **equipado**, no en la mochila.
-Hay dos ranuras de cargador (`MISC.CARGADORES_EQUIPADOS = 2`) y se llena con
+Hay dos ranuras de cargador (`WEAPONS.CARGADORES_EQUIPADOS = 2`) y se llena con
 **Equipar cargador** en la fila del cargador de la mochila.
 
 La recarga tiene dos caminos, y cual de los dos es lo decide el jugador:
@@ -113,7 +113,16 @@ Colt .45 desnuda                       tipo 63   8 balas
 ```
 
 Y al revés: **sacar el cargador con la `R`** deja el arma desnuda, y desnuda es la
-capacidad base de la familia. Un `61` con cargador de 15 vuelve a ser el `63`.
+capacidad base de la familia. Un `61` con cargador de 15 vuelve a ser el **`60`**, no
+el `63`: la descarga conserva el silenciador, porque el silenciador está **montado** en
+el arma y el cargador es lo único que sale.
+
+> **CORREGIDO el 04/10/2026.** Este documento decía "un `61` con cargador de 15 vuelve
+> a ser el `63`". Es imposible: el `63` es la variante **pelada**, y una arma con el
+> silenciador puesto no puede caer en la pelada. El código lo hace bien —
+> `tipoDe(familia, clipPelado, silenciadorEnArma(slot))`, con el flag todavía en
+> `true` — y el error estaba solo en el ejemplo. Para ver el `63` hay que quitar el
+> silenciador, no descargar.
 
 ### Por qué NO se pierden balas anymore
 

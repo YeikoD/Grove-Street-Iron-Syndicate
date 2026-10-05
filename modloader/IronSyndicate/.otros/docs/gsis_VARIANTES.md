@@ -36,6 +36,18 @@
 > análisis**: por qué el tipo no se guarda, por qué la capacidad tiene que salir del
 > motor, y por qué un `weaponId` derivado en el save es una bomba. Los
 > `archivo:línea`, los nombres de tabla y los nombres de item **no aplican**.
+>
+> **Corregido el 04/10/2026, y estos tres son los que más confondían:**
+>
+> | en este documento | el valor real | de dónde sale |
+> |---|---|---|
+> | `mag_colt45_extended` (en 9 lugares) | **`mag_colt45_c15`** | `data/gsis_weapons.js:158` |
+> | `suppressor` a `price: 1200` | **`precio: 400`** | `data/gsis_weapons.js:177` |
+> | `price: 220` para el cargador de 15 | **`precio: 250`** | `data/gsis_weapons.js:162` |
+> | `mag_colt45` a `price: 220` | **`precio: 220`** — este sí coincide | `data/gsis_weapons.js:155` |
+>
+> Y las **capacidades** de los cargadores sí están bien: el de 8 es `clipSize: 8` y el
+> de 15 es `clipSize: 15`. Los ids son los que están viejos.
 
 ---
 
@@ -165,6 +177,37 @@ distinto orden serían dos variantes distintas donde la segunda nunca se resuelv
 `.asi` tuvo que clonar.
 
 ## 3. Las 4 configuraciones de la Colt .45
+
+> **⚠ LA TABLA DE ABAJO ESTÁ DESFASADA. La que vale es la del `.dat`.**
+>
+> **Corregido el 04/10/2026.** Esta tabla asigna el **60** al "+cargador 15" y da el
+> **23 de vanilla** al silenciador. **Hoy es al reves**: el 60 es el silenciado —un tipo
+> propio que CLONA del 23 sin pisarlo— y el **62** es el "+cargador 15". La tabla real:
+>
+> | configuración | weaponType | modelo | capacidad | padre | ¿`.asi`? |
+> |---|---|---|---|---|---|
+> | `colt45` pelada | **63** | 346 | 8 | 22 | **sí** |
+> | `colt45` + cargador 15 | **62** | 15065 | 15 | 22 | **sí** |
+> | `colt45` + silenciador | **60** | 347 | 8 | 23 | **sí** |
+> | `colt45` + silenciador + cargador 15 | **61** | 15066 | 15 | 23 | **sí** |
+>
+> Las cuatro son tipo propio. Y son **cuatro**, no dos.
+>
+> Por qué cambió, que es la parte que este documento se equivocó:
+>
+> - El **22 de vanilla trae 17 balas**, no 8. Sin un tipo propio el mod no puede
+>   bajarle el cargador, así que la Colt necesita su 63.
+> - El **23 de vanilla ES UN TIPO VIVO**. Registrarlo en el `.dat` haría que
+>   `HookGetWeaponInfo(23)` devolviera filas propias para la silenciada de todo el
+>   juego, y se vería como los NPC disparando con sonido de pistola normal. Por eso
+>   el silenciado de GSIS es un tipo **nuevo** que clona del 23.
+>
+> La observación de abajo —"un accesorio que no cambia la silueta ni el sonido no
+> cuesta ningún `weaponType`"— **sigue siendo el análisis correcto**, y es la razón por
+> la que el silenciador no debería haber costado un tipo. Pero costó uno igual, por el
+> motivo del punto 2, que es de **colisión con un tipo vivo** y no de diseño.
+
+Lo que sigue es el análisis de la época.
 
 | configuración | weaponType | modelo | capacidad | padre | ¿`.asi`? |
 |---|---|---|---|---|---|
@@ -302,6 +345,59 @@ partir del `weaponType` guardado, así que una partida vieja con `colt45` y tipo
 dejaría el silenciador montado para siempre y no habría forma de sacarlo.
 
 ## 9. Migración de ids
+
+> ## ⚠ ESTA TABLA NO ESTÁ IMPLEMENTADA. LEER ANTES DE USARLA
+>
+> **Corregido el 04/10/2026.** Todo lo que hay debajo describe migraciones que
+> **no existen en `core/gsis_SaveMigration.js`**. Verificado por grep sobre
+> `cleo\IronSyndicate`: los ids `9mm`, `mag_9mm_replica`, `mag_9mm_extended`,
+> `pistol_assembled`, `silenced_9mm`, `mag_silenced_9mm`, `gsis_pistol`,
+> `mag_gsis_pistol`, `mag_colt45_replica`, `mag_mp5_replica`, `mag_ak47_polymer`,
+> `mag_ak47_bulgarian` y `mag_m4_polymer` dan **cero coincidencias** fuera de un
+> comentario.
+>
+> Lo que hay de verdad en `ITEM_RENAMES` (`core/gsis_SaveMigration.js:124-130`) son
+> **cinco** entradas, y ninguna es de la era `9mm`:
+>
+> ```js
+> "colt45_c15":        "colt45",
+> "colt45_silenced":   "colt45",
+> "colt45_c15_silenced": "colt45",
+> "mag_colt45_silenced": "mag_colt45",
+> "mag_colt45_c15_silenced": "mag_colt45_c15"
+> ```
+>
+> Y la tabla `ACCESORIOS_RETIRADOS` que se describe más abajo **tampoco existe**:
+> aparece en un comentario (`:467`) y en este documento, y en ningún otro lugar. El
+> propio `gsis_SaveMigration.js:472-474` dice que `_migrarAttachments()` "se fue con
+> la tabla de armas" y que el recorrido tambien, porque `attachments` solo existia
+> como campo de `GameState.Ballistic.equipped[slot]`, y ese registro ya no lo
+> escribe nadie.
+>
+> ### La consecuencia, y es la parte que importa
+>
+> **Una partida escrita con cualquiera de los dos sistemas borrados conserva ids que
+> el catálogo no reconoce.** Y como dice el propio documento más abajo: "un item con un
+> id que el catálogo no reconoce es un item que el jugador tiene y no puede usar, y en
+> un inventario eso es la peor clase de pérdida porque no se ve".
+>
+> O sea: el peligro del que este párrafo mismo advierte está **activo**, porque la
+> tabla que lo prevendría no se escribió.
+>
+> ### Y una contradicción dentro del propio código
+>
+> `gsis_SaveMigration.js:174` y `:207-208` dicen que el cargador de 15 balas de la
+> Colt tiene el id **`mag_colt45_15`**. El id real es **`mag_colt45_c15`**
+> (`data/gsis_weapons.js:158`), y no hay ningún rename que vaya de uno al otro. O sea
+> que el comentario del código describe un id que el catálogo no tiene.
+>
+> **Lo que hay que hacer si se quiere recuperar una partida vieja:** escribir los
+> renombres en `ITEM_RENAMES` y, si hay accesorios en juego, el recorrido de
+> `ACCESORIOS_RETIRADOS`. Y hay que hacerlo con el `SAVE_FORMAT_VERSION` que toque,
+> porque hoy es **3** (`SAVE_FORMAT_VERSION = 3`, `core/gsis_SaveMigration.js:267`).
+
+Lo que sigue es el **análisis** de por qué la migración debería existir y con qué
+reglas. Es correcto como análisis y **no describe el código**.
 
 `core/gsis_SaveMigration.js` corre dentro de `loadGame`, después de parsear el
 JSON y **antes** de que `GameState` reciba nada.

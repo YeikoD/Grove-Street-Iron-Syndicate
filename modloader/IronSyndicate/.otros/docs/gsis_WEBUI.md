@@ -870,9 +870,9 @@ Los del mod (`.dat`, migracion de saves, flujo de armas) viven en
 | `check_pantallas.mjs` | temp | El contrato de los comandos en los dos sentidos, los ids de flujo, las claves de fila que la página lee y el mod escribe, y que toda clase que la página pone exista en el CSS |
 | `check_imports.mjs` | temp | Imports que apuntan a algo que ya no existe, imports sin usar, ciclos entre módulos y claves de `t()` que no están en `gsis_lang_data.js` |
 | `check_icons.mjs` | temp | Que todo id de `WEB_ICONS` exista en `ITEMS`, que todo PNG referenciado esté en `image\` y que los `magazine` de `ITEMS` sean exactamente los `magId` de `WEAPON_DATA` |
-| `check-ui-flow.mjs` | `.IronSyndicate\tools\` | Las 4 configuraciones de un arma **desde el flujo real** (página → `commands.js` → `weapons/logic.js` → bus → motor), con `fake-engine.mjs` en lugar de GTA. Y que `weapons/` e `inventory/` no se importen |
-| `check-dat.mjs` | `.IronSyndicate\tools\` | Que la tabla de armas, el `.dat` y el `.asi` digan lo mismo |
-| `check-migration.mjs` | `.IronSyndicate\tools\` | Que los migradores del save sigan funcionando sobre saves de cada version |
+| `check-ui-flow.mjs` | **NO EXISTE** | Las 4 configuraciones de un arma **desde el flujo real** (página → `commands.js` → `weapons/logic.js` → bus → motor), con `fake-engine.mjs` en lugar de GTA. Y que `weapons/` e `inventory/` no se importen. Lo reemplazó `inventario.mjs`, que **tampoco corre** (mismo `fake-engine.mjs` faltante) |
+| `check-dat.mjs` | `.IronSyndicate\tools\` | Que la tabla de armas, el `.dat` y el `.asi` digan lo mismo. **El único que corre** |
+| `check-migration.mjs` | **NO EXISTE** | Que los migradores del save sigan funcionando sobre saves de cada version |
 
 ```powershell
 # Los del temp, en cualquier orden. Salida 0 = todo ok.
@@ -882,12 +882,17 @@ node check_pantallas.mjs
 node check_imports.mjs
 node check_icons.mjs
 
-# Los del repo
+# Los del repo. Solo el primero existe y corre.
 cd <gta>\.IronSyndicate
 node tools\check-dat.mjs
-node tools\check-migration.mjs
-node tools\check-ui-flow.mjs
+# node tools\check-migration.mjs   <- no existe
+# node tools\check-ui-flow.mjs     <- no existe
 ```
+
+> **CORREGIDO el 04/10/2026.** Los tres comandos "del repo" estaban los tres rotos:
+> dos archivos no existen y el tercero es el unico que anda. Los checks del temp
+> tampoco son de fiar —los mismos que el bloque de abajo describe como atrasados—,
+> asi que hoy la verificacion ejecutable del repo entero es `check-dat.mjs`.
 
 > **Los checks del temp quedaron atrasados y hay que saber leer su salida.**
 > `check_pantallas.mjs` tira `ENOENT` sobre `modules\gsis_WebInterface.js`, que ya
